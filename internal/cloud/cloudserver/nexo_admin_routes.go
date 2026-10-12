@@ -10,7 +10,9 @@ package cloudserver
 // Control de acceso igual que /admin/* de Engram: withAuth (401 sin token o
 // con token inválido) + requireManagedAdmin (403 si no es un usuario con rol
 // admin autenticado con token asignado; también para el token compartido y
-// para el modo sin autenticación) (RF-30).
+// para el modo sin autenticación) (RF-30). Con NX-05, requireManagedAdmin
+// exige platform.audit.read en estas rutas: también entra el auditor
+// (nexo_authz_bridge.go).
 //
 // Cada consulta exitosa se registra en cloud_auth_audit_log como
 // nexo.<recurso>.read, con el admin como actor, los filtros usados y la
@@ -75,6 +77,9 @@ func (s *CloudServer) registerNexoAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /nexo/admin/activity", s.withAuth(s.handleNexoAdminActivity))
 	mux.HandleFunc("GET /nexo/admin/presence", s.withAuth(s.handleNexoAdminPresence))
 	mux.HandleFunc("GET /nexo/admin/history/{entityKey}", s.withAuth(s.handleNexoAdminHistory))
+	// NX-05: eventos de roles (también en /nexo/authz/v1/events) y API de roles.
+	mux.HandleFunc("GET /nexo/admin/authz-events", s.withAuth(s.handleNexoAuthzEvents))
+	s.registerNexoAuthzRoutes(mux)
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────

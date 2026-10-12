@@ -145,6 +145,9 @@ func (s *CloudServer) handleDashboardCreateManagedUser(w http.ResponseWriter, r 
 	if role == "" {
 		role = string(cloudauth.RoleMember)
 	}
+	if !s.nexoAllowCreateUserRole(w, r, role, nexoRespondText) { // NX-05: solo un superadmin crea admins (R-7)
+		return
+	}
 	user, err := store.CreateHumanUser(r.Context(), cloudstore.CreateHumanUserParams{
 		Username:    username,
 		Email:       r.FormValue("email"),
@@ -184,6 +187,9 @@ func (s *CloudServer) handleDashboardSetManagedUserEnabled(w http.ResponseWriter
 	principalID := strings.TrimSpace(r.PathValue("principalID"))
 	if principalID == "" {
 		http.Error(w, "principal id is required", http.StatusBadRequest)
+		return
+	}
+	if !s.nexoAllowSetUserEnabled(w, r, principalID, enabled, nexoRespondText) { // NX-05: R-7 y R-8
 		return
 	}
 	if err := store.SetHumanUserEnabled(r.Context(), principalID, enabled); err != nil {
@@ -279,6 +285,9 @@ func (s *CloudServer) handleDashboardCreateManagedToken(w http.ResponseWriter, r
 	// unknown/stale principalID silently mint and persist a real token
 	// against a principal that does not exist, then render a blank-username
 	// show-once page for it.
+	if !s.nexoAllowManageTargetTokens(w, r, principalID, nexoRespondText) { // NX-05: tokens de admins solo por superadmin (R-7)
+		return
+	}
 	user, found, err := findManagedUserByPrincipalID(r.Context(), store, principalID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("list users: %v", err), http.StatusInternalServerError)
@@ -370,6 +379,9 @@ func (s *CloudServer) handleDashboardRevokeManagedToken(w http.ResponseWriter, r
 	}
 	reason := strings.TrimSpace(r.FormValue("reason"))
 	principalID := strings.TrimSpace(r.FormValue("principal_id"))
+	if !s.nexoAllowRevokeToken(w, r, tokenID, nexoRespondText) { // NX-05: tokens de admins solo por superadmin (R-7)
+		return
+	}
 	if err := store.RevokePrincipalToken(r.Context(), tokenID, actor.ID, reason); err != nil {
 		http.Error(w, fmt.Sprintf("revoke token: %v", err), http.StatusBadRequest)
 		return

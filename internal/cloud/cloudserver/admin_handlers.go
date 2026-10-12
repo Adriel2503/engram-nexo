@@ -109,6 +109,9 @@ func (s *CloudServer) handleAdminCreateUser(w http.ResponseWriter, r *http.Reque
 	if role == "" {
 		role = string(cloudauth.RoleMember)
 	}
+	if !s.nexoAllowCreateUserRole(w, r, role, nexoRespondJSON) { // NX-05: solo un superadmin crea admins (R-7)
+		return
+	}
 	user, err := store.CreateHumanUser(r.Context(), cloudstore.CreateHumanUserParams{Username: req.Username, Email: req.Email, DisplayName: req.DisplayName, Role: role})
 	if err != nil {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, fmt.Sprintf("create user: %v", err))
@@ -141,6 +144,9 @@ func (s *CloudServer) handleAdminSetUserEnabled(w http.ResponseWriter, r *http.R
 	principalID := strings.TrimSpace(r.PathValue("principalID"))
 	if principalID == "" {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, "principal id is required")
+		return
+	}
+	if !s.nexoAllowSetUserEnabled(w, r, principalID, enabled, nexoRespondJSON) { // NX-05: R-7 y R-8
 		return
 	}
 	if err := store.SetHumanUserEnabled(r.Context(), principalID, enabled); err != nil {
@@ -196,6 +202,9 @@ func (s *CloudServer) handleAdminCreateToken(w http.ResponseWriter, r *http.Requ
 	var req createAdminTokenRequest
 	if err := decodeJSONBody(r, &req); err != nil {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, fmt.Sprintf("invalid token payload: %v", err))
+		return
+	}
+	if !s.nexoAllowManageTargetTokens(w, r, principalID, nexoRespondJSON) { // NX-05: tokens de admins solo por superadmin (R-7)
 		return
 	}
 	if user, found, err := findManagedUserByPrincipalID(r.Context(), store, principalID); err != nil {
@@ -275,6 +284,9 @@ func (s *CloudServer) handleAdminRevokeToken(w http.ResponseWriter, r *http.Requ
 	var req revokeAdminTokenRequest
 	if err := decodeJSONBody(r, &req); err != nil {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, fmt.Sprintf("invalid revoke payload: %v", err))
+		return
+	}
+	if !s.nexoAllowRevokeToken(w, r, tokenID, nexoRespondJSON) { // NX-05: tokens de admins solo por superadmin (R-7)
 		return
 	}
 	if err := store.RevokePrincipalToken(r.Context(), tokenID, actor.ID, req.Reason); err != nil {
@@ -372,6 +384,9 @@ func (s *CloudServer) handleAdminRevokeGrant(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *CloudServer) requireManagedAdmin(w http.ResponseWriter, r *http.Request) (cloudauth.Principal, bool) {
+	if principal, ok, handled := s.nexoRequireAdminCapability(w, r); handled { // NX-05: capacidad de plataforma por ruta (admite auditor)
+		return principal, ok
+	}
 	principal, ok := PrincipalFromContext(r.Context())
 	if !ok || !isManagedAdminPrincipal(principal) {
 		writeActionableError(w, http.StatusForbidden, constants.UpgradeErrorClassPolicy, constants.ReasonPolicyForbidden, "forbidden: managed admin principal is required")

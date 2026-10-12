@@ -1,6 +1,6 @@
 package cloudstore
 
-// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03).
+// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05).
 //
 // Reglas: solo aditivas e idempotentes (ADD COLUMN IF NOT EXISTS,
 // CREATE ... IF NOT EXISTS, CREATE OR REPLACE). Nada se renombra ni se borra.
@@ -10,8 +10,21 @@ package cloudstore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 )
+
+// NexoDB expone la conexión a los módulos Nexo que tienen su propio
+// almacenamiento (NX-05: internal/nexo/authz). Se detecta por type assertion
+// desde cloudserver, sin ampliar las interfaces de Engram.
+func (cs *CloudStore) NexoDB() *sql.DB {
+	if cs == nil {
+		return nil
+	}
+	return cs.db
+}
 
 // nexoMigrationLockKey es una llave fija para pg_advisory_xact_lock.
 const nexoMigrationLockKey int64 = 0x4e45584f // "NEXO"
@@ -158,6 +171,11 @@ func (cs *CloudStore) nexoMigrate(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 		}
+	}
+	// NX-05: roles (nexo_scopes, nexo_role_bindings, nexo_authz_events,
+	// triggers y arranque del superadmin), en la misma transacción.
+	if err := authz.Migrate(ctx, tx); err != nil {
+		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("cloudstore: nexo migrate commit: %w", err)

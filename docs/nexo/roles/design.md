@@ -195,3 +195,88 @@ Errores y paginación como NX-03. Cada escritura genera un evento; cada denegaci
 | HTTP | `/nexo/authz/v1` y las rutas de Engram con enganche: CA-R01..CA-R10 |
 | Sincronización | Lector descarga y no sube; proponente sube; cliente oficial 3.3.2 sin cambios (CA-R11) |
 | Rendimiento | RNF-R1 con 100 000 asignaciones |
+
+## 10. Desviaciones de implementación (etapa R1)
+
+Implementado en la rama `feat/roles-plataforma` (R1-01 a R1-06). Lo que difiere de las secciones
+anteriores o las precisa:
+
+1. **Paquete y archivos.** `internal/nexo/authz`: `roles.go` (tipos, tablas, herencia, alcance de
+   token), `identity.go` (`Identity`, `Decision`, `ScopeRole`, identidad y caché en el contexto),
+   `engine.go` (`Engine`: `EffectiveRole`, `Can`, `VisibleScopes`, `Require`), `pgstore.go`
+   (Postgres: una consulta por decisión, listados y eventos), `service.go` (casos de uso con las
+   reglas), `migrate.go`, `events.go`. El motor depende de una interfaz `Store`; la matriz se prueba
+   con un store en memoria y el resto contra Postgres.
+2. **`Identity`.** Agrega `Label` (copia del nombre para eventos) y `Enabled`. `Managed()` exige
+   token administrado (`Verified`), tipo `human` o `service_account` e id numérico; si no, la
+   identidad no tiene roles (R-15) y `Can` responde `unmanaged_identity` sin consultar la base,
+   también en proyectos. La etapa R2 decide en el enganche de sincronización que, para esas
+   identidades, rige Engram (no llama a `Can`).
+3. **Normalización de proyectos.** `authz` no importa `cloudstore`: la normalización de
+   `cloud_project_grants` se inyecta con `WithProjectNormalizer(cloudstore.NormalizeProjectGrant)`.
+   Espacios: slug `^[a-z0-9][a-z0-9-]{1,62}$`. Clave inválida = ámbito oculto (404).
+4. **Ámbito archivado.** `Can` solo admite `*.audit.read`; el resto responde `archived` (403) a
+   quien tiene rol explícito, y el rol implícito deja de aplicar (oculto, 404). `VisibleScopes`
+   excluye archivados. Se agregó la acción de evento `scope.restored`.
+5. **Arranque del superadmin.** Además de la migración (design §6.3), se resuelve en caliente: si no
+   hay ningún superadmin habilitado, el admin humano habilitado de Engram de menor id sin fila de
+   plataforma (función SQL `nexo_authz_bootstrap_candidate()`) recibe `superadmin` en su primera
+   petición y queda persistido con evento `binding.granted` de actor `sistema`. Así
+   `engram cloud bootstrap admin` después de arrancar el servidor cumple RF-01 sin reiniciar.
+   Consecuencia: si todos los superadmins quedaran deshabilitados por SQL directo, el admin de
+   menor id pasa a superadmin (recuperación).
+6. **Cuentas de servicio en plataforma.** Una cuenta de servicio es siempre miembro de plataforma
+   aunque su rol de Engram sea `admin` (R-10, fallar cerrado).
+7. **Rol de Engram en sintonía.** `PUT/DELETE /platform/members` actualiza también
+   `cloud_principals.role` (superadmin y admin = `admin`; auditor y miembro = `member`). Sin esto,
+   quitar el rol a un admin de Engram lo devolvería a admin por compatibilidad (requisitos §9).
+8. **R-8 en la base.** Además de la regla en el servicio, dos triggers rechazan dejar a la plataforma
+   sin superadmin habilitado por cualquier vía (API Nexo, `/admin/*`, panel, CLI o SQL):
+   `nexo_role_bindings_guard` (quitar o degradar la asignación) y `nexo_authz_guard_principal`
+   (`UPDATE OF enabled, role` y `DELETE` en `cloud_principals`). Ambos toman el advisory lock
+   `nexo_authz_superadmin_guard`. El servicio bloquea primero la fila del principal y después ese
+   lock (mismo orden que los triggers) para no cruzarse con la guarda de Engram.
+9. **Trigger de combinaciones.** `nexo_role_bindings_validate` valida rol/nivel y también R-10
+   (cuenta de servicio sin rol de plataforma ni `responsable`). La PK de `nexo_role_bindings`
+   empieza por `principal_id` y cubre el índice `(principal_id)` del §2.2.
+10. **Reglas de escritura.** R-1 por la PK y `ON CONFLICT DO UPDATE` (repetir el mismo rol no genera
+    evento). R-9 se serializa con `SELECT ... FOR UPDATE` sobre la fila del ámbito y cuenta solo
+    responsables habilitados; quitar a un responsable deshabilitado está permitido. R-11 se aplica
+    también al nombrar responsable al crear o recuperar un ámbito: un admin o superadmin no se
+    nombra a sí mismo (coherente con R-6 y D-7). Asignar miembros exige que el ámbito exista en
+    `nexo_scopes` (un proyecto de Engram se configura primero con `POST /scopes`).
+11. **Enganches extra en Engram (R-7).** Emitir o revocar tokens de otro admin, superadmin o auditor
+    exige `platform.admins.manage` (`/admin/*` y panel): con un token ajeno un admin podría actuar
+    como un superadmin. Los tokens propios no cambian. Habilitar o deshabilitar a un admin,
+    superadmin o auditor exige `platform.admins.manage` aunque sea uno mismo.
+12. **Capacidad por ruta en `requireManagedAdmin`.** El enganche usa `r.Pattern`:
+    `GET /admin/users` y `GET .../grants` = `platform.directory.read`; usuarios y permisos de
+    proyecto = `platform.users.manage`; tokens = `platform.tokens.manage`; `/nexo/admin/*` =
+    `platform.audit.read`. Una ruta administrativa sin entrada exige `platform.users.manage`.
+    Las denegaciones generan `authz.denied` con la ruta en `details`.
+13. **Sin almacén Nexo, comportamiento de Engram.** Si el almacén no es `CloudStore` (fakes de los
+    tests de Engram o un servidor embebido), los enganches no intervienen y la API de roles responde
+    500. En producción el almacén siempre es `CloudStore`. Con almacén, un error al resolver roles
+    rechaza la petición (500).
+14. **Errores HTTP.** 400 `invalid_request`, 403 `policy_forbidden` (incluye `self_promotion` con
+    su propio código), 404 `not_found` (ámbito oculto o inexistente, principal inexistente),
+    409 `last_superadmin`, `last_owner`, `scope_exists`, `scope_has_owner`, `principal_disabled`,
+    422 `service_account_role`. Un `{principal}` acepta id o nombre de usuario. Las acciones
+    `:archive`, `:restore` y `:recover` se atienden con un comodín de segmento (el mux de Go no
+    admite sufijos fijos).
+15. **Eventos.** `GET /nexo/authz/v1/events` y `GET /nexo/admin/authz-events` son la misma consulta
+    (filtros `scope_type`, `scope_key`, `action` exacta o con `*`, `principal` como actor u objetivo
+    por id o usuario, `from`, `to`, `cursor`, `limit`). Como en NX-03, cada lectura se registra en
+    `cloud_auth_audit_log` (`nexo.authz_events.read`) y si no se puede registrar no se entregan datos.
+    `actor_token_id` es `BIGINT`; actor `no-identificado` para identidades no administradas.
+16. **Rendimiento (RNF-R1).** Medido con 2 000 personas, 5 000 ámbitos y 100 000 asignaciones
+    (Postgres 16 en Docker Desktop, `TestPGAuthorizationCostWith100kBindings`): `Can` mediana
+    aproximada de 1,1 ms y p95 de 1,8 ms (un viaje a la base); `VisibleScopes` mediana de 1,7 ms.
+    Sin caché entre peticiones (los cambios de rol rigen en la siguiente); caché por petición con
+    `authz.WithRequestCache`.
+17. **Pendiente para etapas siguientes.** R2: `project.read`/`project.write.own` en sincronización y
+    `VisibleScopes` en descargas. R3: R-12 (`project.write.any` por autor). R4/NX-06: alcance del
+    token; hoy `TokenScope` vale siempre `""` (write) y CA-R08 se prueba a nivel de motor y servicio.
+    Un admin todavía puede darse a sí mismo un permiso de proyecto de Engram (`/admin/.../grants`),
+    que equivale a publicador por compatibilidad: se cierra en R2 junto con las rutas de proyectos.
+    El panel no muestra pantallas para el auditor (solo la API).
