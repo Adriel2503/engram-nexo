@@ -32,6 +32,11 @@ prueba E2E en `06-pruebas/seguridad` del repositorio de Nexo.
 | S2-03 | Sin auto-asignación en `/admin/*`, panel y API Nexo | CA-S06 |
 | S2-04 | Redes permitidas para administración de plataforma | CA-S07 |
 
+Estado S2 (2026-10-12): S2-01..S2-04 implementadas en `feat/seguridad`, pendientes de revisión y
+commit. Desviaciones en `design.md` §8.2 (D-S2-1..D-S2-7), variables en `guia-despliegue.md` §6,
+pruebas: `internal/nexo/security/*_test.go`, `authz/network_test.go`,
+`cloudserver/nexo_security_test.go` y E2E `06-pruebas/seguridad` (CA-S04..CA-S07).
+
 ## Fase S3. Tokens, NX-06 (1,5 días)
 
 | ID | Tarea | Criterios |
@@ -40,6 +45,12 @@ prueba E2E en `06-pruebas/seguridad` del repositorio de Nexo.
 | S3-02 | Alcance `read` en rutas de escritura de Engram y en `authz` | CA-S08 |
 | S3-03 | Emisión con caducidad y alcance en `/admin/*`, panel, `/nexo/authz/v1` y bootstrap | RS-20, RS-24 |
 | S3-04 | Ajustar la prueba E2E de trazabilidad a tokens con caducidad | CA-S15 |
+
+Estado S3 (2026-10-12): S3-01..S3-04 implementadas en `feat/seguridad`, pendientes de revisión y
+commit. Cubre la etapa R4 de roles (NX-06). Desviaciones en `design.md` §8.2 (D-S3-1..D-S3-7).
+E2E: `06-pruebas/seguridad/Run-Seguridad.ps1` (CA-S08 con el cliente oficial 3.3.2 y la imagen
+`nexo-engram-cloud:3.3.2-nexo.2-dev`; los tokens de las fases nuevas se emiten con caducidad y los
+anteriores a NX-07 siguen funcionando sin ella, RS-23).
 
 ## Fase S4. Evidencia y monitoreo (3 días)
 

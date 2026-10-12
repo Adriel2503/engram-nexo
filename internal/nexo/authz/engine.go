@@ -69,6 +69,7 @@ type Engine struct {
 	store     Store
 	normalize func(string) string
 	now       func() time.Time
+	network   NetworkPolicy // NX-07 (RS-13)
 }
 
 // Option configura el motor.
@@ -262,7 +263,12 @@ func (e *Engine) Can(ctx context.Context, id Identity, s Scope, c Capability) (D
 	if err != nil {
 		return Decision{Reason: ReasonError}, err // principio 5: fallar cerrado
 	}
-	return decide(ns.Type, r, id.TokenScope, c), nil
+	d := decide(ns.Type, r, id.TokenScope, c)
+	// NX-07 (RS-13): administración de plataforma solo desde redes permitidas.
+	if d.Allowed && e.network.Restricts(c) && !e.network.Allows(id.ClientIP) {
+		return Decision{Role: d.Role, Reason: ReasonNetwork}, nil
+	}
+	return d, nil
 }
 
 // decide es la parte pura de Can (probada con la matriz completa).

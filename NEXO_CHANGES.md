@@ -124,43 +124,89 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `cloudstore/nexo_migrations.go` (trigger de inmutabilidad sin bypass; llama a `security.MigrateRetention`), `cloudstore/nexo_activity.go` (`PurgeActivityOlderThan` usa la función), `cloudserver/nexo_activity.go` (`NEXO_ACTIVITY_RETENTION_DAYS` mínimo 30), `internal/nexo/authz/events.go` (acción `retention.purged`).
 
+### NX-07 · Endurecimiento de seguridad, fases S2 (abuso y escalada) y S3 (tokens, NX-06)
+
+**Especificación.** `docs/nexo/seguridad/` (`requirements.md` RS-10..RS-13 y RS-20..RS-24, `design.md` §3 y §4 con desviaciones en §8.2, `tasks.md` S2-01..S2-04 y S3-01..S3-04, `guia-despliegue.md` §6). Cubre la etapa R4 de roles.
+
+**Motivo.** Sin límite de peticiones ni bloqueo por fallos, la API admitía fuerza bruta y abuso; un admin podía darse a sí mismo un permiso de proyecto de Engram (equivale a publicador); la administración de plataforma no tenía restricción por red; los tokens no vencían ni tenían alcance.
+
+**Qué hace.**
+- **Límite de peticiones** (S2-01): token bucket en memoria por IP (después de resolver la IP real de NX-04) y por token (después de autenticar), por grupo de rutas (`sync`, `admin`, `login`, `nexo`, `other`); 429 con `Retry-After` y `error_code: rate_limited`; un evento `nexo.rate_limited` por minuto y clave en `cloud_auth_audit_log`. Claves inactivas expiran solas; memoria acotada. `NEXO_RATE_LIMITS` (JSON u `off`).
+- **Bloqueo por fallos** (S2-02): por IP (token desconocido o mal formado, login del panel) y por persona (token revocado, persona deshabilitada); 20 en 5 min bloquean 15 min con 429 `auth_locked` genérico y un evento `auth.lockout`. Un token vencido no suma (autosync detrás de NAT); queda auditado. `NEXO_AUTH_LOCKOUT`.
+- **Sin auto-asignación** (S2-03): `/admin/*` y panel rechazan darse un permiso de proyecto a uno mismo (403 `self_grant_forbidden`, evento `authz.denied`) y exigen `platform.users.manage`; la API Nexo ya lo impedía (R-11, `self_promotion`).
+- **Redes de superadmin** (S2-04): `authz.Can` niega `platform.admins.manage` y `platform.settings` fuera de `NEXO_SUPERADMIN_ALLOWED_CIDRS` (`reason=network`, auditado); vacía = sin restricción con aviso al iniciar.
+- **Tokens** (S3): columnas `nexo_expires_at` y `nexo_scope`; la consulta que resuelve el token rechaza uno vencido (401 `token_expired`, auditado) y deja su alcance en `Identity.TokenScope`; un token `read` no sube cambios (`/sync/push`, `/sync/mutations/push`: 403) ni administra; las sesiones del panel caen si su token se revoca o vence. Emisión con `expires_in_days` (90 por defecto, máximo `NEXO_TOKEN_MAX_DAYS`) y `scope` en `/admin/*`, panel, `POST /nexo/authz/v1/tokens` y bootstrap por CLI; "sin caducidad" solo cuentas de servicio y solo superadmin (también lo exige un trigger). `/me`, `/admin/users/{id}/tokens`, `GET /nexo/authz/v1/tokens` y el panel muestran caducidad, alcance y último uso. Los tokens anteriores quedan sin caducidad y siguen funcionando.
+
+**Archivos nuevos.**
+- `internal/nexo/security/ratelimit.go` — grupos, configuración, `Limiter` (token bucket fragmentado), `RejectionLog` (resumen por minuto y clave).
+- `internal/nexo/security/lockout.go` — configuración, `Lockout`, clasificación de motivos.
+- `internal/nexo/security/network.go` — `NEXO_SUPERADMIN_ALLOWED_CIDRS`.
+- `internal/nexo/security/tokens.go` — `ErrTokenExpired`, datos del token en el contexto, emisión (`ResolveIssue`, `ApplyTokenIssue`), `MigrateTokens`, `LoadTokenFacts`, `LoadTokenInfo`.
+- `internal/nexo/authz/network.go` — `NetworkPolicy`, `WithNetworkPolicy`.
+- `internal/cloud/cloudserver/nexo_security.go` — middleware, 429, eventos, bloqueo, alcance `read`, sin auto-asignación, política de red.
+- `internal/cloud/cloudserver/nexo_tokens.go` — emisión con caducidad y alcance, revalidación de sesiones del panel, `/nexo/authz/v1/tokens`, `/me` con datos del token.
+- `internal/cloud/cloudstore/nexo_tokens.go` — `nexoCheckResolvedToken`, `nexoApplyTokenIssue`, `nexoFillTokenFacts`.
+- `internal/cloud/dashboard/nexo_tokens.go` — caducidad, alcance y estado del token en el panel.
+- Tests: `internal/nexo/security/ratelimit_test.go`, `lockout_test.go` (unidad, concurrencia con `-race`, sobrecosto), `internal/nexo/authz/network_test.go`, `cloudstore/nexo_tokens_test.go` (Postgres), `cloudserver/nexo_security_test.go` (HTTP con Postgres y resolución real de tokens: CA-S04..CA-S08, RNF-S1).
+
+**Archivos Nexo modificados.** `internal/nexo/authz/engine.go` y `identity.go` (política de red, `ReasonNetwork`), `cloudserver/nexo_authz_bridge.go` (política de red y `TokenScope`), `cloudserver/nexo_authz_routes.go` (`/me` con token y rutas de tokens), `cloudserver/nexo_clientctx.go` (comentario), `cloudstore/nexo_migrations.go` (llama a `security.MigrateTokens`).
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-0"` (fuera de `docs/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
 
 | Archivo:línea | Marca | Propósito |
 |---|---|---|
-| `internal/cloud/cloudserver/cloudserver.go:219` | NX-02 | `s.nexoStartActivityRetention()` en `Start()`: depuración del registro al iniciar y cada 24 h |
-| `internal/cloud/cloudserver/cloudserver.go:227` | NX-04 | `Handler()` devuelve `nexoHandler(s.mux)`: middleware de IP y User-Agent para todas las rutas |
-| `internal/cloud/cloudserver/cloudserver.go:301-303` | NX-04 | Campo `NexoValidateLoginTokenRequest` en `dashboard.MountConfig` (bloque de 3 líneas): el login del panel se valida con el contexto de la petición |
-| `internal/cloud/cloudserver/cloudserver.go:341` | NX-03 | `s.registerNexoAdminRoutes(s.mux)`: registra `/nexo/admin/*` |
-| `internal/cloud/cloudserver/cloudserver.go:615` | NX-02 | `handlePullManifest`: actualiza la presencia (sin fila de detalle) |
-| `internal/cloud/cloudserver/cloudserver.go:641` | NX-02 | `handlePullChunk`: registra `pull_chunk` |
-| `internal/cloud/cloudserver/cloudserver.go:813-815` | NX-01 | `handlePushChunk`: comentario marcado + `nexoActor := nexoResolveActor(...)` + `WriteChunk` recibe el actor por contexto y `nexoActor.Name` como `created_by` (antes `req.CreatedBy`) |
-| `internal/cloud/cloudserver/cloudserver.go:823` | NX-02 | `handlePushChunk`: registra `push_chunk` con lo declarado por la PC |
+| `internal/cloud/cloudserver/cloudserver.go:19` | NX-07 | Import de `internal/nexo/security` |
+| `internal/cloud/cloudserver/cloudserver.go:89` | NX-07 | Campo `nexo nexoState` en `CloudServer`: límites y bloqueo en memoria (uno por servidor) |
+| `internal/cloud/cloudserver/cloudserver.go:221` | NX-02 | `s.nexoStartActivityRetention()` en `Start()`: depuración del registro al iniciar y cada 24 h |
+| `internal/cloud/cloudserver/cloudserver.go:229` | NX-04 / NX-07 | `Handler()` devuelve `s.nexoHandler(s.mux)`: middleware de IP y User-Agent (NX-04) y límite de peticiones por IP (NX-07) |
+| `internal/cloud/cloudserver/cloudserver.go:303-305` | NX-04 / NX-07 | Campo `NexoValidateLoginTokenRequest` en `dashboard.MountConfig` (bloque de 3 líneas): el login del panel se valida con el contexto de la petición; desde NX-07 llama a `s.nexoValidateDashboardLogin` (bloqueo por fallos) |
+| `internal/cloud/cloudserver/cloudserver.go:343` | NX-03 | `s.registerNexoAdminRoutes(s.mux)`: registra `/nexo/admin/*` |
+| `internal/cloud/cloudserver/cloudserver.go:404-406` | NX-07 | `authenticateRequest`: `nexoAuthPrecheck` (IP bloqueada: 429 sin resolver el token) |
+| `internal/cloud/cloudserver/cloudserver.go:420` | NX-07 | `authenticateRequest`: el retorno pasa por `nexoAfterAuth` (persona bloqueada, límite por token, token `read` en rutas de subida) |
+| `internal/cloud/cloudserver/cloudserver.go:455-456` | NX-07 | `requestAuthDenyReason`: `security.ErrTokenExpired` → `token_expired` |
+| `internal/cloud/cloudserver/cloudserver.go:468` | NX-07 | `recordRequestAuthDeniedAudit`: `nexoNoteAuthFailure` (contador de fallos por IP o persona) |
+| `internal/cloud/cloudserver/cloudserver.go:623` | NX-02 | `handlePullManifest`: actualiza la presencia (sin fila de detalle) |
+| `internal/cloud/cloudserver/cloudserver.go:649` | NX-02 | `handlePullChunk`: registra `pull_chunk` |
+| `internal/cloud/cloudserver/cloudserver.go:821-823` | NX-01 | `handlePushChunk`: comentario marcado + `nexoActor := nexoResolveActor(...)` + `WriteChunk` recibe el actor por contexto y `nexoActor.Name` como `created_by` (antes `req.CreatedBy`) |
+| `internal/cloud/cloudserver/cloudserver.go:831` | NX-02 | `handlePushChunk`: registra `push_chunk` con lo declarado por la PC |
 | `internal/cloud/cloudserver/mutations.go:205-207` | NX-01 | `handleMutationPush`: comentario marcado + `nexoActor := nexoResolveActor(...)` + `createdBy := nexoActor.Name` (antes `mutationPushCreatedBy`, que se conserva sin uso) |
 | `internal/cloud/cloudserver/mutations.go:248` | NX-01 | `InsertMutationBatch` recibe el actor por contexto |
 | `internal/cloud/cloudserver/mutations.go:261` | NX-02 | `handleMutationPush`: registra `push_mutations` |
 | `internal/cloud/cloudserver/mutations.go:475` | NX-02 | `handleMutationPull`: registra `pull_mutations` (detalle solo si devuelve cambios) |
 | `internal/cloud/cloudserver/dashboard_session.go:124` | NX-04 | `validateDashboardLoginToken` delega en la variante con contexto (`context.Background()`, misma semántica) |
 | `internal/cloud/cloudserver/dashboard_session.go:127-129` | NX-04 | Nueva firma `validateDashboardLoginTokenContext(ctx, token)`: el cuerpo es el original de Engram; solo se quitó su `ctx := context.Background()` (ahora es parámetro) |
+| `internal/cloud/cloudserver/dashboard_session.go:370-372` | NX-07 | `revalidateDashboardPrincipal`: `nexoRevalidateSessionToken` (la sesión del panel cae si su token se revoca o vence; alcance del token en el contexto) |
 | `internal/cloud/cloudstore/cloudstore.go:262-264` | NX-01 | `WriteChunk`: `nexoApplyMutationActor(ctx, tx)` dentro de la transacción (bloque `if err` de 3 líneas) |
 | `internal/cloud/cloudstore/cloudstore.go:51` | NX-07 | `New`: `store.nexoMigrateOnStartup(...)` en lugar de `store.migrate(...)` (misma línea): con `NEXO_MIGRATION_DATABASE_URL` migra con la cuenta dueña, aplica privilegios y verifica la cuenta de aplicación; sin ella, `migrate` como antes con aviso |
 | `internal/cloud/cloudstore/cloudstore.go:878-880` | NX-01 / NX-02 | `migrate`: `cs.nexoMigrate(ctx)` al final (bloque de 3 líneas) |
 | `internal/cloud/cloudstore/cloudstore.go:959-961` | NX-01 | `InsertMutationBatch`: `nexoApplyMutationActor(ctx, tx)` (bloque de 3 líneas) |
-| `internal/cloud/cloudstore/identity.go:980` | NX-04 | `insertAuthAuditEvent`: `nexoAuditMetadata(ctx, ...)` agrega `client_ip` y `user_agent` a `metadata` (punto común de toda la auditoría de Engram) |
+| `internal/cloud/cloudstore/identity.go:94-95` | NX-07 | Campos `NexoExpiresAt` y `NexoScope` en `PrincipalToken` |
+| `internal/cloud/cloudstore/identity.go:497-499` | NX-07 | `CreatePrincipalTokenWithAudit`: `nexoApplyTokenIssue` (caducidad y alcance en la misma transacción; `expires_at` y `scope` en la auditoría) |
+| `internal/cloud/cloudstore/identity.go:739` | NX-07 | `ListPrincipalTokens`: el retorno pasa por `nexoFillTokenFacts` (una consulta) |
+| `internal/cloud/cloudstore/identity.go:772-793` | NX-07 | `FindPrincipalTokenByHash`: la consulta trae `nexo_expires_at`, `nexo_scope` y si venció (línea SQL marcada `-- NX-07`), escaneo marcado y `nexoCheckResolvedToken` (token vencido = `security.ErrTokenExpired`; datos del token en el contexto) |
+| `internal/cloud/cloudstore/identity.go:991` | NX-04 | `insertAuthAuditEvent`: `nexoAuditMetadata(ctx, ...)` agrega `client_ip` y `user_agent` a `metadata` (punto común de toda la auditoría de Engram) |
 | `internal/cloud/dashboard/dashboard.go:57-58` | NX-04 | Campo opcional `NexoValidateLoginTokenRequest` en `MountConfig` |
 | `internal/cloud/dashboard/dashboard.go:314` | NX-04 | `handleLoginSubmit` usa `nexoValidateLoginToken(h.cfg, r, token)` (cae en `ValidateLoginToken` si el campo no está) |
 | `cmd/engram/cloud_runtime_e2e_test.go:332-336` | NX-01 | Test de Engram ajustado: `/sync/push` con token asignado guarda el dueño del token, no el `created_by` del cliente (RF-04) |
-| `internal/cloud/cloudserver/admin_handlers.go:112-114` | NX-05 | `handleAdminCreateUser`: `nexoAllowCreateUserRole` (crear con rol admin exige `platform.admins.manage`, solo superadmin) |
-| `internal/cloud/cloudserver/admin_handlers.go:149-151` | NX-05 | `handleAdminSetUserEnabled`: `nexoAllowSetUserEnabled` (sobre admin, superadmin o auditor exige `platform.admins.manage`; último superadmin, 409) |
-| `internal/cloud/cloudserver/admin_handlers.go:207-209` | NX-05 | `handleAdminCreateToken`: `nexoAllowManageTargetTokens` (tokens de otro admin, superadmin o auditor solo por superadmin) |
-| `internal/cloud/cloudserver/admin_handlers.go:289-291` | NX-05 | `handleAdminRevokeToken`: `nexoAllowRevokeToken` (misma regla, resolviendo el dueño del token) |
-| `internal/cloud/cloudserver/admin_handlers.go:387-389` | NX-05 | `requireManagedAdmin`: `nexoRequireAdminCapability` exige la capacidad de plataforma de la ruta (admite al auditor en lecturas); sin almacén Nexo sigue la regla de Engram |
+| `internal/cloud/cloudserver/admin_handlers.go:16` | NX-07 | Import de `internal/nexo/security` |
+| `internal/cloud/cloudserver/admin_handlers.go:56-57` | NX-07 | Campos `expires_in_days` y `scope` en el cuerpo de emisión de token |
+| `internal/cloud/cloudserver/admin_handlers.go:79-80` | NX-07 | Campos `expires_at` y `scope` en la respuesta de token (`sanitizeToken`, líneas 478-479) |
+| `internal/cloud/cloudserver/admin_handlers.go:117-119` | NX-05 | `handleAdminCreateUser`: `nexoAllowCreateUserRole` (crear con rol admin exige `platform.admins.manage`, solo superadmin) |
+| `internal/cloud/cloudserver/admin_handlers.go:154-156` | NX-05 | `handleAdminSetUserEnabled`: `nexoAllowSetUserEnabled` (sobre admin, superadmin o auditor exige `platform.admins.manage`; último superadmin, 409) |
+| `internal/cloud/cloudserver/admin_handlers.go:212-214` | NX-05 | `handleAdminCreateToken`: `nexoAllowManageTargetTokens` (tokens de otro admin, superadmin o auditor solo por superadmin) |
+| `internal/cloud/cloudserver/admin_handlers.go:215-218` | NX-07 | `handleAdminCreateToken`: `nexoTokenIssueContext` valida caducidad y alcance; la línea 239 crea el token con ese contexto |
+| `internal/cloud/cloudserver/admin_handlers.go:298-300` | NX-05 | `handleAdminRevokeToken`: `nexoAllowRevokeToken` (misma regla, resolviendo el dueño del token) |
+| `internal/cloud/cloudserver/admin_handlers.go:357-359` | NX-07 | `handleAdminCreateGrant`: `nexoAllowProjectGrant` (exige `platform.users.manage`; a uno mismo, 403 `self_grant_forbidden`) |
+| `internal/cloud/cloudserver/admin_handlers.go:399-401` | NX-05 | `requireManagedAdmin`: `nexoRequireAdminCapability` exige la capacidad de plataforma de la ruta (admite al auditor en lecturas); sin almacén Nexo sigue la regla de Engram |
 | `internal/cloud/cloudserver/dashboard_admin_users.go:148-150` | NX-05 | Panel, crear usuario: igual que la API |
 | `internal/cloud/cloudserver/dashboard_admin_users.go:192-194` | NX-05 | Panel, habilitar y deshabilitar: igual que la API |
 | `internal/cloud/cloudserver/dashboard_admin_users.go:288-290` | NX-05 | Panel, emitir token: igual que la API |
-| `internal/cloud/cloudserver/dashboard_admin_users.go:382-384` | NX-05 | Panel, revocar token: igual que la API |
+| `internal/cloud/cloudserver/dashboard_admin_users.go:291-294` | NX-07 | Panel, emitir token: `nexoTokenIssueFromForm` (campos `expires_in_days` y `scope`); la línea 318 crea el token con ese contexto |
+| `internal/cloud/cloudserver/dashboard_admin_users.go:386-388` | NX-05 | Panel, revocar token: igual que la API |
+| `internal/cloud/cloudserver/dashboard_admin_users.go:427-429` | NX-07 | Panel, permiso de proyecto: `nexoAllowProjectGrant` (igual que la API) |
+| `internal/cloud/dashboard/components.templ:1030, 1067, 1072, 1162` | NX-07 | Panel (sin marca: es HTML de templ): campos de caducidad y alcance en el formulario de token, columna "Last Used / Expires / Scope", estado "Expired" (`nexoTokenStatus`) y caducidad y alcance en la página del token creado. Se reutilizan expresiones existentes sin agregar nodos ni líneas; `components_templ.go` regenerado con `go tool templ generate -path ./internal/cloud/dashboard` (templ v0.3.1001 de `go.mod`): 7 líneas cambiadas, mismos finales de línea |
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 
@@ -174,6 +220,10 @@ Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Doc
 | `NEXO_ACTIVITY_RETENTION_DAYS` | `180` | Días que se conserva `nexo_activity_log` (depuración al iniciar y cada 24 h). `0` = no depurar; valor inválido = 180; menor que 30 = 30 (NX-07). La presencia se conserva siempre |
 | `NEXO_MIGRATION_DATABASE_URL` (NX-07) | vacío (una sola cuenta, aviso de seguridad degradada) | URL de la cuenta dueña del esquema. Con ella el servidor migra, aplica privilegios y crea la función de retención con esa cuenta, y opera con `ENGRAM_DATABASE_URL` (cuenta de aplicación) sin migrar; si la cuenta de aplicación es superusuario, dueña de objetos o puede crear objetos, no arranca |
 | `NEXO_DB_APP_ROLE` (NX-07) | usuario de `ENGRAM_DATABASE_URL` | Rol al que se otorgan los privilegios de aplicación (solo si difiere del usuario de la URL, por ejemplo detrás de un pooler) |
+| `NEXO_RATE_LIMITS` (NX-07) | vacía: sync 600/600, admin 120/120, login 20/-, nexo 300/300, other 600/- (IP/token por minuto) | JSON por grupo (`{"sync":{"ip":1200}}`, `0` = sin límite) u `off`. JSON inválido: valores por defecto con aviso |
+| `NEXO_AUTH_LOCKOUT` (NX-07) | vacía: 20 fallos en 300 s bloquean 900 s (IP y persona) | JSON `{"max_failures","user_max_failures","window_seconds","lockout_seconds"}` u `off` |
+| `NEXO_SUPERADMIN_ALLOWED_CIDRS` (NX-07) | vacía (sin restricción, aviso al iniciar) | CIDR o IP separados por comas desde los que se usan `platform.admins.manage` y `platform.settings`; con valor y sin redes válidas, se niega todo |
+| `NEXO_TOKEN_MAX_DAYS` (NX-07) | `365` | Caducidad máxima al emitir; por defecto 90 días (o el máximo si es menor) |
 | `NEXO_PERF_TEST` | — | Solo tests: `1` habilita la prueba de tiempos con 1 millón de filas |
 
 Las variables de Engram no cambian. Recomendación operativa (RN-A3): `ENGRAM_CLOUD_TOKEN` con un valor aleatorio largo que no se entrega a nadie; todo lo que llegue con él figura como `no-identificado`.
@@ -190,6 +240,7 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `nexo_activity_log` | Detalle de conexiones; triggers `nexo_activity_log_immutable` que rechazan `UPDATE`, `DELETE` y `TRUNCATE` (NX-07: el único `DELETE` admitido es el de la dueña de la tabla dentro de `nexo_purge_activity` y sobre filas con más de 30 días; se eliminó el bypass `nexo.allow_retention`) |
 | Función `nexo_purge_activity(integer)` (NX-07) | `SECURITY DEFINER`, propiedad de la cuenta que migra, `search_path` fijo; mínimo 30 días; evento `retention.purged` en `nexo_authz_events`. `EXECUTE` revocado a `PUBLIC` y otorgado a la cuenta de aplicación |
 | Privilegios (NX-07, solo con dos cuentas) | `security.ApplyGrants` en cada arranque, fuera de la transacción de migración y con su propio advisory lock (ver `docs/nexo/seguridad/design.md` §2.2.2) |
+| `cloud_principal_tokens` (NX-07 S3) | Columnas `nexo_expires_at TIMESTAMPTZ` (NULL = sin caducidad; las filas existentes quedan NULL; valor por defecto para filas nuevas `now() + 90 días`, o el máximo si es menor) y `nexo_scope TEXT NOT NULL DEFAULT 'write'` con CHECK `read`/`write`. Trigger `nexo_token_expiry_guard` (`BEFORE INSERT OR UPDATE OF nexo_expires_at`): solo una cuenta de servicio puede quedar sin caducidad |
 | `nexo_actor_presence` | Una fila por persona y token |
 | Índices | `cloud_mutations (actor_principal_id, seq)`, `(project, entity_key, seq)`, `(entity_key, seq)`; `nexo_activity_log (occurred_at DESC)`, `(actor_principal_id, occurred_at DESC)`, `(actor_principal_id, id DESC)`, `(actor_token_id, id DESC)`; `nexo_actor_presence (last_seen_at DESC, presence_key DESC)` |
 | `nexo_scopes` (NX-05) | Ámbitos: `(scope_type, scope_key)` PK, `visibility`, `default_role`, `status`, autor y fechas; fila `('platform', '*')`. Índice `(scope_type, visibility, status)`. Los proyectos de Engram sin fila son restringidos y activos |
@@ -225,4 +276,10 @@ go test -count=1 ./internal/cloud/... ./internal/nexo/...
 go test -count=1 -run TestCloudRuntime ./cmd/engram/
 go test -run '^$' -bench NexoOverhead -benchtime 200x ./internal/cloud/cloudserver/   # RNF-03
 git grep -n "// NX-0" -- ':!docs'
+# NX-07: concurrencia del limitador (requiere cgo; en Windows sin gcc, en un contenedor golang:1.25)
+go test -race -count=1 ./internal/nexo/security/
+# Panel: regenerar las plantillas siempre con la versión fijada en go.mod (templ v0.3.1001)
+go tool templ generate -path ./internal/cloud/dashboard
 ```
+
+E2E de seguridad (repositorio de Nexo): `pwsh -NoProfile -File 06-pruebas/seguridad/Run-Seguridad.ps1` con la imagen `nexo-engram-cloud:3.3.2-nexo.2-dev` construida desde la rama. Para su prueba de volumen CA-35 (1 000 consultas de administración en paralelo) sube el límite del grupo `admin` con `NEXO_RATE_LIMITS={"admin":{"ip":3000,"token":3000}}`; el resto de los grupos queda con los valores por defecto.

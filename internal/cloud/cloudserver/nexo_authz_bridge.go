@@ -41,7 +41,8 @@ func (s *CloudServer) nexoAuthz() (*authz.Service, bool) {
 	for _, candidate := range []any{s.store, s.adminIdentity} {
 		if p, ok := candidate.(nexoAuthzDB); ok && p != nil {
 			if db := p.NexoDB(); db != nil {
-				eng := authz.NewPostgres(db, authz.WithProjectNormalizer(cloudstore.NormalizeProjectGrant))
+				eng := authz.NewPostgres(db, authz.WithProjectNormalizer(cloudstore.NormalizeProjectGrant),
+					authz.WithNetworkPolicy(nexoNetworkPolicy())) // NX-07 (RS-13)
 				return authz.NewService(db, eng), true
 			}
 		}
@@ -59,7 +60,9 @@ func nexoAuthzIdentity(ctx context.Context) authz.Identity {
 		TokenID:     actor.TokenID,
 		Label:       actor.Name,
 		Verified:    actor.Verified,
-		TokenScope:  "", // NX-06 agregará el alcance del token
+		// NX-07 (S3-02): alcance del token resuelto en esta petición (lo deja
+		// FindPrincipalTokenByHash en el contexto); "" = write.
+		TokenScope: nexoTokenScope(ctx, actor.TokenID),
 	}
 	if principal, ok := PrincipalFromContext(ctx); ok {
 		id.Kind = string(principal.Kind)

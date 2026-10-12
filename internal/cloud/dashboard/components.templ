@@ -1027,7 +1027,7 @@ templ ManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.Princ
 		<div class="data-frame">
 			if canManageManagedUsers && user.Enabled {
 				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/tokens") } class="managed-user-form">
-					<input type="text" name="name" placeholder="Token label (optional)" autocomplete="off"/>
+					<input type="text" name="name" placeholder="Token label (optional)" autocomplete="off"/> <input type="number" name="expires_in_days" min="0" placeholder="Expires in days (default 90)" autocomplete="off"/> <select name="scope"><option value="write" selected>Scope: write</option><option value="read">Scope: read</option></select>
 					<button type="submit">Create Token</button>
 				</form>
 				<p class="muted">Tokens are shown only once, immediately after creation. Engram Cloud cannot redisplay a raw token afterward — revoke it and create a new one if it is lost.</p>
@@ -1051,7 +1051,7 @@ templ ManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.Princ
 							<th>Prefix</th>
 							<th>Name</th>
 							<th>Created</th>
-							<th>Last Used</th>
+							<th>Last Used / Expires / Scope</th>
 							<th>Status</th>
 							if canManageManagedUsers {
 								<th>Action</th>
@@ -1064,12 +1064,12 @@ templ ManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.Princ
 								<td>{ tok.TokenPrefix }</td>
 								<td>{ emptyDash(tok.Name) }</td>
 								<td>{ formatTimeValue(tok.CreatedAt) }</td>
-								<td>{ formatTimePtr(tok.LastUsedAt) }</td>
+								<td>{ formatTimePtr(tok.LastUsedAt) + " / " + nexoTokenExpiry(tok) + " / " + nexoTokenScope(tok) }</td>
 								<td>
 									if tok.RevokedAt != nil {
 										@StatusBadge("Revoked", "danger")
 									} else {
-										@StatusBadge("Active", "success")
+										@StatusBadge(nexoTokenStatus(tok))
 									}
 								</td>
 								if canManageManagedUsers {
@@ -1159,7 +1159,7 @@ templ ManagedUserTokenCreatedPage(user cloudstore.HumanUser, rawToken string, to
 		<div class="data-frame policy-note danger-note">
 			<p><strong>This raw token is shown only once.</strong> Engram Cloud never stores or displays it again — copy it now and store it securely.</p>
 			<pre class="token-reveal">{ rawToken }</pre>
-			<p class="muted">Prefix { token.TokenPrefix } — { emptyDash(token.Name) } — created { formatTimeValue(token.CreatedAt) }</p>
+			<p class="muted">Prefix { token.TokenPrefix } — { emptyDash(token.Name) } — created { formatTimeValue(token.CreatedAt) + " — expires " + nexoTokenExpiry(token) + " — scope " + nexoTokenScope(token) }</p>
 		</div>
 		<a href={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID)) }>Back to { user.Username }</a>
 	</section>

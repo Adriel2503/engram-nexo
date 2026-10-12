@@ -295,7 +295,9 @@ Columnas nuevas en `cloud_principal_tokens` (migración Nexo, aditiva):
 - Trazabilidad (NX-02): la depuración pasa a la función segura.
 - `NEXO_CHANGES.md`: nueva sección NX-07 con variables de entorno y enganches.
 
-## 8. Desviaciones y notas de implementación (fase S1)
+## 8. Desviaciones y notas de implementación
+
+### 8.1 Fase S1
 
 Fecha: 2026-10-12. Implementación de S1-01..S1-06 en `feat/seguridad` (sin commit).
 
@@ -334,3 +336,70 @@ Riesgos y límites conocidos:
 - `TestPGAuthorizationCostWith100kBindings` (NX-05) es una prueba de tiempos (objetivo < 2 ms) que
   puede fallar con la máquina cargada; en la línea base de esta fase falló una vez (2,31 ms) corriendo
   todos los paquetes en paralelo y pasa sola.
+
+### 8.2 Fases S2 y S3 (NX-06)
+
+Fecha: 2026-10-12. Implementación de S2-01..S2-04 y S3-01..S3-04 en `feat/seguridad` (sin commit).
+Código: `internal/nexo/security/{ratelimit,lockout,network,tokens}.go`, `internal/nexo/authz/network.go`,
+`cloudserver/nexo_security.go`, `cloudserver/nexo_tokens.go`, `cloudstore/nexo_tokens.go`,
+`dashboard/nexo_tokens.go`; enganches `// NX-07` listados en `NEXO_CHANGES.md` §4.
+
+| ID | Diseño | Implementado | Motivo |
+|---|---|---|---|
+| D-S2-1 | `nexoRateLimit` dentro de `nexoHandler` | `CloudServer.nexoHandler` (método) encadena el middleware de NX-04 (IP real) y el límite por IP; el límite por token va en el enganche final de `authenticateRequest` (`nexoAfterAuth`), porque el token solo se conoce después de resolverlo. El estado vive en un campo `nexo` del `CloudServer` | Un limitador por servidor (no por llamada a `Handler()`) y sin resolver el token dos veces |
+| D-S2-2 | Token bucket con expiración de claves | Capacidad = límite por minuto, recarga límite/60 por segundo. Una clave sin uso durante 60 s tiene el balde lleno y se borra sin cambiar ninguna decisión (limpieza perezosa por fragmento, sin goroutines). Tope de 32 768 claves por fragmento (32 fragmentos); IPv6 se agrupa por /64 | Memoria acotada sin fugas; un atacante con muchas IP solo obtiene baldes llenos, que ya tendría |
+| D-S2-3 | Bloqueo por IP y por usuario contando token inválido, vencido y login fallido | Por **IP** cuentan los fallos no atribuibles (token desconocido o mal formado, login del panel con token desconocido). Por **persona** cuentan token revocado y persona deshabilitada (se identifica por el token encontrado). **Un token vencido no cuenta** en ningún contador: queda auditado (`token_expired`) y lo vigilará la regla `expired_token_used` (S4) | El autosync del cliente oficial reintenta cada ~30 s: una PC con el token vencido bloquearía en minutos a toda una oficina detrás de un NAT, o a la persona recién al recibir su token nuevo. Adivinar tokens (256 bits) solo produce fallos no atribuibles |
+| D-S2-4 | 429 genérico durante el bloqueo | 429 con `Retry-After` y `error_code: auth_locked`, sin resolver el token ni decir si existe; el panel muestra el mismo "invalid token" de siempre | RS-11 sin revelar usuarios; HU-27 (aviso comprensible con tiempo de espera) |
+| D-S2-5 | Evento por minuto y clave | `nexo.rate_limited` en `cloud_auth_audit_log` (grupo, tipo de clave, rechazos, minuto; `client_ip` o `credential_id`), escrito por una tarea que corre solo mientras hay rechazos y termina sola tras dos minutos sin ellos. `auth.lockout` (uno por bloqueo) en la misma tabla | No inundar la auditoría ni dejar goroutines vivas |
+| D-S2-6 | Sin auto-asignación en `/admin/*`, panel y API Nexo con `self_grant_forbidden` | `/admin/*` y panel: 403 `self_grant_forbidden` + `authz.denied` (`reason=self_grant_forbidden`) y `platform.users.manage` explícito. La API Nexo ya lo impedía por R-11 y responde su código existente `self_promotion` (403) | No cambiar el contrato de NX-05; misma regla y mismo evento |
+| D-S2-7 | CIDR en `authz.Can` | `authz.NetworkPolicy` (opción del motor) niega `platform.admins.manage` y `platform.settings` fuera de las redes (`Decision.Reason = network`, auditado por `Require`). IP ilegible = fuera. Variable con valor pero sin redes válidas = se niega todo (con aviso) | Fallar cerrado ante un error de configuración |
+| D-S3-1 | Columnas y validación en la misma consulta | `FindPrincipalTokenByHash` trae `nexo_expires_at`, `nexo_scope` y el cálculo `nexo_expires_at <= NOW()` (reloj de la base). Si vence y no está revocado: `security.ErrTokenExpired` → 401 `unauthorized: token_expired: ...` y `reason_code=token_expired` | Una sola consulta (como pedía el diseño) |
+| D-S3-2 | `Identity.TokenScope` desde `nexo_scope` | La misma consulta deja los datos del token en un contenedor del contexto de la petición (lo crea el middleware); `nexoAuthzIdentity` lo lee. Sin ese dato (almacenes falsos de las pruebas de Engram) el alcance queda `write` como antes | Sin consulta extra ni cambios a `cloudauth.Principal` |
+| D-S3-3 | — | **Sesiones del panel**: en Engram una sesión administrada (8 h) no vuelve a presentar el token; ahora cada petición revisa que el token de la sesión no esté revocado ni vencido y toma su alcance | Si no, un token vencido o `read` seguiría administrando por el panel |
+| D-S3-4 | Rutas de escritura de Engram exigen `write` | `POST /sync/push` y `POST /sync/mutations/push` con token `read`: 403 `policy_forbidden` ("this token is read-only"), auditado como `sync.authorize` `token_scope_read` | Código que el cliente oficial ya trata como rechazo de política |
+| D-S3-5 | 90 días por defecto | Valor por defecto de la columna (`now() + 90 días`, o el máximo si es menor) para cualquier `INSERT` (bootstrap por CLI, recuperación) y `nexoApplyTokenIssue` en la transacción de `CreatePrincipalTokenWithAudit` con lo pedido; la auditoría `token.create` agrega `expires_at` y `scope`. Trigger `nexo_token_expiry_guard`: solo una cuenta de servicio puede tener un token sin caducidad (también por SQL) | Los caminos de Engram que no conocen Nexo nacen con caducidad |
+| D-S3-6 | Emisión en `/nexo/authz/v1` | Rutas nuevas `GET /nexo/authz/v1/tokens[?principal=]` (propios con `self.read`, ajenos con `platform.tokens.manage`) y `POST /nexo/authz/v1/tokens` (`platform.tokens.manage` + R-7). "Sin caducidad" (`expires_in_days: 0`) exige cuenta de servicio y `platform.admins.manage` (superadmin), denegación auditada. `/admin/*` de Engram no emite tokens a cuentas de servicio (solo personas) | No había ruta de emisión en la API Nexo |
+| D-S3-7 | El panel muestra caducidad y alcance | Columna "Last Used / Expires / Scope", estado "Expired" y campos `expires_in_days` y `scope` en el formulario; página del token creado con caducidad y alcance. Plantilla cambiada sin agregar nodos (reutiliza expresiones) para que `components_templ.go` cambie 7 líneas (templ v0.3.1001) | Diff mínimo en archivos generados de Engram |
+
+Verificación (2026-10-12):
+
+- Go: 1281 OK, 0 fallos reales, 1 omitida (línea base 1254 + 27 nuevas). En la corrida completa
+  falló una vez `autosync.TestManagerPushQuarantinesLegacyPaddedProject...` por la limpieza del
+  directorio temporal de Windows ("directorio no está vacío"; paquete del cliente, no tocado) y pasa
+  al repetirla. `go test -race` del paquete `security` y del middleware: OK (en un contenedor
+  `golang:1.25`, porque en el equipo no hay gcc).
+- Sobrecosto (RNF-S1): decisión del limitador ~0,1 µs; middleware completo (NX-04 + NX-07)
+  ~0,6 µs más por petición que solo NX-04, muy por debajo de 0,2 ms.
+- E2E `06-pruebas/seguridad/Run-Seguridad.ps1` con la imagen `nexo-engram-cloud:3.3.2-nexo.2-dev`
+  y clientes oficiales 3.3.2: 41 OK, 0 fallos (CA-01..CA-36 y CA-S01..CA-S03 de antes, más CA-S04
+  1000 pulls en 10 s: 696 permitidos, 304 con 429, un evento agregado, otra IP sin efecto y el
+  autosync de las PCs nunca limitado; CA-S05; CA-S06; CA-S07; CA-S08 con el cliente oficial).
+  Ajustes del script: límite `admin` elevado para la prueba de volumen CA-35 y patrón sin tilde en
+  CA-S02 (la salida de `psql` depende de la codificación de la consola).
+- `Run-Trazabilidad.ps1` no se volvió a ejecutar: usa el proyecto Docker `nexo-traza` (fuera del
+  alcance de esta tarea) y la imagen publicada `3.3.2-nexo.1`, que no cambia; sus 36 casos corren
+  dentro de `Run-Seguridad.ps1` con la imagen nueva (CA-S15).
+
+Riesgos y límites conocidos:
+
+- **Límites por réplica (DS-1).** Con N réplicas el límite efectivo es N veces el configurado y un
+  bloqueo solo vale en la réplica que lo vio. Para un límite global, moverlo al proxy (Caddy) o a
+  un almacén compartido.
+- **IP real.** El límite y el bloqueo por IP dependen de `NEXO_TRUSTED_PROXIES` (NX-04). Detrás de
+  un proxy sin esa variable, todas las peticiones parecen venir del proxy y comparten un balde.
+- **NAT corporativo.** Todas las PCs de una oficina comparten IP: el límite de sync por IP
+  (600/min) alcanza para unas 100 PCs con autosync (~6 peticiones/min cada una); con más, subir
+  `sync.ip` en `NEXO_RATE_LIMITS` (el límite por token sigue protegiendo a cada una).
+- **Autosync del cliente oficial 3.3.2.** En uso normal hace pocas peticiones por ciclo de ~30 s,
+  muy por debajo de 600/min (en la E2E nunca fue limitado). Una importación inicial con muchos
+  paquetes (`engram sync --cloud --import`) descarga uno por petición y podría recibir 429 por
+  encima de ~600 paquetes en un minuto; el cliente reintenta en el siguiente ciclo.
+- **Token compartido (legado).** No tiene límite por token (sería uno para todo el equipo); solo
+  el de IP.
+- **Superadmin y caducidad.** El token del bootstrap vence a los 90 días: el superadmin debe emitirse
+  uno nuevo antes (sus propios tokens no requieren a otra persona) o tener un segundo superadmin. Si
+  vence sin alternativa, la recuperación es por SQL con la cuenta dueña (`engram cloud bootstrap
+  recover-token` solo sirve si la instalación no tiene ningún token).
+- **`/me` lista capacidades** según rol y alcance, sin considerar la red: `platform.admins.manage`
+  puede aparecer aunque se niegue fuera de las redes permitidas.
+

@@ -17,6 +17,9 @@ package cloudserver
 //	DELETE /nexo/authz/v1/scopes/{type}/{key}/members/{principal}   project.members.manage | space.members.manage
 //	GET    /nexo/authz/v1/events                                    platform.audit.read
 //	GET    /nexo/admin/authz-events                                 igual que /events (familia NX-03)
+//	GET    /nexo/authz/v1/tokens[?principal=]                       self.read o platform.tokens.manage (NX-07)
+//	POST   /nexo/authz/v1/tokens  {principal,name,expires_in_days,scope}
+//	                                                                platform.tokens.manage (NX-07)
 //
 // Errores como NX-03 ({error_class, error_code, error}): 401 sin token
 // válido, 403 sin capacidad (y evento authz.denied), 404 ámbito no visible o
@@ -51,6 +54,7 @@ func (s *CloudServer) registerNexoAuthzRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT "+nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzSetScopeMember))
 	mux.HandleFunc("DELETE "+nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzDeleteScopeMember))
 	mux.HandleFunc("GET "+nexoAuthzPrefix+"/events", s.withAuth(s.handleNexoAuthzEvents))
+	s.registerNexoTokenRoutes(mux) // NX-07 (S3-03): emisión y listado de tokens con caducidad y alcance
 }
 
 type nexoAuthzHandler func(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity)
@@ -119,7 +123,7 @@ func (s *CloudServer) handleNexoAuthzMe(w http.ResponseWriter, r *http.Request, 
 		nexoAuthzWriteError(w, err)
 		return
 	}
-	jsonResponse(w, http.StatusOK, view)
+	jsonResponse(w, http.StatusOK, s.nexoMeWithToken(r.Context(), view)) // NX-07: caducidad, alcance y último uso (RS-24)
 }
 
 // ─── Plataforma ──────────────────────────────────────────────────────────────

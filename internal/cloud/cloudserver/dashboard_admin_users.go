@@ -288,6 +288,10 @@ func (s *CloudServer) handleDashboardCreateManagedToken(w http.ResponseWriter, r
 	if !s.nexoAllowManageTargetTokens(w, r, principalID, nexoRespondText) { // NX-05: tokens de admins solo por superadmin (R-7)
 		return
 	}
+	nexoIssueCtx, ok := s.nexoTokenIssueFromForm(w, r, principalID) // NX-07: caducidad y alcance del formulario (S3-03)
+	if !ok {
+		return
+	}
 	user, found, err := findManagedUserByPrincipalID(r.Context(), store, principalID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("list users: %v", err), http.StatusInternalServerError)
@@ -311,7 +315,7 @@ func (s *CloudServer) handleDashboardCreateManagedToken(w http.ResponseWriter, r
 		http.Error(w, fmt.Sprintf("hash token: %v", err), http.StatusInternalServerError)
 		return
 	}
-	token, err := store.CreatePrincipalTokenWithAudit(r.Context(),
+	token, err := store.CreatePrincipalTokenWithAudit(nexoIssueCtx, // NX-07
 		cloudstore.CreatePrincipalTokenParams{
 			PrincipalID:          principalID,
 			TokenPrefix:          managedToken.Prefix,
@@ -418,6 +422,9 @@ func (s *CloudServer) handleDashboardCreateManagedGrant(w http.ResponseWriter, r
 	project := strings.TrimSpace(r.FormValue("project"))
 	if project == "" {
 		http.Error(w, "project is required", http.StatusBadRequest)
+		return
+	}
+	if !s.nexoAllowProjectGrant(w, r, principalID, project, nexoRespondText) { // NX-07: nadie se da acceso a sí mismo (RS-12)
 		return
 	}
 	if _, err := store.CreateProjectGrant(r.Context(), cloudstore.CreateProjectGrantParams{PrincipalID: principalID, Project: project, GrantedByPrincipalID: actor.ID}); err != nil {

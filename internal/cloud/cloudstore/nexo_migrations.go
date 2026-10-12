@@ -1,6 +1,7 @@
 package cloudstore
 
-// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05, NX-07).
+// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05, NX-07;
+// NX-07 S3 agrega nexo_expires_at y nexo_scope a cloud_principal_tokens).
 //
 // Reglas: solo aditivas e idempotentes (ADD COLUMN IF NOT EXISTS,
 // CREATE ... IF NOT EXISTS, CREATE OR REPLACE). Nada se renombra ni se borra.
@@ -191,6 +192,10 @@ func (cs *CloudStore) nexoMigrate(ctx context.Context) error {
 	// NX-07: función de depuración segura (SECURITY DEFINER de la cuenta que
 	// migra), después de authz.Migrate porque registra en nexo_authz_events.
 	if err := security.MigrateRetention(ctx, tx); err != nil {
+		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
+	}
+	// NX-07 fase S3 (NX-06): caducidad y alcance de los tokens.
+	if err := security.MigrateTokens(ctx, tx); err != nil {
 		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

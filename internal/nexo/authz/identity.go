@@ -63,6 +63,7 @@ const (
 	ReasonArchived      = "archived"           // ámbito archivado
 	ReasonBadCapability = "invalid_capability" // la capacidad no pertenece al nivel del ámbito
 	ReasonError         = "error"              // error al resolver: se falla cerrado
+	ReasonNetwork       = "network"            // NX-07 (RS-13): fuera de las redes permitidas
 )
 
 // Decision es el resultado de Can.
