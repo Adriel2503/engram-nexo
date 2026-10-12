@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	engramsync "github.com/Gentleman-Programming/engram/v3/internal/sync"
 )
 
@@ -152,6 +153,11 @@ func nexoActivityRetentionDays() int {
 	if err != nil || days < 0 {
 		log.Printf("[nexo] %s=%q inválido; se usa %d", NexoActivityRetentionEnv, raw, nexoDefaultActivityRetentionDays)
 		return nexoDefaultActivityRetentionDays
+	}
+	// NX-07 (RS-03): la función de depuración rechaza plazos menores al mínimo.
+	if days > 0 && days < security.RetentionMinimumDays {
+		log.Printf("[nexo] %s=%d es menor que el mínimo; se usa %d", NexoActivityRetentionEnv, days, security.RetentionMinimumDays)
+		return security.RetentionMinimumDays
 	}
 	return days
 }

@@ -48,7 +48,7 @@ func New(cfg cloud.Config) (*CloudStore, error) {
 		return nil, fmt.Errorf("cloudstore: ping postgres: %w", err)
 	}
 	store := &CloudStore{db: db}
-	if err := store.migrate(context.Background()); err != nil {
+	if err := store.nexoMigrateOnStartup(context.Background()); err != nil { // NX-07: migra con la cuenta dueña si hay NEXO_MIGRATION_DATABASE_URL (nexo_security.go)
 		_ = db.Close()
 		return nil, err
 	}

@@ -13,13 +13,16 @@ const (
 	ActionScopeRestored  = "scope.restored"
 	ActionScopeRecovered = "scope.recovered"
 	ActionDenied         = "authz.denied"
+	// NX-07: depuración de nexo_activity_log por la función segura
+	// nexo_purge_activity (internal/nexo/security).
+	ActionRetentionPurged = "retention.purged"
 )
 
 // EventActions lista las acciones válidas (filtro de la API).
 var EventActions = []string{
 	ActionBindingGranted, ActionBindingChanged, ActionBindingRevoked,
 	ActionScopeCreated, ActionScopeUpdated, ActionScopeArchived, ActionScopeRestored, ActionScopeRecovered,
-	ActionDenied,
+	ActionDenied, ActionRetentionPurged,
 }
 
 // SystemActorLabel es la etiqueta del actor en eventos que genera el propio

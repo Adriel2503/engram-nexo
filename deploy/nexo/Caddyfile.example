@@ -1,0 +1,7 @@
+# Nexo IA · proxy HTTPS delante de engram cloud serve (compose.example.yaml).
+# "tls internal" usa la CA interna de Caddy; con un certificado corporativo,
+# reemplazar por: tls /certs/servidor.crt /certs/servidor.key
+{$NEXO_DOMAIN} {
+	tls internal
+	reverse_proxy cloud:18080
+}

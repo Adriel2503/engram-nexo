@@ -1,0 +1,4 @@
+# Los scripts que corren dentro de contenedores Linux necesitan fin de línea LF
+# aunque el repositorio se clone en Windows (core.autocrlf=true).
+*.sh text eol=lf
+Caddyfile* text eol=lf

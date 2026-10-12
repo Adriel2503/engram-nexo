@@ -125,6 +125,11 @@ func (cs *CloudStore) RecordActivity(ctx context.Context, event ActivityEvent) e
 
 // PurgeActivityOlderThan borra el detalle con más de `days` días (RF-15). La
 // presencia se conserva siempre. days <= 0 no borra nada.
+//
+// NX-07 (RS-03): el borrado lo hace la función SECURITY DEFINER
+// nexo_purge_activity, propiedad de la cuenta dueña, que exige un mínimo de 30
+// días y deja un evento retention.purged en nexo_authz_events. La aplicación no
+// necesita (ni tiene, con dos cuentas) privilegio DELETE sobre la tabla.
 func (cs *CloudStore) PurgeActivityOlderThan(ctx context.Context, days int) (int64, error) {
 	if cs == nil || cs.db == nil {
 		return 0, fmt.Errorf("cloudstore: not initialized")
@@ -132,21 +137,9 @@ func (cs *CloudStore) PurgeActivityOlderThan(ctx context.Context, days int) (int
 	if days <= 0 {
 		return 0, nil
 	}
-	tx, err := cs.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("cloudstore: nexo purge begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `SELECT set_config('nexo.allow_retention', 'on', true)`); err != nil {
-		return 0, fmt.Errorf("cloudstore: nexo purge enable: %w", err)
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM nexo_activity_log WHERE occurred_at < NOW() - make_interval(days => $1)`, days)
-	if err != nil {
-		return 0, fmt.Errorf("cloudstore: nexo purge delete: %w", err)
-	}
-	deleted, _ := result.RowsAffected()
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("cloudstore: nexo purge commit: %w", err)
+	var deleted int64
+	if err := cs.db.QueryRowContext(ctx, `SELECT nexo_purge_activity($1)`, days).Scan(&deleted); err != nil {
+		return 0, fmt.Errorf("cloudstore: nexo purge: %w", err)
 	}
 	return deleted, nil
 }

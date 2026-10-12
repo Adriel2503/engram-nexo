@@ -1,7 +1,7 @@
 # NEXO_CHANGES — Registro de cambios del fork engram-nexo
 
 **Proyecto:** Nexo IA · **Base:** Engram v3.3.2 (commit `35d1452`) · **Versión del fork:** `3.3.2-nexo.1`
-**Especificación:** `docs/nexo/trazabilidad/` (`requirements.md`, `design.md`, `tasks.md`, `manual-admin.md`) · roles: `docs/nexo/roles/` (NX-05)
+**Especificación:** `docs/nexo/trazabilidad/` (`requirements.md`, `design.md`, `tasks.md`, `manual-admin.md`) · roles: `docs/nexo/roles/` (NX-05) · seguridad: `docs/nexo/seguridad/` (NX-07)
 
 Este archivo es el inventario de todo lo que el fork cambia respecto de Engram. Sirve para revisar el fork y para integrar versiones nuevas de Engram con conflictos mínimos (RNF-04).
 
@@ -27,7 +27,7 @@ Lo que **no** cambia:
 | Regla | Detalle |
 |---|---|
 | Lógica nueva aislada | Toda la lógica va en archivos `nexo_*.go` (y sus `nexo_*_test.go`). Tipos y funciones con prefijo `nexo`/`Nexo` |
-| Ediciones mínimas y marcadas | En archivos originales de Engram solo se agregan llamadas de una línea (o un bloque muy corto), marcadas con `// NX-01` a `// NX-05`. Listado completo en §4; se verifica con `git grep -n "// NX-0"` |
+| Ediciones mínimas y marcadas | En archivos originales de Engram solo se agregan llamadas de una línea (o un bloque muy corto), marcadas con `// NX-01` a `// NX-07`. Listado completo en §4; se verifica con `git grep -n "// NX-0"` |
 | Módulos Nexo con almacenamiento propio | Paquetes en `internal/nexo/...` (NX-05: `internal/nexo/authz`), sin dependencias de `cloudserver`; reciben la base por `CloudStore.NexoDB()` y la identidad por `authz.Identity` |
 | Migraciones | Aditivas e idempotentes (`ADD COLUMN IF NOT EXISTS`, `CREATE ... IF NOT EXISTS`, `CREATE OR REPLACE`), en `cloudstore/nexo_migrations.go`, al final de `migrate` |
 | Ramas | `main` sigue a Engram (upstream, sin cambios propios) · `develop` integra el fork · `feat/<tema>` para cada cambio (por ejemplo `feat/trazabilidad`), con PR hacia `develop` tras revisión |
@@ -104,6 +104,26 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `cloudstore/nexo_migrations.go` (llama a `authz.Migrate` en la misma transacción y expone `CloudStore.NexoDB()`), `cloudserver/nexo_admin_routes.go` (registra `/nexo/admin/authz-events` y la API de roles).
 
+### NX-07 · Endurecimiento de seguridad, fase S1 (base de datos)
+
+**Especificación.** `docs/nexo/seguridad/` (`requirements.md` RS-01..RS-06, `design.md` §2 con inventario y desviaciones en §8, `tasks.md` S1-01..S1-06, `guia-despliegue.md`).
+
+**Motivo.** La única cuenta de Postgres era dueña de todas las tablas: podía desactivar los triggers de inmutabilidad, borrar o truncar la auditoría, y la depuración del registro se habilitaba con una variable de sesión que cualquier conexión podía activar (`nexo.allow_retention`).
+
+**Qué hace.**
+- **Dos cuentas** (RS-01): con `NEXO_MIGRATION_DATABASE_URL` el servidor migra (Engram y Nexo), aplica privilegios y crea la función de retención con la cuenta dueña, y opera con `ENGRAM_DATABASE_URL` sin migrar. Al iniciar verifica que la cuenta de aplicación no sea superusuario, ni dueña (o miembro de la dueña) de objetos, ni tenga `CREATEROLE`, `CREATEDB` o `CREATE` en el esquema o la base; si lo es, no arranca. Sin la variable, todo sigue como antes y el log avisa `seguridad degradada: una sola cuenta de base de datos` (RS-04).
+- **Privilegios mínimos** (RS-02): `security.ApplyGrants`, idempotente en cada arranque. Tablas de evidencia (`cloud_auth_audit_log`, `cloud_sync_audit_log`, `cloud_mutations`, `cloud_chunks`, `nexo_activity_log`, `nexo_authz_events` y, cuando existan, las de S4 y NX-10) solo `SELECT` e `INSERT`; el resto `SELECT/INSERT/UPDATE/DELETE`; vistas solo lectura; sin `CREATE` en el esquema; sin `CREATE`/`TEMPORARY` en la base para `PUBLIC` si la dueña es dueña de la base. Inventario de escrituras de Engram en `design.md` §2.2.1 (no hizo falta ninguna excepción).
+- **Retención segura** (RS-03): función `nexo_purge_activity(days)` `SECURITY DEFINER` de la cuenta dueña (mínimo 30 días, evento `retention.purged` en `nexo_authz_events`). Se eliminó el bypass `nexo.allow_retention`: el trigger solo deja borrar a la dueña de la tabla, dentro de la función y filas con más de 30 días. `PurgeActivityOlderThan` llama a la función.
+- **Despliegue** (RS-05, RS-06): `deploy/nexo/postgres-init/01-cuentas.sh` (crea `nexo_owner` y `nexo_app` desde variables de entorno), `deploy/nexo/compose.example.yaml` (dos cuentas + Caddy), `deploy/nexo/Caddyfile.example`, guía de TLS (`sslmode=verify-full`) en `docs/nexo/seguridad/guia-despliegue.md`.
+
+**Archivos nuevos.**
+- `internal/nexo/security/dbaccounts.go` — variables, `EvidenceTables`, `MigrateRetention`, `ApplyGrants`, `ResolveAppRole`, `VerifyAppAccount`.
+- `internal/cloud/cloudstore/nexo_security.go` — `nexoMigrateOnStartup` (una o dos cuentas, verificación, avisos).
+- `deploy/nexo/postgres-init/01-cuentas.sh`, `deploy/nexo/compose.example.yaml`, `deploy/nexo/Caddyfile.example`, `deploy/nexo/.gitattributes` (LF para `*.sh`).
+- Tests: `internal/nexo/security/dbaccounts_test.go`, `cloudstore/nexo_security_test.go` (Postgres real con roles de prueba: CA-S01, CA-S02, CA-S03, cuenta no apta, idempotencia y tabla de evidencia nueva).
+
+**Archivos Nexo modificados.** `cloudstore/nexo_migrations.go` (trigger de inmutabilidad sin bypass; llama a `security.MigrateRetention`), `cloudstore/nexo_activity.go` (`PurgeActivityOlderThan` usa la función), `cloudserver/nexo_activity.go` (`NEXO_ACTIVITY_RETENTION_DAYS` mínimo 30), `internal/nexo/authz/events.go` (acción `retention.purged`).
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-0"` (fuera de `docs/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -125,6 +145,7 @@ Verificado con `git grep -n "// NX-0"` (fuera de `docs/`). Las líneas sin marca
 | `internal/cloud/cloudserver/dashboard_session.go:124` | NX-04 | `validateDashboardLoginToken` delega en la variante con contexto (`context.Background()`, misma semántica) |
 | `internal/cloud/cloudserver/dashboard_session.go:127-129` | NX-04 | Nueva firma `validateDashboardLoginTokenContext(ctx, token)`: el cuerpo es el original de Engram; solo se quitó su `ctx := context.Background()` (ahora es parámetro) |
 | `internal/cloud/cloudstore/cloudstore.go:262-264` | NX-01 | `WriteChunk`: `nexoApplyMutationActor(ctx, tx)` dentro de la transacción (bloque `if err` de 3 líneas) |
+| `internal/cloud/cloudstore/cloudstore.go:51` | NX-07 | `New`: `store.nexoMigrateOnStartup(...)` en lugar de `store.migrate(...)` (misma línea): con `NEXO_MIGRATION_DATABASE_URL` migra con la cuenta dueña, aplica privilegios y verifica la cuenta de aplicación; sin ella, `migrate` como antes con aviso |
 | `internal/cloud/cloudstore/cloudstore.go:878-880` | NX-01 / NX-02 | `migrate`: `cs.nexoMigrate(ctx)` al final (bloque de 3 líneas) |
 | `internal/cloud/cloudstore/cloudstore.go:959-961` | NX-01 | `InsertMutationBatch`: `nexoApplyMutationActor(ctx, tx)` (bloque de 3 líneas) |
 | `internal/cloud/cloudstore/identity.go:980` | NX-04 | `insertAuthAuditEvent`: `nexoAuditMetadata(ctx, ...)` agrega `client_ip` y `user_agent` a `metadata` (punto común de toda la auditoría de Engram) |
@@ -143,14 +164,16 @@ Verificado con `git grep -n "// NX-0"` (fuera de `docs/`). Las líneas sin marca
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 
-Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Dockerfile.dockerignore`, `docs/nexo/**`, este archivo.
+Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Dockerfile.dockerignore`, `deploy/nexo/postgres-init/01-cuentas.sh`, `deploy/nexo/compose.example.yaml`, `deploy/nexo/Caddyfile.example`, `deploy/nexo/.gitattributes` (NX-07), `docs/nexo/**`, este archivo.
 
 ## 5. Variables de entorno nuevas
 
 | Variable | Por defecto | Efecto |
 |---|---|---|
 | `NEXO_TRUSTED_PROXIES` | vacío (ningún proxy confiable) | IP o CIDR separados por comas o espacios (por ejemplo la IP de Caddy). Solo si la conexión viene de uno de ellos se toma la IP real de `X-Forwarded-For` (recorrida de derecha a izquierda); si no, la cabecera se ignora. Entradas inválidas se ignoran con log |
-| `NEXO_ACTIVITY_RETENTION_DAYS` | `180` | Días que se conserva `nexo_activity_log` (depuración al iniciar y cada 24 h). `0` = no depurar; valor inválido = 180. La presencia se conserva siempre |
+| `NEXO_ACTIVITY_RETENTION_DAYS` | `180` | Días que se conserva `nexo_activity_log` (depuración al iniciar y cada 24 h). `0` = no depurar; valor inválido = 180; menor que 30 = 30 (NX-07). La presencia se conserva siempre |
+| `NEXO_MIGRATION_DATABASE_URL` (NX-07) | vacío (una sola cuenta, aviso de seguridad degradada) | URL de la cuenta dueña del esquema. Con ella el servidor migra, aplica privilegios y crea la función de retención con esa cuenta, y opera con `ENGRAM_DATABASE_URL` (cuenta de aplicación) sin migrar; si la cuenta de aplicación es superusuario, dueña de objetos o puede crear objetos, no arranca |
+| `NEXO_DB_APP_ROLE` (NX-07) | usuario de `ENGRAM_DATABASE_URL` | Rol al que se otorgan los privilegios de aplicación (solo si difiere del usuario de la URL, por ejemplo detrás de un pooler) |
 | `NEXO_PERF_TEST` | — | Solo tests: `1` habilita la prueba de tiempos con 1 millón de filas |
 
 Las variables de Engram no cambian. Recomendación operativa (RN-A3): `ENGRAM_CLOUD_TOKEN` con un valor aleatorio largo que no se entrega a nadie; todo lo que llegue con él figura como `no-identificado`.
@@ -164,7 +187,9 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `cloud_mutations`, `cloud_chunks` | Columnas `actor`, `actor_email`, `actor_principal_id`, `actor_token_id`, `actor_verified BOOLEAN NOT NULL DEFAULT FALSE`, `actor_client_claim`. Filas anteriores: `actor` NULL, no verificado (RF-08) |
 | Función + triggers `nexo_stamp_actor` | `BEFORE INSERT` en ambas tablas: copia el actor publicado en la transacción (y el email desde `cloud_human_users`) |
 | Vista `nexo_mutation_history` | Historial por cambio con datos de la copia y actuales del usuario y del token |
-| `nexo_activity_log` | Detalle de conexiones; triggers `nexo_activity_log_immutable` que rechazan `UPDATE`, `DELETE` y `TRUNCATE` (salvo la depuración con `nexo.allow_retention`) |
+| `nexo_activity_log` | Detalle de conexiones; triggers `nexo_activity_log_immutable` que rechazan `UPDATE`, `DELETE` y `TRUNCATE` (NX-07: el único `DELETE` admitido es el de la dueña de la tabla dentro de `nexo_purge_activity` y sobre filas con más de 30 días; se eliminó el bypass `nexo.allow_retention`) |
+| Función `nexo_purge_activity(integer)` (NX-07) | `SECURITY DEFINER`, propiedad de la cuenta que migra, `search_path` fijo; mínimo 30 días; evento `retention.purged` en `nexo_authz_events`. `EXECUTE` revocado a `PUBLIC` y otorgado a la cuenta de aplicación |
+| Privilegios (NX-07, solo con dos cuentas) | `security.ApplyGrants` en cada arranque, fuera de la transacción de migración y con su propio advisory lock (ver `docs/nexo/seguridad/design.md` §2.2.2) |
 | `nexo_actor_presence` | Una fila por persona y token |
 | Índices | `cloud_mutations (actor_principal_id, seq)`, `(project, entity_key, seq)`, `(entity_key, seq)`; `nexo_activity_log (occurred_at DESC)`, `(actor_principal_id, occurred_at DESC)`, `(actor_principal_id, id DESC)`, `(actor_token_id, id DESC)`; `nexo_actor_presence (last_seen_at DESC, presence_key DESC)` |
 | `nexo_scopes` (NX-05) | Ámbitos: `(scope_type, scope_key)` PK, `visibility`, `default_role`, `status`, autor y fechas; fila `('platform', '*')`. Índice `(scope_type, visibility, status)`. Los proyectos de Engram sin fila son restringidos y activos |

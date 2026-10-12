@@ -1,6 +1,6 @@
 package cloudstore
 
-// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05).
+// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05, NX-07).
 //
 // Reglas: solo aditivas e idempotentes (ADD COLUMN IF NOT EXISTS,
 // CREATE ... IF NOT EXISTS, CREATE OR REPLACE). Nada se renombra ni se borra.
@@ -14,6 +14,7 @@ import (
 	"fmt"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // NexoDB expone la conexión a los módulos Nexo que tienen su propio
@@ -126,13 +127,23 @@ var nexoMigrationQueries = []string{
 		push_count         BIGINT NOT NULL DEFAULT 0,
 		pull_count         BIGINT NOT NULL DEFAULT 0
 	)`,
-	// Inmutabilidad (RF-13): UPDATE, DELETE y TRUNCATE se rechazan. Solo la
-	// depuración por antigüedad (PurgeActivityOlderThan) puede borrar, y solo
-	// dentro de su transacción con set_config('nexo.allow_retention','on',true).
+	// Inmutabilidad (RF-13): UPDATE, DELETE y TRUNCATE se rechazan.
+	// NX-07 (RS-03): ya no hay bypass por variable de sesión
+	// (nexo.allow_retention se eliminó). Un DELETE solo pasa si se cumplen las
+	// tres condiciones: lo ejecuta la dueña de la tabla (la función SECURITY
+	// DEFINER nexo_purge_activity corre como ella), la función marcó la
+	// depuración en curso y la fila tiene más de 30 días (mínimo fijo de
+	// RetentionMinimumDays). Con dos cuentas, la aplicación ni siquiera tiene
+	// privilegio DELETE; con una sola cuenta, el mínimo de antigüedad sigue
+	// valiendo aunque se active cualquier variable de sesión.
 	`CREATE OR REPLACE FUNCTION nexo_activity_log_immutable() RETURNS trigger AS $$
 	BEGIN
-		IF TG_OP = 'DELETE' AND current_setting('nexo.allow_retention', true) = 'on' THEN
-			RETURN OLD;
+		IF TG_OP = 'DELETE' THEN
+			IF current_setting('nexo.purge_in_progress', true) = 'on'
+			   AND (SELECT c.relowner FROM pg_class c WHERE c.oid = TG_RELID) = (SELECT r.oid FROM pg_roles r WHERE r.rolname = current_user)
+			   AND OLD.occurred_at < now() - make_interval(days => 30) THEN
+				RETURN OLD;
+			END IF;
 		END IF;
 		RAISE EXCEPTION 'nexo_activity_log es de solo inserción (% no permitido)', TG_OP
 			USING ERRCODE = 'insufficient_privilege';
@@ -175,6 +186,11 @@ func (cs *CloudStore) nexoMigrate(ctx context.Context) error {
 	// NX-05: roles (nexo_scopes, nexo_role_bindings, nexo_authz_events,
 	// triggers y arranque del superadmin), en la misma transacción.
 	if err := authz.Migrate(ctx, tx); err != nil {
+		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
+	}
+	// NX-07: función de depuración segura (SECURITY DEFINER de la cuenta que
+	// migra), después de authz.Migrate porque registra en nexo_authz_events.
+	if err := security.MigrateRetention(ctx, tx); err != nil {
 		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

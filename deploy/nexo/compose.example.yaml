@@ -1,0 +1,90 @@
+# Nexo IA · NX-07 fase S1: despliegue de ejemplo con DOS cuentas de Postgres
+# (dueña para migrar, aplicación para operar) y Caddy con HTTPS delante del
+# servidor. Guía: docs/nexo/seguridad/guia-despliegue.md
+#
+# Uso:
+#   1. Copiar este archivo como compose.yaml y crear un .env (NO versionado) con:
+#        POSTGRES_PASSWORD=...          superusuario de Postgres (solo arranque)
+#        NEXO_OWNER_PASSWORD=...        cuenta dueña (migraciones)
+#        NEXO_APP_PASSWORD=...          cuenta de aplicación
+#        ENGRAM_CLOUD_TOKEN=...         valor aleatorio largo que no se entrega a nadie
+#        ENGRAM_JWT_SECRET=...
+#        ENGRAM_CLOUD_TOKEN_PEPPER=...
+#        NEXO_DOMAIN=engram.ejemplo.interno
+#      Las contraseñas deben ser seguras para URL (por ejemplo, hexadecimal).
+#   2. docker compose up -d
+#   3. docker compose logs cloud | grep "\[nexo\] seguridad"   -> "dos cuentas de base de datos"
+#
+# Sin NEXO_MIGRATION_DATABASE_URL el servidor migra y opera con una sola cuenta
+# y avisa "seguridad degradada" (compatibilidad con despliegues anteriores).
+name: nexo-engram
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      # Las usa postgres-init/01-cuentas.sh al crear el volumen.
+      NEXO_OWNER_PASSWORD: ${NEXO_OWNER_PASSWORD:?Falta NEXO_OWNER_PASSWORD}
+      NEXO_APP_PASSWORD: ${NEXO_APP_PASSWORD:?Falta NEXO_APP_PASSWORD}
+      NEXO_DB_NAME: engram_cloud
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      # TLS hacia Postgres (RS-05), necesario si la base está en otro host:
+      # - ./pg-tls:/tls:ro
+    # command: ["-c", "ssl=on", "-c", "ssl_cert_file=/tls/server.crt", "-c", "ssl_key_file=/tls/server.key"]
+    healthcheck:
+      # Por TCP: durante los scripts de inicio Postgres solo escucha en el socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d engram_cloud"]
+      interval: 5s
+      retries: 30
+    # Sin puertos publicados: solo la red interna del compose llega a Postgres.
+
+  cloud:
+    image: ${CLOUD_IMAGE:-nexo-engram-cloud:3.3.2-nexo.2}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      # Cuenta de aplicación: todas las peticiones. No migra.
+      ENGRAM_DATABASE_URL: postgres://nexo_app:${NEXO_APP_PASSWORD}@postgres:5432/engram_cloud?sslmode=disable
+      # Cuenta dueña: solo al iniciar (migraciones, privilegios, retención).
+      NEXO_MIGRATION_DATABASE_URL: postgres://nexo_owner:${NEXO_OWNER_PASSWORD}@postgres:5432/engram_cloud?sslmode=disable
+      # Con TLS (producción, base en otro host), en ambas URL:
+      #   ?sslmode=verify-full&sslrootcert=/tls/ca.crt   (y montar ./pg-tls:/tls:ro en este servicio)
+      ENGRAM_CLOUD_TOKEN: ${ENGRAM_CLOUD_TOKEN:?Falta ENGRAM_CLOUD_TOKEN}
+      ENGRAM_JWT_SECRET: ${ENGRAM_JWT_SECRET:?Falta ENGRAM_JWT_SECRET}
+      ENGRAM_CLOUD_TOKEN_PEPPER: ${ENGRAM_CLOUD_TOKEN_PEPPER:?Falta ENGRAM_CLOUD_TOKEN_PEPPER}
+      ENGRAM_CLOUD_ALLOWED_PROJECTS: ${ENGRAM_CLOUD_ALLOWED_PROJECTS:-nexo-transversal}
+      ENGRAM_CLOUD_HOST: 0.0.0.0
+      ENGRAM_PORT: "18080"
+      NEXO_TRUSTED_PROXIES: 192.168.240.10/32     # solo Caddy
+      NEXO_ACTIVITY_RETENTION_DAYS: "180"         # mínimo 30 (RS-03)
+    networks:
+      default: { ipv4_address: 192.168.240.5 }
+
+  proxy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on: [cloud]
+    environment:
+      NEXO_DOMAIN: ${NEXO_DOMAIN:?Falta NEXO_DOMAIN}
+    ports: ["443:443"]
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks:
+      default: { ipv4_address: 192.168.240.10 }
+
+networks:
+  default:
+    ipam:
+      config: [{ subnet: 192.168.240.0/24 }]   # cambiar si choca con otra red del host
+
+volumes:
+  pg-data:
+  caddy-data:
