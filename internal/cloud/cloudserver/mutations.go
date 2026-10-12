@@ -202,7 +202,9 @@ func (s *CloudServer) handleMutationPush(w http.ResponseWriter, r *http.Request)
 	// Canonicalize every entry before storage so accepted legacy sparse payloads
 	// materialize the same way as later chunk replay. Any failure rejects the
 	// ENTIRE batch before InsertMutationBatch is called.
-	createdBy := mutationPushCreatedBy(r.Context())
+	// NX-01: autor = dueño del token asignado; req.CreatedBy queda solo como referencia.
+	nexoActor := nexoResolveActor(r.Context(), req.CreatedBy)
+	createdBy := nexoActor.Name
 	var invalid []map[string]any
 	normalizedEntries := make([]MutationEntry, 0, len(req.Entries))
 	for i, entry := range req.Entries {
@@ -243,7 +245,7 @@ func (s *CloudServer) handleMutationPush(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	acceptedSeqs, err := ms.InsertMutationBatch(r.Context(), normalizedEntries)
+	acceptedSeqs, err := ms.InsertMutationBatch(cloudstore.WithMutationActor(r.Context(), nexoActor), normalizedEntries) // NX-01
 	if err != nil {
 		var entryErr *cloudstore.MutationBatchEntryError
 		if errors.As(err, &entryErr) {
@@ -255,6 +257,8 @@ func (s *CloudServer) handleMutationPush(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
+
+	s.nexoRecordActivity(r, cloudstore.NexoOpPushMutations, primaryProject, len(acceptedSeqs), req.CreatedBy) // NX-02
 
 	// REQ-414: include project envelope in 200 response.
 	jsonResponse(w, http.StatusOK, map[string]any{
@@ -468,6 +472,7 @@ func (s *CloudServer) handleMutationPull(w http.ResponseWriter, r *http.Request)
 	if mutations == nil {
 		mutations = []StoredMutation{}
 	}
+	s.nexoRecordActivity(r, cloudstore.NexoOpPullMutations, nexoMutationsProject(mutations, pullPrimaryProject), len(mutations), "") // NX-02
 
 	// REQ-414: include project envelope in 200 pull response.
 	jsonResponse(w, http.StatusOK, map[string]any{

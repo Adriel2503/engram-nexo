@@ -259,6 +259,9 @@ func (cs *CloudStore) WriteChunk(ctx context.Context, project, chunkID, createdB
 			_ = tx.Rollback()
 		}
 	}()
+	if err := nexoApplyMutationActor(ctx, tx); err != nil { // NX-01: autor en cloud_chunks y cloud_mutations
+		return err
+	}
 
 	counts := summarizeChunk(payload)
 	_, err = tx.ExecContext(ctx, `
@@ -872,6 +875,9 @@ func (cs *CloudStore) migrate(ctx context.Context) error {
 	if err := cs.backfillProjectSessionsFromChunks(ctx); err != nil {
 		return err
 	}
+	if err := cs.nexoMigrate(ctx); err != nil { // NX-01 / NX-02: migraciones Nexo (nexo_migrations.go)
+		return err
+	}
 	return nil
 }
 
@@ -950,6 +956,9 @@ func (cs *CloudStore) InsertMutationBatch(ctx context.Context, batch []MutationE
 			_ = tx.Rollback()
 		}
 	}()
+	if err := nexoApplyMutationActor(ctx, tx); err != nil { // NX-01: autor en cloud_mutations y cloud_chunks
+		return nil, err
+	}
 
 	seqs := make([]int64, 0, len(batch))
 	for batchIndex, entry := range batch {

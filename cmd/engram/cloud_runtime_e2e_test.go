@@ -329,14 +329,12 @@ func TestCloudRuntimeMutationPushAttributionUsesAuthenticatedPrincipal(t *testin
 	if err != nil {
 		t.Fatalf("ReadManifest after explicit chunk push: %v", err)
 	}
-	foundExplicitAttribution := false
+	// NX-01: con token asignado, created_by es el dueño del token; lo que
+	// declara el cliente queda solo en cloud_chunks.actor_client_claim.
 	for _, chunk := range manifest.Chunks {
-		if chunk.CreatedBy == "explicit-client-attribution" {
-			foundExplicitAttribution = true
+		if chunk.CreatedBy != managedUser.DisplayName {
+			t.Fatalf("chunk push attribution = %q, want authenticated principal %q: %+v", chunk.CreatedBy, managedUser.DisplayName, manifest.Chunks)
 		}
-	}
-	if !foundExplicitAttribution {
-		t.Fatalf("explicit chunk push attribution missing from manifest: %+v", manifest.Chunks)
 	}
 }
 

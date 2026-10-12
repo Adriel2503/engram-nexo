@@ -32,3 +32,15 @@ Thumbs.db
 engram-dev
 .atl/
 .release-notes-beta.md
+
+# Nexo: secretos y archivos locales que nunca deben subirse
+.env
+.env.*
+!.env.example
+*admin-token*.txt
+*.token
+*.pem
+*.key
+coverage.out
+*.coverprofile
+*.test

@@ -216,6 +216,7 @@ func (s *CloudServer) Start() error {
 	}
 	addr := fmt.Sprintf("%s:%d", host, s.port)
 	log.Printf("[engram-cloud] listening on %s", addr)
+	s.nexoStartActivityRetention() // NX-02: depuración periódica del registro de actividad
 	return s.listenAndServe(addr, s.Handler())
 }
 
@@ -223,7 +224,7 @@ func (s *CloudServer) Handler() http.Handler {
 	if s.mux == nil {
 		s.routes()
 	}
-	return s.mux
+	return nexoHandler(s.mux) // NX-04: contexto de petición (IP y User-Agent)
 }
 
 func (s *CloudServer) pushBodyLimit() int64 {
@@ -607,6 +608,7 @@ func (s *CloudServer) handlePullManifest(w http.ResponseWriter, r *http.Request)
 		http.Error(w, fmt.Sprintf("read manifest: %v", err), http.StatusInternalServerError)
 		return
 	}
+	s.nexoRecordActivity(r, cloudstore.NexoOpPullManifest, project, 0, "") // NX-02
 	jsonResponse(w, http.StatusOK, manifest)
 }
 
@@ -632,6 +634,7 @@ func (s *CloudServer) handlePullChunk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("read chunk: %v", err), http.StatusInternalServerError)
 		return
 	}
+	s.nexoRecordActivity(r, cloudstore.NexoOpPullChunk, project, nexoChunkPayloadItemCount(chunk), "") // NX-02
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Add("Vary", "Accept")
 	if chunkcodec.AcceptsCompressedEnvelope(r.Header.Get("Accept")) && int64(len(chunk)) <= chunkcodec.DefaultMaxDecodedBytes {
@@ -803,7 +806,9 @@ func (s *CloudServer) handlePushChunk(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.store.WriteChunk(r.Context(), project, computedChunkID, req.CreatedBy, clientCreatedAt, normalizedData); err != nil {
+	// NX-01: autor = dueño del token asignado; req.CreatedBy queda solo como referencia.
+	nexoActor := nexoResolveActor(r.Context(), req.CreatedBy)
+	if err := s.store.WriteChunk(cloudstore.WithMutationActor(r.Context(), nexoActor), project, computedChunkID, nexoActor.Name, clientCreatedAt, normalizedData); err != nil {
 		if errors.Is(err, cloudstore.ErrChunkConflict) {
 			writeActionableError(w, http.StatusConflict, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodeChunkConflict, fmt.Sprintf("write chunk: %v", err))
 			return
@@ -811,6 +816,7 @@ func (s *CloudServer) handlePushChunk(w http.ResponseWriter, r *http.Request) {
 		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("write chunk: %v", err))
 		return
 	}
+	s.nexoRecordActivity(r, cloudstore.NexoOpPushChunk, project, nexoChunkItemCount(chunk), req.CreatedBy) // NX-02
 	jsonResponse(w, http.StatusOK, map[string]any{"status": "ok", "chunk_id": computedChunkID})
 }
 
