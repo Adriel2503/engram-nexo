@@ -298,6 +298,9 @@ func (s *CloudServer) routes() {
 		ManagedUsers:      managedUsersStore,
 		MaxLoginBodyBytes: maxDashboardLoginBodyBytes,
 		StatusProvider:    s.syncStatus,
+		NexoValidateLoginTokenRequest: func(r *http.Request, token string) error { // NX-04
+			return s.validateDashboardLoginTokenContext(context.WithoutCancel(r.Context()), token)
+		},
 	})
 	s.mux.HandleFunc("GET /dashboard/bootstrap", s.handleDashboardBootstrapPage)
 	s.mux.HandleFunc("POST /dashboard/bootstrap", s.handleDashboardBootstrapSubmit)
@@ -335,6 +338,7 @@ func (s *CloudServer) routes() {
 	s.mux.HandleFunc("GET /admin/users/{principalID}/grants", s.withAuth(s.handleAdminListGrants))
 	s.mux.HandleFunc("POST /admin/users/{principalID}/grants", s.withAuth(s.handleAdminCreateGrant))
 	s.mux.HandleFunc("POST /admin/users/{principalID}/grants/{project}/revoke", s.withAuth(s.handleAdminRevokeGrant))
+	s.registerNexoAdminRoutes(s.mux) // NX-03: API de trazabilidad /nexo/admin/*
 }
 
 // dashboardStoreForRequest creates a fresh immutable view for managed

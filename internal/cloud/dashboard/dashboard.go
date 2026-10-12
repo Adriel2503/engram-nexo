@@ -54,6 +54,8 @@ type MountConfig struct {
 	ManagedUsers      ManagedUsersStore
 	MaxLoginBodyBytes int64
 	StatusProvider    SyncStatusProvider
+	// NX-04: variante de ValidateLoginToken que recibe la petición (origen en la auditoría).
+	NexoValidateLoginTokenRequest func(r *http.Request, token string) error
 }
 
 type DashboardStore interface {
@@ -309,7 +311,7 @@ func (h *handlers) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.cfg.ValidateLoginToken != nil {
-		if err := h.cfg.ValidateLoginToken(token); err != nil {
+		if err := nexoValidateLoginToken(h.cfg, r, token); err != nil { // NX-04
 			renderComponent(w, r, LoginPage("invalid token", next))
 			return
 		}

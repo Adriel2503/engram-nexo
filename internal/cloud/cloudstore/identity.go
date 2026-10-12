@@ -977,7 +977,7 @@ func insertAuthAuditEvent(ctx context.Context, exec authAuditEventExecutor, even
 	if outcome == "" {
 		return fmt.Errorf("cloudstore: outcome is required")
 	}
-	metadata, err := nullableJSON(event.Metadata)
+	metadata, err := nullableJSON(nexoAuditMetadata(ctx, event.Metadata)) // NX-04: agrega client_ip y user_agent
 	if err != nil {
 		return err
 	}

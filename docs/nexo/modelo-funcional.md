@@ -180,6 +180,8 @@ Tomadas (2026-10-12):
 - D-R3. Una propuesta rechazada se conserva como Descartado con motivo.
 - D-R4. Alcance y caducidad de token entran en la misma especificación que los roles.
 - D-R5. Un proponente no ve las propuestas de otros (nivel `propose` = solo subir).
+- D-R6. Se distribuye un Engram propio (cliente y servidor del fork) a los devs. Lo nativo puede
+  vivir en el cliente: vigencia, búsqueda filtrada y herramientas MCP de Nexo (sección 9).
 
 Abiertas:
 
@@ -189,3 +191,65 @@ Abiertas:
   Recomendación: (b).
 - A2. Resuelta: el rol `admin` no salta los permisos por proyecto (ver sección 3).
 - A3. Nombre final de la caja de propuestas (`nexo-transversal-propuestas` propuesto).
+
+## 9. Engram propio: temporalidad y funciones nativas
+
+Con D-R6 el cliente también es del fork. Se toma de la bitemporalidad de Utopia solo lo útil para
+memorias de texto; no se copia el modelo de hechos atómicos con dos relojes completos.
+
+### 9.1 Reloj de registro (cuándo lo supo Nexo y quién lo cambió)
+
+Casi todo existe:
+
+- Local: `observations.created_at`, `updated_at`, `deleted_at` (borrado lógico), `observation_versions`
+  (historial por memoria) y `memory_relations` con `superseded_at`.
+- Servidor: `cloud_mutations` guarda la memoria completa en cada cambio, con autor desde NX-01.
+
+Falta: consulta "cómo estaba a una fecha" (`as_of`), reconstruida desde `cloud_mutations` en el
+servidor. Extensión de la API NX-03, sin cambios en el cliente.
+
+### 9.2 Reloj de vigencia (desde y hasta cuándo es cierto)
+
+No existe. Propuesta:
+
+- Columnas `valid_from` y `valid_until` (opcionales) en `observations` (SQLite) y en el payload de
+  sincronización; el servidor las conserva en la copia materializada.
+- `mem_save` acepta vigencia; `mem_search` devuelve por defecto solo lo vigente hoy y admite `at=<fecha>`.
+- Obsoleto deja de ser texto en el contenido: es `valid_until` en el pasado.
+- Compatibilidad verificada: el payload de sincronización no se decodifica en modo estricto (solo
+  `prompt_discard.go` usa `DisallowUnknownFields`), así que un cliente oficial ignora los campos
+  nuevos. Riesgo: si un cliente oficial reescribe una memoria con vigencia, la pierde. Mitigación:
+  en el servidor, rechazar o advertir escrituras sin versión Nexo sobre memorias con vigencia.
+
+### 9.3 Funciones que pasan de la skill a Engram
+
+| Hoy (convención de la skill) | Nativo |
+|---|---|
+| Estado Oficial/Obsoleto en el texto | Vigencia y filtro en la búsqueda |
+| "No uses propuestas como estándar" | La búsqueda excluye la caja de propuestas por defecto |
+| Proponer o publicar con `mem_save` y un proyecto | Herramientas MCP `nexo_propose`, `nexo_publish`, `nexo_discard` |
+| Reglas de permiso explicadas en el prompt | Validación en el servidor (sección 5) |
+
+La skill sigue decidiendo qué es transversal (umbrales) y cuándo consultar; deja de cargar reglas
+que el código ya hace cumplir.
+
+### 9.4 Distribución
+
+- Versiones `vX.Y.Z-nexo.N` del mismo código para cliente y servidor; un binario por plataforma con
+  el `.goreleaser.yaml` existente, publicado en releases del repositorio privado.
+- `Install-Nexo.ps1` instala el binario del fork en `.nexo-bin` en lugar del oficial.
+- Aviso de actualización: `internal/version/check.go` consulta las releases del Engram oficial y
+  sugiere `brew upgrade` o `go install` del oficial, lo que reemplazaría el binario del fork. Hay que
+  apuntarlo a las releases del fork o desactivarlo (`ENGRAM_NO_UPDATE_CHECK`) desde el instalador.
+- `engram version` debe mostrar el sufijo `-nexo.N` para saber qué tiene cada PC; el registro de
+  conexiones (NX-02) ya guarda el User-Agent del cliente.
+- Costo: cada actualización de Engram fusiona también cliente y migraciones SQLite. Las migraciones
+  locales de Nexo van en archivos `nexo_*.go`, aditivas y marcadas, como en el servidor.
+
+### 9.5 Orden propuesto
+
+1. Consulta `as_of` en el servidor (junto a NX-03).
+2. Roles y tokens (NX-05, NX-06) en el servidor.
+3. Primera versión del cliente propio: vigencia, búsqueda filtrada, herramientas `nexo_*`, aviso de
+   actualización apuntando al fork, instalador que distribuye el binario.
+4. Skill nexo-protocol v0.3 simplificada sobre las herramientas nativas.

@@ -1,6 +1,6 @@
 package cloudstore
 
-// Nexo IA · migraciones propias del fork (NX-01, NX-02).
+// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03).
 //
 // Reglas: solo aditivas e idempotentes (ADD COLUMN IF NOT EXISTS,
 // CREATE ... IF NOT EXISTS, CREATE OR REPLACE). Nada se renombra ni se borra.
@@ -135,6 +135,13 @@ var nexoMigrationQueries = []string{
 				FOR EACH STATEMENT EXECUTE FUNCTION nexo_activity_log_immutable();
 		END IF;
 	END $$`,
+
+	// ─── NX-03: índices para la API de consulta (RNF-05) ─────────────────────
+	// Paginación por llave (id / seq) combinada con los filtros más usados.
+	`CREATE INDEX IF NOT EXISTS idx_cloud_mutations_entity_key_seq ON cloud_mutations (entity_key, seq)`,
+	`CREATE INDEX IF NOT EXISTS idx_nexo_activity_principal_id ON nexo_activity_log (actor_principal_id, id DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_nexo_activity_token_id ON nexo_activity_log (actor_token_id, id DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_nexo_presence_last_seen ON nexo_actor_presence (last_seen_at DESC, presence_key DESC)`,
 }
 
 // nexoMigrate aplica las migraciones de Nexo. Se llama al final de migrate().

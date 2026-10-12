@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
 )
 
 // NexoTrustedProxiesEnv es la variable con los proxies confiables.
@@ -41,7 +43,11 @@ func NexoClientContextFrom(ctx context.Context) (NexoClientContext, bool) {
 	return cc, ok
 }
 
+// nexoWithClientContext guarda el origen para los registros del servidor y,
+// además, para la capa de almacenamiento, que lo agrega a la metadata de
+// cloud_auth_audit_log (NX-04, RF-24).
 func nexoWithClientContext(ctx context.Context, cc NexoClientContext) context.Context {
+	ctx = cloudstore.WithNexoRequestOrigin(ctx, cloudstore.NexoRequestOrigin{ClientIP: cc.IP, UserAgent: cc.UserAgent})
 	return context.WithValue(ctx, nexoClientContextKey{}, cc)
 }
 

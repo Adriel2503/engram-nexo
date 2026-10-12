@@ -121,11 +121,16 @@ func (s *CloudServer) dashboardSessionTokenForRequest(ctx context.Context, beare
 // transient audit-store hiccup never blocks reporting an already-rejected
 // login, matching the best-effort convention used for sync rejection audits.
 func (s *CloudServer) validateDashboardLoginToken(token string) error {
+	return s.validateDashboardLoginTokenContext(context.Background(), token) // NX-04
+}
+
+// NX-04: igual que validateDashboardLoginToken, con el contexto de la petición
+// para que el rechazo quede auditado con IP y cliente.
+func (s *CloudServer) validateDashboardLoginTokenContext(ctx context.Context, token string) error {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return fmt.Errorf("bearer token is required")
 	}
-	ctx := context.Background()
 	if adminToken := strings.TrimSpace(s.dashboardAdmin); adminToken != "" && hmac.Equal([]byte(token), []byte(adminToken)) {
 		return nil
 	}
