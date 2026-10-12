@@ -28,7 +28,8 @@ va antes de la fase C.
 | C-03 | Servicio de espacios sobre `authz`: crear (con responsable), configurar, archivar, restaurar | CA-K01, CA-K02 |
 | C-04 | Publicación por lotes: idempotencia por hash, versiones, secciones, cambios, eventos, poda por origen, `dry-run` | CA-K03, CA-K04, CA-K05 |
 | C-05 | Retirar y reemplazar documentos | CA-K09 (parte) |
-| C-06 | Búsqueda `pgfts` con vigencia y `at`, lectura de sección y documento | CA-K09, RF-20..RF-24 |
+| C-06 | Búsqueda `pgfts` con vigencia, `at` y `known_at` (`recorded_from`/`recorded_until`), filtros temporal y de permisos comunes a todo `Retriever`, `nexo_kb_index_versions`, lectura de sección y documento (design §14) | CA-K09, RF-20..RF-24 |
+| C-10 | Medición: formato `eval/preguntas.yaml` y comando `engram nexo kb eval` (Recall@5, MRR) contra el servidor y la copia local con BM25 (design §14.5) | Línea base de calidad de búsqueda |
 | C-07 | Propuestas y revisión, con conflicto de versión | CA-K07, CA-K08 |
 | C-08 | Rutas `/nexo/kb/v1` con capacidades y paginación | Tests HTTP por ruta, CA-K06, CA-K13 |
 | C-09 | Feed `/sync` con espacios visibles | Tests de feed |

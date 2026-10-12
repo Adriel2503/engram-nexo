@@ -352,7 +352,7 @@ paginación por cursor opaco (máximo 200) como NX-03.
 | Necesidad futura | Dónde se agrega |
 |---|---|
 | Word, Excel, PDF, PowerPoint | Nuevas implementaciones de `ingest.Converter` registradas por extensión; servidor y CLI comparten el paquete |
-| Búsqueda semántica | Tabla nueva `nexo_kb_section_embeddings (section_id, model, dims, vector)` y un `Retriever` híbrido; no cambia `nexo_kb_sections` ni la API |
+| Búsqueda semántica, BM25 o grafo | Índices derivados y reconstruibles detrás de `Retriever`; ver sección 14 |
 | Nuevo rol o cambio de permisos | Tabla de capacidades de `internal/nexo/authz` y el CHECK de `nexo_role_bindings.role` (vale para proyectos y espacios) |
 | Alcance y caducidad de tokens (NX-06) | `Identity.TokenScope` ya participa en `authz.Can` |
 | Notificaciones (Slack, correo) | Consumidor de `nexo_kb_events` |
@@ -399,5 +399,97 @@ paginación por cursor opaco (máximo 200) como NX-03.
 | Cliente | Copia local: aplicar feed, borrar espacios no visibles, búsqueda offline |
 | E2E | CA-K01..CA-K13 con Ana, Luis y CI en un compose propio (patrón `06-pruebas/trazabilidad`) |
 | Rendimiento | RNF-K1 con 1 millón de secciones; RNF-K2 con 50 000 secciones locales |
+
+## 14. Arquitectura de indexación y evolución de la recuperación
+
+Decisión (2026-10-12): la forma de **guardar** el conocimiento en el tiempo y la forma de
+**buscarlo** son decisiones independientes. Lo temporal es una propiedad de la fuente de verdad; RAG
+de texto, híbrido o de grafo son índices derivados que respetan esa temporalidad y los permisos.
+
+### 14.1 Flujo
+
+```
+ 1. INGESTA        repositorio git / CLI / propuesta aprobada
+                        |
+ 2. NORMALIZAR     md, docx, xlsx, pdf  ->  Markdown (ingest.Converter)
+                        |
+ 3. FUENTE DE      documento -> versión inmutable -> secciones
+    VERDAD         cada sección: valid_from / valid_until      (reloj del mundo: qué regía)
+    (bitemporal)                 recorded_from / recorded_until (reloj del registro: qué estaba publicado)
+                        |
+                   cola de cambios (nexo_kb_changes)
+                        |
+ 4. ÍNDICES        +--------------+-------------+-----------------------+
+    DERIVADOS      | Texto (FTS / | Vectores    | Grafo (tipo LightRAG) |
+    (reconstruibles| BM25)        | (embeddings)| entidades y relaciones|
+    desde 3)       | etapa 1      | etapa 3     | etapa 6               |
+                   +--------------+-------------+-----------------------+
+                   cada entrada copia los relojes y el espacio de su sección
+                        |
+ 5. CONSULTA       a) filtro temporal (at=, known_at=; por defecto vigente hoy)
+                   b) filtro de permisos (espacios visibles, authz.VisibleScopes)
+                   c) búsqueda en uno o varios índices (Retriever)
+                   d) fusión (RRF) y reordenamiento opcional
+                   e) respuesta con cita: espacio, documento, sección, versión, vigencia
+```
+
+### 14.2 Cómo encaja cada técnica
+
+| Técnica | Qué indexa | Cómo respeta lo temporal |
+|---|---|---|
+| Texto (FTS nativo de Postgres o BM25) | Secciones | Columnas de tiempo de la sección; filtro antes de rankear |
+| Vectores (pgvector) | Las mismas secciones | Mismo filtro, aplicado antes de fusionar |
+| Grafo tipo LightRAG / GraphRAG | Entidades y relaciones extraídas por un LLM de las secciones | Cada relación referencia su sección y versión de origen y hereda su vigencia (grafo temporal, como Zep/Graphiti o los hechos de Utopia); al reemplazarse la sección, la relación deja de estar vigente sin borrarse |
+| Temporal / bitemporal | No es un índice: columnas de tiempo de la fuente de verdad | Aplicado por todos los anteriores |
+
+### 14.3 Reglas de diseño
+
+1. **Se indexa por versión de sección**, no por documento: una consulta con `at=` o `known_at=` encuentra el texto de ese momento en cualquier índice.
+2. **Los índices son derivados y reconstruibles** desde las secciones, alimentados por `nexo_kb_changes` mediante indexadores idempotentes. Cambiar de modelo de embeddings, pasar a BM25 o agregar el grafo es reindexar, no migrar contenido.
+3. **Cada índice registra su versión** (motor, modelo de embeddings, configuración del grafo) en `nexo_kb_index_versions`, para convivir durante una transición y comparar con la evaluación (14.5).
+4. **El filtro temporal y el de permisos son comunes y obligatorios**: viven en la capa de consulta, no en cada índice; un `Retriever` nuevo no puede saltarlos (prueba que lo verifica).
+5. **Toda respuesta cita su origen** (espacio, documento, sección, versión, vigencia), venga del texto, de un vector o del grafo (RN-03, HU-05).
+6. **La fuente de verdad sigue siendo el documento aprobado.** A diferencia de Utopia, los hechos o relaciones extraídos nunca son fuente de verdad ni requieren revisión individual: si son incorrectos, se corrige el documento y se reindexa.
+
+### 14.4 Cambios de datos que esto implica
+
+- `nexo_kb_sections`: agregar `recorded_from` (= `published_at` de su versión) y `recorded_until` (= publicación de la versión siguiente, retiro o reemplazo; NULL si es la actual). `is_current` se mantiene como atajo indexado.
+- Búsqueda: parámetro `known_at=` además de `at=` (bitemporal ligero, etapa 2).
+- `nexo_kb_index_versions (index_kind, version, config JSONB, status, built_at)`.
+- Etapa 3: `nexo_kb_section_embeddings (section_id, index_version, vector)` con índice HNSW por versión.
+- Etapa 6: `nexo_kb_graph_entities` y `nexo_kb_graph_relations` con `section_id`, `version_id`, `valid_from`, `valid_until`, `index_version`.
+
+### 14.5 Medición (etapa 0)
+
+- Conjunto de evaluación: 30 a 50 preguntas reales de los desarrolladores, cada una con la o las secciones esperadas, versionado junto a los lineamientos (`eval/preguntas.yaml`).
+- Comando `engram nexo kb eval <archivo> [--retriever pgfts|local-bm25|hybrid]`: acierto en los 5 primeros (Recall@5) y posición media del acierto (MRR).
+- Comparación sin costo extra: el mismo conjunto contra el servidor (FTS nativo de Postgres con `ts_rank_cd`) y contra la copia local (SQLite FTS5 con BM25 real).
+- Reglas de decisión: Recall@5 >= 85 % se mantiene; si BM25 local supera claramente al nativo, pasar a una extensión BM25 en Postgres (pg_textsearch, VectorChord-bm25 o pg_search, según disponibilidad en el Postgres de producción); si ambos fallan en paráfrasis o sinónimos, pasar a híbrido; grafo solo si quedan preguntas de varios saltos sin resolver.
+
+### 14.6 Escalera de evolución
+
+| Etapa | Qué | Cuándo | Requisitos que mejora |
+|---|---|---|---|
+| 0. Medir | Conjunto de evaluación y comando `eval` | Con la entrega 2 | Base de las decisiones siguientes |
+| 1. Texto + vigencia | FTS en español, vigencia, versiones, `at=` | Entrega 2 | HU-05, HU-08, RN-03 |
+| 2. Bitemporal ligero | `known_at=` con `recorded_from` y `recorded_until` | Entrega 2 | HU-20 c2, auditorías |
+| 3. Híbrido | pgvector, embeddings por sección en el servidor, RRF, reordenamiento opcional; la copia local sigue solo con texto | Cuando la medición lo justifique y exista decisión sobre el origen de los embeddings | HU-05 c2 |
+| 4. Aplicabilidad | Metadatos `applies_to` (stack, área); el inicio de sesión inyecta solo los estándares del stack del repositorio | Entrega 3 | RNF-05, HU-05 c3 |
+| 5. Contradicciones | Al guardar una memoria de proyecto, buscar secciones oficiales similares y marcar contradicciones | Después del híbrido | RN-02, HU-07 c2 |
+| 6. Grafo temporal | Entidades y relaciones derivadas con vigencia y cita a la sección | Solo si quedan preguntas de varios saltos sin resolver | Preguntas transversales complejas |
+
+### 14.7 Motores considerados
+
+| Opción | Uso en Nexo |
+|---|---|
+| Postgres nativo (FTS con `ts_rank_cd`) | Etapa 1: sin dependencias, raíces en español, permisos en la misma consulta |
+| Postgres + extensión BM25 (pg_textsearch, VectorChord-bm25, pg_search) | Si la medición lo justifica; incompatibles entre sí a nivel de índice; verificar disponibilidad en el Postgres de producción |
+| Postgres + pgvector | Etapa 3 (híbrido) |
+| Meilisearch | Primera alternativa externa si se necesita búsqueda instantánea y tolerancia a errores de tipeo en una interfaz |
+| OpenSearch / Elasticsearch | Solo a gran escala; duplica datos y permisos |
+| Glean u otra plataforma SaaS | Fuera de alcance: no aplica el modelo de gobierno de Nexo y los datos quedan en su nube |
+
+Decisión pendiente para la etapa 3: origen de los embeddings, API externa (los lineamientos salen de
+la empresa) o modelo propio en el servidor (por ejemplo, Ollama). Depende de la política de Real Plaza.
 
 
