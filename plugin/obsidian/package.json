@@ -23,7 +23,7 @@
     "builtin-modules": "^5.4.0",
     "esbuild": "^0.21.0",
     "lockfile-lint": "^4.14.1",
-    "obsidian": "^1.4.0",
+    "obsidian": "^1.14.4",
     "typescript": "^5.0.0"
   }
 }
