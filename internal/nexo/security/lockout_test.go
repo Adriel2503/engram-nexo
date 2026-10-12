@@ -117,6 +117,53 @@ func TestLockoutExpiresStatesAndIsConcurrent(t *testing.T) {
 	}
 }
 
+// D-S2-8: por IP cuentan tokens distintos; el mismo token repetido suma una
+// vez por ventana; al vencer la ventana vuelve a contar.
+func TestLockoutFailTokenCountsDistinct(t *testing.T) {
+	clk := newFakeClock()
+	l := NewLockout(DefaultLockout(), clk.Now)
+	key := LockoutIPKey("10.0.0.20")
+	fixed := l.Fingerprint("egc_live_malpegado")
+	if fixed != l.Fingerprint("egc_live_malpegado") || fixed == l.Fingerprint("egc_live_otro") {
+		t.Fatal("huella estable y distinta por token")
+	}
+	if other := NewLockout(DefaultLockout(), clk.Now); other.Fingerprint("egc_live_malpegado") == fixed {
+		t.Fatal("la clave de la huella es aleatoria por proceso")
+	}
+	for i := 0; i < 1000; i++ { // autosync con el mismo token
+		if lockedNow, failures, _ := l.FailToken(key, fixed); lockedNow || failures != 1 {
+			t.Fatalf("token repetido %d: %d", i, failures)
+		}
+	}
+	for i := 0; i < 18; i++ {
+		l.FailToken(key, l.Fingerprint(fmt.Sprintf("t%d", i)))
+		l.FailToken(key, l.Fingerprint(fmt.Sprintf("t%d", i)))
+	}
+	if locked, _ := l.Locked(key); locked {
+		t.Fatal("19 tokens distintos no bloquean")
+	}
+	lockedNow, failures, _ := l.FailToken(key, l.Fingerprint("t-20"))
+	if !lockedNow || failures != 20 {
+		t.Fatalf("el 20.º token distinto bloquea: %v %d", lockedNow, failures)
+	}
+	// Ventana: el mismo token vuelve a contar (una vez) en la ventana siguiente.
+	k2 := LockoutIPKey("10.0.0.21")
+	l.FailToken(k2, fixed)
+	clk.Add(5 * time.Minute)
+	if _, failures, _ := l.FailToken(k2, fixed); failures != 1 {
+		t.Fatalf("nueva ventana: %d", failures)
+	}
+	// Fail (por persona) sigue contando intentos.
+	for i := 1; i <= 20; i++ {
+		if lockedNow, _, _ := l.Fail(LockoutUserKey("9")); lockedNow != (i == 20) {
+			t.Fatalf("intentos por persona: %d", i)
+		}
+	}
+	if _, err := ParseLockout(`{"max_failures":10001}`); err == nil {
+		t.Fatal("max_failures acotado")
+	}
+}
+
 func TestClassifyAuthFailure(t *testing.T) {
 	cases := map[string]string{
 		"unknown_token": FailureIP, "malformed_bearer": FailureIP, "invalid_token": FailureIP,

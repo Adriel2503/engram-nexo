@@ -3,10 +3,19 @@ package security
 // Fase S2-02 (RS-11, design §3.2): bloqueo temporal por fallos repetidos de
 // autenticación, por IP y por usuario.
 //
-// Qué cuenta cada clave (ver design §8, D-S2-3):
-//   - ip:<ip>    fallos no atribuibles a una persona: token desconocido o mal
-//                formado (adivinar tokens) y login del panel con un token
-//                desconocido.
+// Qué cuenta cada clave (ver design §8, D-S2-3 y D-S2-8):
+//   - ip:<ip>    TOKENS DISTINTOS rechazados por motivos no atribuibles a una
+//                persona (token desconocido o mal formado, login del panel con
+//                un token desconocido) dentro de la ventana, no intentos: el
+//                mismo token inválido repetido (autosync de una PC con un
+//                token mal pegado o de un usuario eliminado, cada ~30 s) suma
+//                una sola vez y no bloquea a una oficina entera detrás de un
+//                NAT. Adivinar tokens exige probar valores distintos, así que
+//                el umbral sigue cortando la fuerza bruta. Cada token se
+//                identifica por una huella HMAC-SHA256 truncada a 64 bits con
+//                una clave aleatoria del proceso: el valor en claro nunca se
+//                guarda, solo vive en memoria y el conjunto por clave está
+//                acotado por el umbral.
 //   - user:<id>  fallos atribuibles a una persona: token revocado o persona
 //                deshabilitada. Un token vencido NO cuenta: es el ciclo de vida
 //                normal (el autosync de una PC con el token vencido reintenta
@@ -16,6 +25,10 @@ package security
 // resolver el token.
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"hash/maphash"
@@ -30,22 +43,27 @@ const AuthLockoutEnv = "NEXO_AUTH_LOCKOUT"
 // LockoutConfig son los umbrales del bloqueo.
 type LockoutConfig struct {
 	Enabled         bool
-	MaxFailures     int           // fallos por IP dentro de Window que bloquean
+	MaxFailures     int           // tokens distintos rechazados por IP dentro de Window que bloquean
 	UserMaxFailures int           // fallos por usuario dentro de Window (0 = sin bloqueo por usuario)
 	Window          time.Duration // ventana de conteo
 	Duration        time.Duration // duración del bloqueo
 }
 
-// DefaultLockout: 20 fallos en 5 minutos bloquean 15 minutos (design §3.2).
+// DefaultLockout: 20 tokens distintos por IP (o 20 fallos de una persona) en
+// 5 minutos bloquean 15 minutos (design §3.2 y §8, D-S2-8).
 func DefaultLockout() LockoutConfig {
 	return LockoutConfig{Enabled: true, MaxFailures: 20, UserMaxFailures: 20, Window: 5 * time.Minute, Duration: 15 * time.Minute}
 }
+
+// MaxLockoutFailures acota max_failures: es también el tamaño máximo del
+// conjunto de huellas por IP.
+const MaxLockoutFailures = 10000
 
 func (c LockoutConfig) String() string {
 	if !c.Enabled {
 		return "desactivado"
 	}
-	return fmt.Sprintf("ip %d y usuario %d fallos en %s bloquean %s", c.MaxFailures, c.UserMaxFailures, c.Window, c.Duration)
+	return fmt.Sprintf("ip %d tokens distintos y usuario %d fallos en %s bloquean %s", c.MaxFailures, c.UserMaxFailures, c.Window, c.Duration)
 }
 
 type lockoutJSON struct {
@@ -87,8 +105,8 @@ func ParseLockout(raw string) (LockoutConfig, error) {
 	if in.LockoutSeconds != nil {
 		cfg.Duration = time.Duration(*in.LockoutSeconds) * time.Second
 	}
-	if cfg.MaxFailures < 1 || cfg.UserMaxFailures < 0 || cfg.Window < time.Second || cfg.Duration < time.Second {
-		return DefaultLockout(), fmt.Errorf("%s: max_failures >= 1, user_max_failures >= 0, window_seconds y lockout_seconds >= 1", AuthLockoutEnv)
+	if cfg.MaxFailures < 1 || cfg.MaxFailures > MaxLockoutFailures || cfg.UserMaxFailures < 0 || cfg.Window < time.Second || cfg.Duration < time.Second {
+		return DefaultLockout(), fmt.Errorf("%s: max_failures entre 1 y %d (tokens distintos por IP), user_max_failures >= 0, window_seconds y lockout_seconds >= 1", AuthLockoutEnv, MaxLockoutFailures)
 	}
 	return cfg, nil
 }
@@ -97,6 +115,7 @@ type failState struct {
 	windowStart int64
 	count       int
 	lockedUntil int64
+	seen        map[uint64]struct{} // huellas de tokens ya contados en la ventana (solo FailToken)
 }
 
 type lockoutShard struct {
@@ -110,6 +129,7 @@ type lockoutShard struct {
 type Lockout struct {
 	cfg    LockoutConfig
 	seed   maphash.Seed
+	fpKey  [32]byte // clave HMAC de las huellas de tokens (aleatoria, solo en memoria)
 	shards [limiterShards]lockoutShard
 	now    func() time.Time
 }
@@ -120,10 +140,22 @@ func NewLockout(cfg LockoutConfig, now func() time.Time) *Lockout {
 		now = time.Now
 	}
 	l := &Lockout{cfg: cfg, seed: maphash.MakeSeed(), now: now}
+	if _, err := rand.Read(l.fpKey[:]); err != nil {
+		panic(fmt.Sprintf("nexo: lockout: random key: %v", err))
+	}
 	for i := range l.shards {
 		l.shards[i].states = map[string]*failState{}
 	}
 	return l
+}
+
+// Fingerprint devuelve la huella de un token presentado: HMAC-SHA256 con la
+// clave del proceso, truncado a 64 bits. No permite recuperar el token ni
+// compararlo fuera de este proceso.
+func (l *Lockout) Fingerprint(presented string) uint64 {
+	mac := hmac.New(sha256.New, l.fpKey[:])
+	_, _ = mac.Write([]byte(presented))
+	return binary.BigEndian.Uint64(mac.Sum(nil)[:8])
 }
 
 // Config devuelve la configuración vigente.
@@ -156,10 +188,22 @@ func (l *Lockout) Locked(key string) (bool, time.Duration) {
 	return true, time.Duration(st.lockedUntil - now)
 }
 
-// Fail suma un fallo. Devuelve lockedNow = true solo cuando este fallo
-// inicia un bloqueo (para registrar un único evento auth.lockout), con la
-// cantidad de fallos que lo dispararon y su fin.
+// Fail suma un fallo (cada intento cuenta; se usa por persona). Devuelve
+// lockedNow = true solo cuando este fallo inicia un bloqueo (para registrar
+// un único evento auth.lockout), con la cantidad de fallos que lo
+// dispararon y su fin.
 func (l *Lockout) Fail(key string) (lockedNow bool, failures int, until time.Time) {
+	return l.fail(key, 0, false)
+}
+
+// FailToken suma un fallo solo si el token (su huella, ver Fingerprint) no
+// se contó ya en la ventana vigente de la clave: cuenta tokens distintos,
+// no intentos (por IP, D-S2-8). Mismos resultados que Fail.
+func (l *Lockout) FailToken(key string, fingerprint uint64) (lockedNow bool, failures int, until time.Time) {
+	return l.fail(key, fingerprint, true)
+}
+
+func (l *Lockout) fail(key string, fingerprint uint64, distinct bool) (lockedNow bool, failures int, until time.Time) {
 	if l == nil || !l.cfg.Enabled || key == "" {
 		return false, 0, time.Time{}
 	}
@@ -202,7 +246,16 @@ func (l *Lockout) Fail(key string) (lockedNow bool, failures int, until time.Tim
 		return false, st.count, time.Unix(0, st.lockedUntil)
 	}
 	if now-st.windowStart >= window {
-		st.windowStart, st.count = now, 0
+		st.windowStart, st.count, st.seen = now, 0, nil
+	}
+	if distinct {
+		if _, dup := st.seen[fingerprint]; dup {
+			return false, st.count, time.Time{} // el mismo token ya contó en esta ventana
+		}
+		if st.seen == nil {
+			st.seen = make(map[uint64]struct{}, 4)
+		}
+		st.seen[fingerprint] = struct{}{} // a lo sumo limit huellas: al llegar se bloquea y se vacía
 	}
 	st.count++
 	if st.count < limit {
@@ -210,7 +263,7 @@ func (l *Lockout) Fail(key string) (lockedNow bool, failures int, until time.Tim
 	}
 	failures = st.count
 	st.lockedUntil = now + int64(l.cfg.Duration)
-	st.windowStart, st.count = now, 0
+	st.windowStart, st.count, st.seen = now, 0, nil
 	return true, failures, time.Unix(0, st.lockedUntil)
 }
 

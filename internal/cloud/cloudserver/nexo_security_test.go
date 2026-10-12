@@ -359,6 +359,79 @@ func TestNexoAuthLockoutByUserAndExpiredTokens(t *testing.T) {
 	}
 }
 
+// D-S2-8: por IP cuentan tokens distintos, no intentos. Una PC con un token
+// mal pegado (autosync cada ~30 s) no bloquea a la oficina detrás del NAT;
+// 20 tokens distintos sí bloquean. El login del panel sigue el mismo criterio.
+func TestNexoAuthLockoutCountsDistinctTokensPerIP(t *testing.T) {
+	env := newNexoSecEnv(t, nil)
+	const ip = "10.41.0.1"
+	const fixed = "raw:egc_live_malpegado_xxxxxxxxxxxxxxxxxxxxxxxx"
+	login := func(token string) int {
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/login", strings.NewReader(url.Values{"token": {token}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = ip + ":1"
+		rec := httptest.NewRecorder()
+		env.h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// 1) El mismo token inválido 100 veces (más que 20 en la ventana), por
+	// sync y por el login del panel, y la misma cabecera mal formada 50 veces.
+	for i := 0; i < 100; i++ {
+		if rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", fixed, "", ip); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("token fijo, intento %d: %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	for i := 0; i < 10; i++ { // límite del grupo login: 20/min por IP
+		if code := login(strings.TrimPrefix(fixed, "raw:")); code != http.StatusUnauthorized && code != http.StatusOK {
+			t.Fatalf("login con token inválido: %d", code)
+		}
+	}
+	for i := 0; i < 50; i++ {
+		if rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", "raw:mal formado", "", ip); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("cabecera mal formada %d: %d", i, rec.Code)
+		}
+	}
+	// Las demás PCs de la misma IP siguen sincronizando.
+	if rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", "ana", "", ip); rec.Code != http.StatusOK {
+		t.Fatalf("D-S2-8: un token inválido fijo bloqueó la IP: %d %s", rec.Code, rec.Body.String())
+	}
+	// Cada rechazo sigue auditado (evento de Engram por rechazo).
+	if n := env.count(`SELECT count(*) FROM cloud_auth_audit_log WHERE action = 'sync.auth' AND reason_code = 'unknown_token'`); n != 100 {
+		t.Fatalf("rechazos auditados = %d, want 100", n)
+	}
+	// 2) Van 2 tokens distintos (el fijo y la cabecera mal formada); 17 más
+	// suman 19: sin bloqueo. El 20.º distinto bloquea.
+	for i := 0; i < 17; i++ {
+		env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", fmt.Sprintf("raw:egc_live_distinto%02d_xxxxxxxxxxxxxxxxxxxx", i), "", ip)
+		env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", fmt.Sprintf("raw:egc_live_distinto%02d_xxxxxxxxxxxxxxxxxxxx", i), "", ip) // repetido: no suma
+	}
+	if rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", "ana", "", ip); rec.Code != http.StatusOK {
+		t.Fatalf("19 tokens distintos no bloquean: %d", rec.Code)
+	}
+	if code := login("egc_live_vigesimo_distinto_xxxxxxxxxxxxxxxxxx"); code == http.StatusSeeOther {
+		t.Fatal("login con token inválido")
+	}
+	rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", "ana", "", ip)
+	if rec.Code != http.StatusTooManyRequests || nexoJSON(t, rec)["error_code"] != "auth_locked" {
+		t.Fatalf("CA-S05: 20 tokens distintos deben bloquear la IP: %d %s", rec.Code, rec.Body.String())
+	}
+	var meta string
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := env.db.QueryRow(`SELECT metadata::text FROM cloud_auth_audit_log WHERE action = 'auth.lockout' AND metadata->>'client_ip' = $1`, ip).Scan(&meta)
+		if err == nil || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !strings.Contains(meta, `"counts": "distinct_tokens"`) || !strings.Contains(meta, `"failures": 20`) {
+		t.Fatalf("evento auth.lockout: %q", meta)
+	}
+	if strings.Contains(meta, "malpegado") || strings.Contains(meta, "distinto") {
+		t.Fatal("el evento no guarda tokens")
+	}
+}
+
 // ─── CA-S06: sin auto-asignación ─────────────────────────────────────────────
 
 func TestNexoNoSelfGrant(t *testing.T) {
@@ -545,6 +618,138 @@ func TestNexoDashboardSessionFollowsToken(t *testing.T) {
 	}
 	if rec := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/admin/users/"+env.ids["ana"], cookie); rec.Code != http.StatusSeeOther {
 		t.Fatalf("sesión con token vencido: %d", rec.Code)
+	}
+}
+
+// D-S3-8: alcance read con "negar por defecto" en las rutas de Engram; las
+// POST de /admin/* también niegan a un token read (authz.Can).
+func TestNexoReadScopeDenyByDefault(t *testing.T) {
+	env := newNexoSecEnv(t, nil)
+	ids := env.ids
+	const ip = "10.91.0.1"
+	env.issue("ana", "ana-read", security.TokenIssue{Days: 30, Scope: "read"})
+	env.issue("carla", "carla-read", security.TokenIssue{Days: 30, Scope: "read"})
+	// Rutas de escritura de Engram que antes no estaban en la lista negra.
+	writes := map[string]string{
+		"/sync/session-authorities":        `{"session_id":"s-1","owner_project":"nexo-transversal"}`,
+		"/sync/prompt-pair-claims":         `{"session_id":"s-1","source_inbox_id":"i-1","sync_id":"p-1","prompt_project":"nexo-transversal"}`,
+		"/sync/prompt-source-attestations": `{"session_id":"s-1","source_inbox_id":"i-1","sync_id":"p-1","owner_project":"nexo-transversal","prompt_project":"nexo-transversal"}`,
+		"/sync/push":                       nexoMutationBody,
+		"/sync/mutations/push":             nexoMutationBody,
+	}
+	for path, body := range writes {
+		rec := env.req(http.MethodPost, path, "ana-read", body, ip)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "read-only") || nexoJSON(t, rec)["error_code"] != "policy_forbidden" {
+			t.Fatalf("POST %s con token read: %d %s", path, rec.Code, rec.Body.String())
+		}
+		// Con token write la ruta no se niega por alcance (puede fallar por
+		// otros motivos de Engram, como permisos de proyecto).
+		if rec := env.req(http.MethodPost, path, "ana", body, ip); strings.Contains(rec.Body.String(), "read-only") {
+			t.Fatalf("POST %s con token write: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	// Una ruta de escritura nueva (sin registrar en ninguna lista) también se niega.
+	probe := httptest.NewRequest(http.MethodPost, "/sync/futura-escritura", nil)
+	probe.Pattern = "POST /sync/futura-escritura"
+	if !nexoReadScopeDenies(probe) {
+		t.Fatal("una ruta POST nueva de Engram debe negarse a un token read sin tocar listas")
+	}
+	// Lectura: GET y la POST de solo lectura de la lista blanca.
+	if rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", "ana-read", "", ip); rec.Code != http.StatusOK {
+		t.Fatalf("GET con token read: %d %s", rec.Code, rec.Body.String())
+	}
+	rec := env.req(http.MethodPost, "/sync/prompt-source-attestations/verify", "ana-read", `{"audit_id":1,"session_id":"s-1","source_inbox_id":"i-1","sync_id":"p-1","owner_project":"nexo-transversal","prompt_project":"nexo-transversal"}`, ip)
+	if strings.Contains(rec.Body.String(), "read-only") {
+		t.Fatalf("verify (solo lectura) con token read: %d %s", rec.Code, rec.Body.String())
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_auth_audit_log WHERE reason_code = 'token_scope_read' AND metadata->>'route' = 'POST /sync/session-authorities'`); n != 1 {
+		t.Fatalf("denegación auditada con la ruta: %d", n)
+	}
+	// /admin/*: todas las POST niegan a un admin con token read.
+	adminPosts := map[string]string{
+		"/admin/users":                                   `{"username":"x9"}`,
+		"/admin/users/" + ids["ana"] + "/enable":         ``,
+		"/admin/users/" + ids["ana"] + "/disable":        ``,
+		"/admin/users/" + ids["ana"] + "/tokens":         `{"name":"x"}`,
+		"/admin/tokens/1/revoke":                         ``,
+		"/admin/users/" + ids["ana"] + "/grants":         `{"project":"x"}`,
+		"/admin/users/" + ids["ana"] + "/grants/x/revoke": ``,
+	}
+	for path, body := range adminPosts {
+		if rec := env.req(http.MethodPost, path, "carla-read", body, ip); rec.Code != http.StatusForbidden {
+			t.Fatalf("POST %s con token read de superadmin: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_principals WHERE enabled = false`); n != 0 {
+		t.Fatalf("un token read deshabilitó personas: %d", n)
+	}
+}
+
+// D-S3-9: una sesión del panel hereda el alcance del token con que se abrió.
+// Con write administra; con read solo mira.
+func TestNexoDashboardReadSessionCannotAdminister(t *testing.T) {
+	env := newNexoSecEnv(t, nil)
+	ids := env.ids
+	env.issue("carla", "carla-read", security.TokenIssue{Days: 30, Scope: "read"})
+	anaTok := env.issue("ana", "ana-extra", security.TokenIssue{Days: 30, Scope: "write"})
+	if _, err := env.db.Exec(`INSERT INTO cloud_project_grants (principal_id, project) VALUES ($1::bigint, 'proyecto-a')`, ids["luis"]); err != nil {
+		t.Fatal(err)
+	}
+	readCookie := managedDashboardLogin(t, env.srv, env.tokens["carla-read"], false)
+	writeCookie := managedDashboardLogin(t, env.srv, env.tokens["carla"], false)
+	actions := []struct{ path, form string }{
+		{"/dashboard/admin/users", "username=nuevo1&display_name=Nuevo&role=member"},
+		{"/dashboard/admin/users/" + ids["ana"] + "/tokens", "name=panel"},
+		{"/dashboard/admin/tokens/" + anaTok + "/revoke", ""},
+		{"/dashboard/admin/users/" + ids["ana"] + "/grants", "project=proyecto-b"},
+		{"/dashboard/admin/users/" + ids["luis"] + "/grants/proyecto-a/revoke", ""},
+		{"/dashboard/admin/users/" + ids["pedro"] + "/disable", ""},
+		{"/dashboard/admin/projects/proyecto-a/sync", "enabled=false&reason=prueba"},
+	}
+	// Lectura con la sesión read: sí.
+	if rec := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/admin/users/"+ids["ana"], readCookie); rec.Code != http.StatusOK {
+		t.Fatalf("lectura del panel con sesión read: %d", rec.Code)
+	}
+	for _, a := range actions {
+		for _, htmx := range []bool{false, true} {
+			rec := performDashboardForm(env.srv, http.MethodPost, a.path, a.form, readCookie, htmx)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("panel read, POST %s (htmx=%v): %d %s", a.path, htmx, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_auth_audit_log WHERE action = 'dashboard.authorize' AND reason_code = 'token_scope_read'`); n != 2*len(actions) {
+		t.Fatalf("denegaciones del panel auditadas: %d, want %d", n, 2*len(actions))
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_human_users WHERE username = 'nuevo1'`) +
+		env.count(`SELECT count(*) FROM cloud_principal_tokens WHERE name = 'panel' OR (id = $1::bigint AND revoked_at IS NOT NULL)`, anaTok) +
+		env.count(`SELECT count(*) FROM cloud_project_grants WHERE project = 'proyecto-b'`) +
+		env.count(`SELECT count(*) FROM cloud_principals WHERE enabled = false`) +
+		env.count(`SELECT count(*) FROM cloud_project_controls WHERE sync_enabled = false`); n != 0 {
+		t.Fatalf("la sesión read cambió datos: %d", n)
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_project_grants WHERE project = 'proyecto-a'`); n != 1 {
+		t.Fatalf("la sesión read revocó un permiso: %d", n)
+	}
+	// La misma persona con una sesión write sí administra.
+	for _, a := range actions {
+		rec := performDashboardForm(env.srv, http.MethodPost, a.path, a.form, writeCookie, false)
+		if rec.Code != http.StatusSeeOther && rec.Code != http.StatusOK {
+			t.Fatalf("panel write, POST %s: %d %s", a.path, rec.Code, rec.Body.String())
+		}
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_human_users WHERE username = 'nuevo1'`); n != 1 {
+		t.Fatalf("sesión write no creó el usuario: %d", n)
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_principals WHERE id = $1::bigint AND enabled = false`, ids["pedro"]); n != 1 {
+		t.Fatalf("sesión write no deshabilitó: %d", n)
+	}
+	if n := env.count(`SELECT count(*) FROM cloud_project_controls WHERE project = 'proyecto-a' AND sync_enabled = false`); n != 1 {
+		t.Fatalf("sesión write no pausó la sincronización: %d", n)
+	}
+	// Cerrar sesión con la sesión read sigue permitido.
+	if rec := performDashboardForm(env.srv, http.MethodPost, "/dashboard/logout", "", readCookie, false); rec.Code == http.StatusForbidden {
+		t.Fatalf("logout con sesión read: %d", rec.Code)
 	}
 }
 
