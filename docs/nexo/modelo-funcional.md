@@ -1,5 +1,10 @@
 # Modelo funcional: Engram operando como Utopia
 
+> **Nota (2026-10-12).** Las secciones 3 a 8 (dos cajas como proyectos y niveles `read/propose/write`)
+> quedan reemplazadas por `docs/nexo/roles/` (roles de plataforma y roles únicos para proyectos y
+> espacios, NX-05) y `docs/nexo/conocimiento/` (espacios de conocimiento, NX-10). Se conservan como
+> antecedente; la sección 9 (Engram propio y vigencia) sigue vigente.
+
 Estado: borrador para revisión. Fecha: 2026-10-12.
 Base: Engram v3.3.2 (fork engram-nexo). Referencia: Utopia rc9 (`repository/utopia`).
 
