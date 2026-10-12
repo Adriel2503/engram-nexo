@@ -1,0 +1,25 @@
+# Contexto de build para deploy/nexo/Dockerfile (BuildKit usa este archivo
+# en lugar de un .dockerignore en la raíz). Solo hace falta el código Go.
+.git
+.github
+.engram
+.devcontainer
+.claude-plugin
+.agents
+assets
+docs
+plugin
+skills
+odd
+**/*.exe
+**/*.test
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/.env
+**/.env.*
+**/*admin-token*.txt
+**/*.token
+**/*.pem
+**/*.key
+coverage.out

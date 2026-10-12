@@ -111,6 +111,32 @@ func TestNexoRecordActivityUnidentifiedPresence(t *testing.T) {
 	}
 }
 
+// RNF-03 (T-23): RecordActivity usa synchronous_commit=off solo dentro de su
+// transacción; la conexión vuelve al pool con el valor por defecto, así que las
+// escrituras de Engram (cambios, paquetes) siguen siendo síncronas.
+func TestNexoRecordActivityAsyncCommitIsTransactionLocal(t *testing.T) {
+	cs := openIsolatedCloudStore(t)
+	ctx := context.Background()
+	cs.db.SetMaxOpenConns(1) // fuerza a reutilizar la misma conexión
+	var before string
+	if err := cs.db.QueryRowContext(ctx, `SHOW synchronous_commit`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.RecordActivity(ctx, ActivityEvent{Actor: MutationActor{Name: NexoActorUnidentified}, Operation: NexoOpPushChunk, Project: "p", ItemCount: 1, LogDetail: true}); err != nil {
+		t.Fatalf("RecordActivity: %v", err)
+	}
+	var after string
+	if err := cs.db.QueryRowContext(ctx, `SHOW synchronous_commit`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before || after == "off" {
+		t.Fatalf("synchronous_commit leaked to the pooled connection: before=%q after=%q", before, after)
+	}
+	if n := nexoActivityCount(t, cs, `operation = $1`, NexoOpPushChunk); n != 1 {
+		t.Fatalf("activity rows = %d, want 1", n)
+	}
+}
+
 // CA-16 / RF-13 y RF-15.
 func TestNexoActivityLogIsImmutableAndPurgeable(t *testing.T) {
 	cs := openIsolatedCloudStore(t)

@@ -50,7 +50,7 @@ func NexoPresenceKey(actor MutationActor) string {
 }
 
 // RecordActivity inserta el detalle (si LogDetail) y actualiza la presencia en
-// una sola transacción.
+// una sola sentencia atómica.
 func (cs *CloudStore) RecordActivity(ctx context.Context, event ActivityEvent) error {
 	if cs == nil || cs.db == nil {
 		return fmt.Errorf("cloudstore: not initialized")
@@ -78,30 +78,31 @@ func (cs *CloudStore) RecordActivity(ctx context.Context, event ActivityEvent) e
 		}
 	}
 
-	tx, err := cs.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("cloudstore: nexo activity begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if event.LogDetail {
-		if _, err := tx.ExecContext(ctx, `
+	// RNF-03 (T-23): una sola sentencia (un viaje a Postgres) que es atómica por
+	// sí misma: el detalle (CTE "detail", solo si LogDetail) y la presencia se
+	// escriben juntos o no se escribe nada. Además, set_config(..., true) deja
+	// synchronous_commit=off solo para esta transacción implícita: el registro no
+	// espera el fsync del WAL. Antes eran BEGIN + INSERT + UPSERT + COMMIT
+	// síncrono (~6 ms medidos por petición). Ante una caída de Postgres se
+	// pueden perder las últimas filas de actividad (milisegundos), nunca datos
+	// de sincronización; las escrituras de Engram siguen siendo síncronas.
+	if _, err := cs.db.ExecContext(ctx, `
+		WITH cfg AS MATERIALIZED (
+			SELECT set_config('synchronous_commit', 'off', true) AS async_commit,
+				(SELECT u.email FROM cloud_human_users u WHERE u.principal_id::text = $3) AS email
+		), detail AS (
 			INSERT INTO nexo_activity_log (actor, actor_email, actor_principal_id, actor_token_id, actor_verified,
 				operation, project, item_count, client_ip, user_agent, client_claim)
-			VALUES ($1, (SELECT u.email FROM cloud_human_users u WHERE u.principal_id::text = $2),
-				NULLIF($2, ''), NULLIF($3, ''), $4, $5, NULLIF($6, ''), $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''))`,
-			actor.Name, actor.PrincipalID, actor.TokenID, actor.Verified,
-			operation, project, itemCount, clientIP, userAgent, actor.ClientClaim,
-		); err != nil {
-			return fmt.Errorf("cloudstore: nexo activity insert: %w", err)
-		}
-	}
-
-	if _, err := tx.ExecContext(ctx, `
+			SELECT $2, cfg.email, NULLIF($3, ''), NULLIF($4, ''), $5,
+				$13, NULLIF($9, ''), $14, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')
+			FROM cfg WHERE $12::boolean
+			RETURNING id
+		)
 		INSERT INTO nexo_actor_presence AS p (presence_key, actor, actor_email, actor_principal_id, actor_token_id,
 			actor_verified, last_ip, last_user_agent, last_client_claim, last_project, push_count, pull_count)
-		VALUES ($1, $2, (SELECT u.email FROM cloud_human_users u WHERE u.principal_id::text = $3),
-			NULLIF($3, ''), NULLIF($4, ''), $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10, $11)
+		SELECT $1, $2, cfg.email, NULLIF($3, ''), NULLIF($4, ''), $5,
+			NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10, $11
+		FROM cfg
 		ON CONFLICT (presence_key) DO UPDATE SET
 			actor             = EXCLUDED.actor,
 			actor_email       = EXCLUDED.actor_email,
@@ -115,12 +116,9 @@ func (cs *CloudStore) RecordActivity(ctx context.Context, event ActivityEvent) e
 			pull_count        = p.pull_count + EXCLUDED.pull_count`,
 		NexoPresenceKey(actor), actor.Name, actor.PrincipalID, actor.TokenID, actor.Verified,
 		clientIP, userAgent, actor.ClientClaim, project, pushInc, pullInc,
+		event.LogDetail, operation, itemCount,
 	); err != nil {
-		return fmt.Errorf("cloudstore: nexo presence upsert: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("cloudstore: nexo activity commit: %w", err)
+		return fmt.Errorf("cloudstore: nexo activity record: %w", err)
 	}
 	return nil
 }
