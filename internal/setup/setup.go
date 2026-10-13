@@ -1065,6 +1065,7 @@ func installClaudeCode() (*Result, error) {
 	}
 
 	// Step 1: Add marketplace (idempotent — if already added, claude will say so)
+	nexoReplaceForeignClaudeMarketplace(claudeBin) // NX-10
 	addOut, err := runCommand(claudeBin, "plugin", "marketplace", "add", claudeCodeMarketplace)
 	addOutputStr := strings.TrimSpace(string(addOut))
 	if err != nil {
@@ -1719,6 +1720,7 @@ func installCodex() (*Result, error) {
 	}
 
 	// Step 1: add the marketplace (idempotent — tolerate "already" in output).
+	nexoReplaceForeignCodexMarketplace(codexBin, path) // NX-10
 	addOut, err := runCommand(codexBin, "plugin", "marketplace", "add", codexMarketplace, "--ref", codexMarketplaceRef) // NX-10
 	addOutputStr := strings.TrimSpace(string(addOut))
 	if err != nil && !strings.Contains(strings.ToLower(addOutputStr), "already") {
