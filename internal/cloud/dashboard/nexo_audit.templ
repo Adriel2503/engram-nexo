@@ -1,0 +1,799 @@
+package dashboard
+
+// Nexo IA · SG-07 — pantallas del panel para el auditor: registro, actividad,
+// historial de un elemento, integridad de la cadena, alertas y revisión de
+// accesos. Archivo propio de Nexo: components.templ y layout.templ no cambian.
+// Todo el texto se escapa. Diseño: docs/nexo/panel/design.md §9.
+
+templ nexoAuditHead(title, hint, active string) {
+	<header class="nx-head">
+		<h1>{ title }</h1>
+		<p class="nx-hint">{ hint }</p>
+	</header>
+	<nav class="nx-filters" aria-label="Secciones de auditoría">
+		for _, s := range nexoAuditSections {
+			if s.Key == active {
+				<a href={ templ.URL(s.Path) } aria-current="page">{ s.Label }</a>
+			} else {
+				<a href={ templ.URL(s.Path) }>{ s.Label }</a>
+			}
+		}
+	</nav>
+}
+
+templ nexoAuditNotes(notice, errText string) {
+	if notice != "" {
+		<div class="nx-note" role="status"><p>{ notice }</p></div>
+	}
+	if errText != "" {
+		<div class="nx-note nx-note-error" role="alert"><p>{ errText }</p></div>
+	}
+}
+
+templ nexoAuditSelect(id, name, label string, opts []NexoOption) {
+	<label for={ id }>
+		{ label }
+		<select id={ id } name={ name }>
+			for _, o := range opts {
+				<option value={ o.Value } selected?={ o.Selected }>{ o.Label }</option>
+			}
+		</select>
+	</label>
+}
+
+templ nexoAuditPager(next, first string) {
+	if next != "" || first != "" {
+		<p class="nxa-pager">
+			if first != "" {
+				<a href={ templ.URL(first) }>Volver al inicio de la lista</a>
+			}
+			if next != "" {
+				<a href={ templ.URL(next) } rel="next">Ver más antiguos</a>
+			}
+		</p>
+	}
+}
+
+templ nexoAuditFlags(flags []NexoFlag) {
+	<div class="nxa-flags">
+	for _, f := range flags {
+		<span class={ f.Class }>{ f.Label }</span>
+	}
+	</div>
+}
+
+// NexoAuditForbiddenPage es la respuesta 403.
+templ NexoAuditForbiddenPage(p NexoAuditForbidden) {
+	<div class="nx-page">
+		<header class="nx-head">
+			<h1>Sin acceso a Auditoría</h1>
+		</header>
+		<div class="nx-note nx-note-error" role="alert"><p>{ p.Message }</p></div>
+		<p><a href="/dashboard/">Volver al inicio</a></p>
+	</div>
+}
+
+// ─── Registro ────────────────────────────────────────────────────────────────
+
+templ NexoAuditLogPage(p NexoAuditLogView) {
+	<div class="nx-page nxa">
+		@nexoAuditHead("Registro de auditoría", "Quién hizo qué y cuándo. Cada consulta a este registro queda anotada con tu nombre.", NexoAuditSecLog)
+		@nexoAuditNotes(p.Notice, p.Error)
+		<section class="nx-panel" aria-labelledby="nxa-log-t">
+			<h2 class="nx-h2" id="nxa-log-t">Eventos</h2>
+			<nav class="nx-filters" aria-label="Origen de los eventos">
+				for _, l := range p.SourceLinks {
+					if l.Current {
+						<a href={ templ.URL(l.URL) } aria-current="page">{ l.Label }</a>
+					} else {
+						<a href={ templ.URL(l.URL) }>{ l.Label }</a>
+					}
+				}
+			</nav>
+			<form method="get" action="/dashboard/admin/audit" class="nx-create nxa-filters">
+				<input type="hidden" name="src" value={ p.Source }/>
+				<label for="nxa-from">Desde <span class="nx-hint">fecha, UTC</span><input id="nxa-from" type="date" name="from" value={ p.From }/></label>
+				<label for="nxa-to">Hasta <span class="nx-hint">incluye ese día</span><input id="nxa-to" type="date" name="to" value={ p.To }/></label>
+				<label for="nxa-actor">Actor <span class="nx-hint">{ p.ActorHint }</span><input id="nxa-actor" type="text" name="actor" value={ p.Actor } autocomplete="off" maxlength="256"/></label>
+				<label for="nxa-action">Acción <span class="nx-hint">exacta o con * al final</span><input id="nxa-action" type="text" name="action" value={ p.Action } list="nxa-actions" autocomplete="off" maxlength="256" placeholder="token.* o authz.denied"/></label>
+				<datalist id="nxa-actions">
+					for _, a := range p.KnownAction {
+						<option value={ a }></option>
+					}
+				</datalist>
+				if p.Source == "roles" {
+					@nexoAuditSelect("nxa-scope-type", "scope_type", "Tipo de ámbito", p.ScopeTypes)
+					<label for="nxa-scope-key">Ámbito <span class="nx-hint">clave del proyecto o espacio</span><input id="nxa-scope-key" type="text" name="scope_key" value={ p.ScopeKey } autocomplete="off" maxlength="256"/></label>
+				} else {
+					@nexoAuditSelect("nxa-outcome", "outcome", "Resultado", p.Outcomes)
+					<label for="nxa-scope">Ámbito <span class="nx-hint">proyecto</span><input id="nxa-scope" type="text" name="project" value={ p.Scope } autocomplete="off" maxlength="256"/></label>
+				}
+				<div class="nxa-buttons">
+					<button type="submit">Filtrar</button>
+					if p.Filtered {
+						<a class="nexo-btn nexo-btn-secondary" href={ templ.URL(p.ClearURL) }>Quitar filtros</a>
+					}
+				</div>
+			</form>
+			if len(p.Rows) == 0 {
+				<p class="nx-empty">
+					if p.Filtered {
+						No hay eventos con esos filtros. Amplía el rango de fechas o quita el actor o la acción.
+					} else {
+						Todavía no hay eventos registrados.
+					}
+				</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Eventos de auditoría, del más reciente al más antiguo</caption>
+						<thead>
+							<tr>
+								<th scope="col">Fecha (UTC)</th>
+								<th scope="col">Actor</th>
+								<th scope="col">Acción</th>
+								<th scope="col">Resultado</th>
+								<th scope="col">Ámbito</th>
+								<th scope="col">Origen</th>
+								<th scope="col">Detalle</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, r := range p.Rows {
+								<tr>
+									<td class="nxa-nowrap"><time datetime={ r.WhenISO }>{ r.When }</time></td>
+									<td>
+										{ r.Actor }
+										if r.ActorSub != "" {
+											<span class="nxa-sub">{ r.ActorSub }</span>
+										}
+									</td>
+									<td>
+										<code class="nxa-code">{ r.Action }</code>
+										if r.Gloss != "" {
+											<span class="nxa-sub">{ r.Gloss }</span>
+										}
+									</td>
+									<td><span class={ r.OutcomeClass }>{ r.Outcome }</span></td>
+									<td>{ r.Scope }</td>
+									<td>
+										{ r.Origin }
+										if r.OriginSub != "" {
+											<span class="nxa-sub">{ r.OriginSub }</span>
+										}
+									</td>
+									<td>
+										if len(r.Details) > 0 {
+											<details class="nxa-details">
+												<summary>Ver</summary>
+												<dl class="nxa-kv">
+													for _, kv := range r.Details {
+														<dt>{ kv.Key }</dt>
+														<dd>{ kv.Value }</dd>
+													}
+												</dl>
+											</details>
+										}
+										if r.HistoryURL != "" {
+											<a href={ templ.URL(r.HistoryURL) }>Ver historial</a>
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				@nexoAuditPager(p.NextURL, p.FirstURL)
+			}
+		</section>
+	</div>
+}
+
+// ─── Actividad y presencia ───────────────────────────────────────────────────
+
+templ NexoAuditActivityPage(p NexoAuditActivityView) {
+	<div class="nx-page nxa">
+		@nexoAuditHead("Actividad y presencia", "Quién se conectó, desde qué IP y con qué cliente, y qué sincronizó.", NexoAuditSecActivity)
+		@nexoAuditNotes(p.Notice, p.Error)
+		<section class="nx-panel" aria-labelledby="nxa-act-f">
+			<h2 class="nx-h2" id="nxa-act-f">Filtros</h2>
+			<form method="get" action="/dashboard/admin/audit/activity" class="nx-create nxa-filters">
+				<label for="nxa-a-actor">Persona <span class="nx-hint">usuario, correo, nombre, id o no-identificado</span><input id="nxa-a-actor" type="text" name="actor" value={ p.Actor } autocomplete="off" maxlength="256"/></label>
+				<label for="nxa-a-project">Proyecto<input id="nxa-a-project" type="text" name="project" value={ p.Project } autocomplete="off" maxlength="256"/></label>
+				@nexoAuditSelect("nxa-a-op", "operation", "Operación", p.Operations)
+				<label for="nxa-a-from">Desde <span class="nx-hint">fecha, UTC</span><input id="nxa-a-from" type="date" name="from" value={ p.From }/></label>
+				<label for="nxa-a-to">Hasta <span class="nx-hint">incluye ese día</span><input id="nxa-a-to" type="date" name="to" value={ p.To }/></label>
+				<div class="nxa-buttons">
+					<button type="submit">Filtrar</button>
+					if p.Filtered {
+						<a class="nexo-btn nexo-btn-secondary" href="/dashboard/admin/audit/activity">Quitar filtros</a>
+					}
+				</div>
+			</form>
+		</section>
+		<section class="nx-panel" aria-labelledby="nxa-pres-t">
+			<h2 class="nx-h2" id="nxa-pres-t">Quién se conectó</h2>
+			<p class="nx-hint">Una fila por persona y token, con la última conexión. El filtro "Desde" limita a quienes se vieron después de esa fecha.</p>
+			if len(p.Presence) == 0 {
+				<p class="nx-empty">No hay conexiones registradas con esos filtros.</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Presencia por persona y token</caption>
+						<thead>
+							<tr>
+								<th scope="col">Persona</th>
+								<th scope="col">Token</th>
+								<th scope="col">Última conexión (UTC)</th>
+								<th scope="col">IP</th>
+								<th scope="col">Cliente</th>
+								<th scope="col">Último proyecto</th>
+								<th scope="col">Subidas</th>
+								<th scope="col">Descargas</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, r := range p.Presence {
+								<tr>
+									<td>
+										{ r.Actor }
+										if r.ActorSub != "" {
+											<span class="nxa-sub">{ r.ActorSub }</span>
+										}
+									</td>
+									<td>{ r.Token }</td>
+									<td class="nxa-nowrap">
+										<time datetime={ r.LastSeenISO }>{ r.LastSeen }</time>
+										<span class="nxa-sub">{ r.LastSeenAge }, desde { r.FirstSeen }</span>
+									</td>
+									<td class="nxa-nowrap">{ r.IP }</td>
+									<td class="nxa-wrap">{ r.Client }</td>
+									<td>{ r.Project }</td>
+									<td class="nxa-num">{ r.Pushes }</td>
+									<td class="nxa-num">{ r.Pulls }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				@nexoAuditPager(p.PresenceNext, "")
+			}
+		</section>
+		<section class="nx-panel" aria-labelledby="nxa-ops-t">
+			<h2 class="nx-h2" id="nxa-ops-t">Qué se sincronizó</h2>
+			<p class="nx-hint">Cada subida o descarga de memoria, con la IP y el cliente desde donde se hizo.</p>
+			if len(p.Activity) == 0 {
+				<p class="nx-empty">
+					if p.Filtered {
+						No hay operaciones con esos filtros. Amplía el rango de fechas o quita la persona o el proyecto.
+					} else {
+						Todavía no hay operaciones de sincronización registradas.
+					}
+				</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Operaciones de sincronización, de la más reciente a la más antigua</caption>
+						<thead>
+							<tr>
+								<th scope="col">Fecha (UTC)</th>
+								<th scope="col">Persona</th>
+								<th scope="col">Token</th>
+								<th scope="col">Operación</th>
+								<th scope="col">Proyecto</th>
+								<th scope="col">Elementos</th>
+								<th scope="col">IP</th>
+								<th scope="col">Cliente</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, r := range p.Activity {
+								<tr>
+									<td class="nxa-nowrap"><time datetime={ r.WhenISO }>{ r.When }</time></td>
+									<td>
+										{ r.Actor }
+										if r.ActorSub != "" {
+											<span class="nxa-sub">{ r.ActorSub }</span>
+										}
+									</td>
+									<td>{ r.Token }</td>
+									<td>{ r.Operation }</td>
+									<td>{ r.Project }</td>
+									<td class="nxa-num">{ r.Items }</td>
+									<td class="nxa-nowrap">{ r.IP }</td>
+									<td class="nxa-wrap">{ r.Client }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				@nexoAuditPager(p.ActivityNext, p.FirstURL)
+			}
+		</section>
+	</div>
+}
+
+// ─── Historial de un elemento ────────────────────────────────────────────────
+
+templ NexoAuditHistoryPage(p NexoAuditHistoryView) {
+	<div class="nx-page nxa">
+		@nexoAuditHead("Historial de un elemento", "Todas las versiones de una memoria (observación, sesión o prompt): quién la cambió y cuándo.", NexoAuditSecHistory)
+		@nexoAuditNotes(p.Notice, p.Error)
+		<section class="nx-panel" aria-labelledby="nxa-h-t">
+			<h2 class="nx-h2" id="nxa-h-t">Buscar un elemento</h2>
+			<form method="get" action="/dashboard/admin/audit/history" class="nx-create nxa-filters">
+				<label for="nxa-h-key">Clave del elemento <span class="nx-hint">el sync id completo, por ejemplo obs-1a2b3c</span><input id="nxa-h-key" type="text" name="key" value={ p.Key } required autocomplete="off" maxlength="256"/></label>
+				<label for="nxa-h-project">Proyecto <span class="nx-hint">opcional</span><input id="nxa-h-project" type="text" name="project" value={ p.Project } autocomplete="off" maxlength="256"/></label>
+				<label for="nxa-h-entity">Tipo <span class="nx-hint">opcional: observation, session, prompt</span><input id="nxa-h-entity" type="text" name="entity" value={ p.Entity } autocomplete="off" maxlength="256"/></label>
+				<div class="nxa-buttons"><button type="submit">Ver historial</button></div>
+			</form>
+			<p class="nx-hint">Esta pantalla no muestra el contenido de la memoria, solo quién la cambió y cuándo.</p>
+		</section>
+		if p.Searched {
+			<section class="nx-panel" aria-labelledby="nxa-h-r">
+				<h2 class="nx-h2" id="nxa-h-r">Versiones de { p.Key }</h2>
+				if len(p.Rows) == 0 {
+					<p class="nx-empty">No hay versiones registradas con esa clave. Revisa que sea la clave completa y, si usaste los filtros, que el proyecto y el tipo coincidan.</p>
+				} else {
+					<div class="nx-scroll">
+						<table class="nxa-table">
+							<caption class="nxa-sr">Versiones del elemento, de la más reciente a la más antigua</caption>
+							<thead>
+								<tr>
+									<th scope="col">Versión</th>
+									<th scope="col">Fecha (UTC)</th>
+									<th scope="col">Cambio</th>
+									<th scope="col">Persona</th>
+									<th scope="col">Token</th>
+									<th scope="col">Cliente</th>
+									<th scope="col">Tipo</th>
+									<th scope="col">Proyecto</th>
+									<th scope="col">Título</th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, r := range p.Rows {
+									<tr>
+										<td class="nxa-num">{ r.Version }</td>
+										<td class="nxa-nowrap"><time datetime={ r.WhenISO }>{ r.When }</time></td>
+										<td><span class={ r.OpClass }>{ r.Op }</span></td>
+										<td>
+											{ r.Actor }
+											if r.ActorSub != "" {
+												<span class="nxa-sub">{ r.ActorSub }</span>
+											}
+										</td>
+										<td>{ r.Token }</td>
+										<td class="nxa-wrap">{ r.Client }</td>
+										<td>{ r.Entity }</td>
+										<td>{ r.Project }</td>
+										<td class="nxa-wrap">{ r.Title }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+					@nexoAuditPager(p.NextURL, p.FirstURL)
+				}
+			</section>
+		}
+	</div>
+}
+
+// ─── Integridad ──────────────────────────────────────────────────────────────
+
+templ NexoAuditIntegrityPage(p NexoAuditIntegrityView) {
+	<div class="nx-page nxa">
+		@nexoAuditHead("Integridad de la evidencia", "Los registros de auditoría, de roles y de conocimiento están encadenados con hashes. Esta comprobación recorre la cadena y avisa si una fila cambió o falta.", NexoAuditSecIntegrity)
+		@nexoAuditNotes(p.Notice, p.Error)
+		<section class="nx-panel" aria-labelledby="nxa-i-t">
+			<h2 class="nx-h2" id="nxa-i-t">Comprobar</h2>
+			<form method="get" action="/dashboard/admin/audit/integrity" class="nx-create nxa-filters">
+				<input type="hidden" name="run" value="1"/>
+				@nexoAuditSelect("nxa-i-table", "table", "Qué registro", p.Tables)
+				<div class="nxa-buttons"><button type="submit">Verificar ahora</button></div>
+			</form>
+			<p class="nx-hint">Con muchos eventos puede tardar unos segundos. El servidor también la verifica solo cada hora y deja una alerta si falla. Cada comprobación manual queda anotada en el registro.</p>
+		</section>
+		if p.Ran {
+			<section aria-labelledby="nxa-i-r">
+				<h2 class="nxa-sr" id="nxa-i-r">Resultado</h2>
+				<div class={ nexoAuditVerdictClass(p.OK) } role={ nexoAuditVerdictRole(p.OK) }>
+					<p class="nxa-verdict-title">{ p.Verdict }</p>
+					<p>{ p.VerdictDetail }</p>
+					<p class="nx-hint">Comprobado el <time datetime={ p.VerifiedISO }>{ p.VerifiedAt }</time> UTC.</p>
+				</div>
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Resultado por registro</caption>
+						<thead>
+							<tr>
+								<th scope="col">Registro</th>
+								<th scope="col">Capa</th>
+								<th scope="col">Estado</th>
+								<th scope="col">Filas verificadas</th>
+								<th scope="col">Sin cadena</th>
+								<th scope="col">Alteradas</th>
+								<th scope="col">Faltantes</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, t := range p.Results {
+								<tr>
+									<td>{ t.What }<span class="nxa-sub"><code class="nxa-code">{ t.Name }</code></span></td>
+									<td>{ t.Layer }</td>
+									<td>
+										<span class={ nexoAuditStatusChip(t.OK) }>
+											if t.OK {
+												Íntegra
+											} else {
+												Con problemas
+											}
+										</span>
+									</td>
+									<td class="nxa-num">{ t.Checked }</td>
+									<td class="nxa-num">{ t.Unchained }</td>
+									<td class="nxa-num">{ t.Altered }</td>
+									<td class="nxa-num">{ t.Missing }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				for _, t := range p.Results {
+					if !t.OK {
+						<section class="nx-panel nxa-problem" aria-labelledby={ "nxa-p-" + t.Name }>
+							<h3 class="nx-h2" id={ "nxa-p-" + t.Name }>{ t.What }: qué se encontró</h3>
+							if t.Broken != nil {
+								<p>
+									<strong>Primera fila alterada:</strong>
+									id { t.Broken.ID }, posición { t.Broken.Seq } de la cadena. { t.Broken.Detail }.
+								</p>
+								<p class="nx-hint">Total de filas alteradas en este registro: { t.Altered }. Se muestra la primera; las siguientes se encuentran con el id en la base.</p>
+							}
+							if len(t.Gaps) > 0 {
+								<h4>Huecos en la cadena</h4>
+								<div class="nx-scroll">
+									<table class="nxa-table">
+										<caption class="nxa-sr">Tramos sin filas</caption>
+										<thead>
+											<tr>
+												<th scope="col">Desde la posición</th>
+												<th scope="col">Hasta la posición</th>
+												<th scope="col">Faltantes</th>
+												<th scope="col">Dónde</th>
+											</tr>
+										</thead>
+										<tbody>
+											for _, g := range t.Gaps {
+												<tr>
+													<td class="nxa-num">{ g.From }</td>
+													<td class="nxa-num">{ g.To }</td>
+													<td class="nxa-num">{ g.Missing }</td>
+													<td>{ g.Where }</td>
+												</tr>
+											}
+										</tbody>
+									</table>
+								</div>
+								if t.GapsNote != "" {
+									<p class="nx-hint">{ t.GapsNote }</p>
+								}
+							}
+							if len(t.Problems) > 0 {
+								<h4>Otros problemas</h4>
+								<ul>
+									for _, pr := range t.Problems {
+										<li>{ pr }</li>
+									}
+								</ul>
+							}
+						</section>
+					}
+				}
+				if !p.OK {
+					<div class="nx-note" role="note">
+						<p>Qué hacer: no borres ni modifiques nada. Avisa a quien opera el servidor y compara con la última exportación firmada fuera del servidor (servidor-produccion.md, sección 11.5). La alerta audit_chain_broken queda en la lista de alertas.</p>
+					</div>
+				}
+			</section>
+		}
+	</div>
+}
+
+// ─── Alertas ─────────────────────────────────────────────────────────────────
+
+templ NexoAuditAlertsPage(p NexoAuditAlertsView) {
+	<div class="nx-page nxa">
+		@nexoAuditHead("Alertas de seguridad", "Avisos que genera el servidor: ráfagas de rechazos, cambios de rol, cuentas sin uso y cadena alterada. Reconocer una alerta la cierra y deja tu nombre.", NexoAuditSecAlerts)
+		@nexoAuditNotes(p.Notice, p.Error)
+		<section class="nx-panel" aria-labelledby="nxa-al-t">
+			<h2 class="nx-h2" id="nxa-al-t">Lista</h2>
+			<nav class="nx-filters" aria-label="Estado de las alertas">
+				for _, l := range p.StateLinks {
+					if l.Current {
+						<a href={ templ.URL(l.URL) } aria-current="page">{ l.Label }</a>
+					} else {
+						<a href={ templ.URL(l.URL) }>{ l.Label }</a>
+					}
+				}
+			</nav>
+			<form method="get" action="/dashboard/admin/audit/alerts" class="nx-create nxa-filters">
+				<input type="hidden" name="state" value={ p.State }/>
+				@nexoAuditSelect("nxa-al-rule", "rule", "Regla", p.Rules)
+				@nexoAuditSelect("nxa-al-sev", "severity", "Severidad", p.Severities)
+				@nexoAuditSelect("nxa-al-layer", "layer", "Capa", p.Layers)
+				<div class="nxa-buttons">
+					<button type="submit">Filtrar</button>
+					if p.Filtered {
+						<a class="nexo-btn nexo-btn-secondary" href={ templ.URL(p.ClearURL) }>Quitar filtros</a>
+					}
+				</div>
+			</form>
+			if len(p.Alerts) == 0 {
+				<p class="nx-empty">
+					if p.State == "pendientes" && !p.Filtered {
+						No hay alertas pendientes.
+					} else {
+						No hay alertas con esos filtros. Prueba con "Todas" o amplía el rango.
+					}
+				</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Alertas, de la más reciente a la más antigua</caption>
+						<thead>
+							<tr>
+								<th scope="col">Fecha (UTC)</th>
+								<th scope="col">Severidad</th>
+								<th scope="col">Regla</th>
+								<th scope="col">Capa</th>
+								<th scope="col">Sujeto</th>
+								<th scope="col">Resumen</th>
+								<th scope="col">Estado</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, a := range p.Alerts {
+								<tr>
+									<td class="nxa-nowrap"><time datetime={ a.WhenISO }>{ a.When }</time></td>
+									<td><span class={ a.SevClass }>{ a.Severity }</span></td>
+									<td>
+										{ a.RuleLabel }
+										<span class="nxa-sub"><code class="nxa-code">{ a.Rule }</code></span>
+									</td>
+									<td>{ a.Layer }</td>
+									<td class="nxa-wrap">{ a.Subject }</td>
+									<td class="nxa-wrap">{ a.Summary }</td>
+									<td>
+										if a.Acked {
+											<span class="nx-chip nx-chip-ok">Reconocida</span>
+											<span class="nxa-sub">Por { a.AckBy }, <time datetime={ a.AckWhenISO }>{ a.AckWhen }</time> UTC</span>
+											if a.AckNote != "" {
+												<span class="nxa-sub">Nota: { a.AckNote }</span>
+											}
+										} else {
+											<span class="nx-chip nx-chip-exp">Pendiente</span>
+											if p.CanAck {
+												<details class="nxa-details">
+													<summary>Reconocer</summary>
+													<form method="post" action={ templ.URL(nexoAuditAckAction(a.ID)) } class="nxa-ack">
+														<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+														<input type="hidden" name="state" value={ p.State }/>
+														<label for={ "nxa-note-" + a.ID }>Nota <span class="nx-hint">opcional, hasta 1000 caracteres</span><input id={ "nxa-note-" + a.ID } type="text" name="note" maxlength="1000" autocomplete="off"/></label>
+														<button type="submit">Reconocer alerta</button>
+													</form>
+												</details>
+											}
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				@nexoAuditPager(p.NextURL, p.FirstURL)
+				if !p.CanAck {
+					<p class="nx-hint">Tu sesión no puede reconocer alertas: hace falta entrar con un token de escritura.</p>
+				}
+			}
+		</section>
+	</div>
+}
+
+// ─── Revisión de accesos ─────────────────────────────────────────────────────
+
+templ NexoAuditReviewPage(p NexoAuditReviewView) {
+	<div class="nx-page nxa">
+		@nexoAuditHead("Revisión de accesos", "Quién tiene qué rol, con qué tokens y desde cuándo no usa su cuenta. Se hace cada trimestre y queda registrada con tu nombre.", NexoAuditSecReview)
+		@nexoAuditNotes(p.Notice, p.Error)
+		<section class="nx-panel" aria-labelledby="nxa-r-last">
+			<h2 class="nx-h2" id="nxa-r-last">Última revisión registrada</h2>
+			if p.Last != nil {
+				<p>
+					<strong><time datetime={ p.Last.WhenISO }>{ p.Last.When }</time> UTC</strong>
+					({ p.Last.Age }), hecha por { p.Last.By }.
+				</p>
+				if p.Last.Notes != "" {
+					<p>Notas: { p.Last.Notes }</p>
+				}
+				if p.Last.Summary != "" {
+					<p class="nx-hint">{ p.Last.Summary }</p>
+				}
+			} else {
+				<p class="nx-empty">Todavía no se registró ninguna revisión. Revisa la tabla de abajo y márcala como hecha.</p>
+			}
+			if p.CanComplete {
+				<form method="post" action="/dashboard/admin/audit/access-review/complete" class="nx-create nxa-filters">
+					<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+					<input type="hidden" name="inactive_days" value={ p.InactiveDays }/>
+					<label for="nxa-r-notes">Notas de la revisión <span class="nx-hint">opcional: qué encontraste y qué hiciste</span><textarea id="nxa-r-notes" name="notes" rows="3" maxlength="4000"></textarea></label>
+					<div class="nxa-buttons"><button type="submit">Marcar revisión como hecha</button></div>
+				</form>
+				<p class="nx-hint">Se guarda quién, cuándo, tus notas y una huella del contenido que viste (personas, roles y tokens). No cambia ningún acceso.</p>
+			} else {
+				<p class="nx-hint">Tu sesión no puede registrar la revisión: hace falta entrar con un token de escritura.</p>
+			}
+			if len(p.Recent) > 1 {
+				<details class="nxa-details">
+					<summary>Revisiones anteriores</summary>
+					<ul class="nxa-list">
+						for _, r := range p.Recent {
+							<li><time datetime={ r.WhenISO }>{ r.When }</time> UTC, { r.By }
+								if r.Notes != "" {
+									: { r.Notes }
+								}
+							</li>
+						}
+					</ul>
+				</details>
+			}
+		</section>
+		<section class="nx-panel" aria-labelledby="nxa-r-sum">
+			<h2 class="nx-h2" id="nxa-r-sum">Resumen</h2>
+			<dl class="nxa-stats">
+				for _, kv := range p.Stats {
+					<div><dt>{ kv.Key }</dt><dd>{ kv.Value }</dd></div>
+				}
+			</dl>
+			<ul class="nxa-list nx-hint">
+				for _, line := range p.Policy {
+					<li>{ line }</li>
+				}
+			</ul>
+			<form method="get" action="/dashboard/admin/audit/access-review" class="nx-create nxa-filters">
+				if p.OnlyFlagged {
+					<input type="hidden" name="only" value="flags"/>
+				}
+				<label for="nxa-r-days">Días sin uso para marcar a una persona como inactiva <span class="nx-hint">de 1 a 3650</span><input id="nxa-r-days" type="number" name="inactive_days" value={ p.InactiveDays } min="1" max="3650"/></label>
+				<div class="nxa-buttons"><button type="submit" class="nexo-btn-secondary">Recalcular</button></div>
+			</form>
+			<p class="nx-hint">Reporte generado el <time datetime={ p.GeneratedISO }>{ p.Generated }</time> UTC.</p>
+		</section>
+		<section class="nx-panel" aria-labelledby="nxa-r-people">
+			<h2 class="nx-h2" id="nxa-r-people">Personas y cuentas</h2>
+			<nav class="nx-filters" aria-label="Qué personas mostrar">
+				if p.OnlyFlagged {
+					<a href={ templ.URL(p.AllURL) }>Todas</a>
+					<a href={ templ.URL(p.FlaggedURL) } aria-current="page">Solo con marcas</a>
+				} else {
+					<a href={ templ.URL(p.AllURL) } aria-current="page">Todas</a>
+					<a href={ templ.URL(p.FlaggedURL) }>Solo con marcas</a>
+				}
+			</nav>
+			if len(p.People) == 0 {
+				<p class="nx-empty">
+					if p.OnlyFlagged {
+						Ninguna persona ni cuenta tiene marcas con este umbral.
+					} else {
+						No hay personas registradas.
+					}
+				</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Personas y cuentas con sus roles y tokens</caption>
+						<thead>
+							<tr>
+								<th scope="col">Persona o cuenta</th>
+								<th scope="col">Estado</th>
+								<th scope="col">Rol de plataforma</th>
+								<th scope="col">Roles por proyecto y espacio</th>
+								<th scope="col">Tokens</th>
+								<th scope="col">Última actividad</th>
+								<th scope="col">Marcas</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, r := range p.People {
+								<tr>
+									<td>
+										{ r.Name }
+										<span class="nxa-sub">{ r.Sub }</span>
+									</td>
+									<td><span class={ nexoAuditEnabledChip(r.Enabled) }>{ nexoAuditEnabledText(r.Enabled) }</span></td>
+									<td>
+										{ r.Platform }
+										if r.PlatformSub != "" {
+											<span class="nxa-sub">{ r.PlatformSub }</span>
+										}
+									</td>
+									<td class="nxa-wrap">
+										if len(r.Scopes) == 0 && len(r.Grants) == 0 {
+											<span class="nx-hint">Sin roles</span>
+										}
+										if len(r.Scopes) > 0 {
+											<ul class="nxa-list">
+												for _, s := range r.Scopes {
+													<li>{ s }</li>
+												}
+											</ul>
+										}
+										if len(r.Grants) > 0 {
+											<span class="nxa-sub">Permisos de Engram:</span>
+											<ul class="nxa-list">
+												for _, g := range r.Grants {
+													<li>{ g }</li>
+												}
+											</ul>
+										}
+									</td>
+									<td class="nxa-num">{ r.TokenCount }</td>
+									<td>{ r.LastActivity }</td>
+									<td>
+										@nexoAuditFlags(r.Flags)
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</section>
+		<section class="nx-panel" aria-labelledby="nxa-r-tokens">
+			<h2 class="nx-h2" id="nxa-r-tokens">Tokens</h2>
+			<p class="nx-hint">Solo se muestran el nombre y las fechas; nunca el valor del token.</p>
+			if len(p.Tokens) == 0 {
+				<p class="nx-empty">
+					if p.OnlyFlagged {
+						Ningún token tiene marcas.
+					} else {
+						No hay tokens emitidos.
+					}
+				</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxa-table">
+						<caption class="nxa-sr">Tokens por persona</caption>
+						<thead>
+							<tr>
+								<th scope="col">Persona o cuenta</th>
+								<th scope="col">Token</th>
+								<th scope="col">Alcance</th>
+								<th scope="col">Creado</th>
+								<th scope="col">Vence</th>
+								<th scope="col">Último uso</th>
+								<th scope="col">Marcas</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, t := range p.Tokens {
+								<tr>
+									<td>{ t.Owner }</td>
+									<td>{ t.Name }</td>
+									<td>{ t.Scope }</td>
+									<td class="nxa-nowrap">{ t.Created }</td>
+									<td class="nxa-nowrap">{ t.Expires }</td>
+									<td>{ t.LastUsed }</td>
+									<td>
+										@nexoAuditFlags(t.Flags)
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</section>
+	</div>
+}
