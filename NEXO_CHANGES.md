@@ -247,10 +247,10 @@ Lo que **no** cambia:
 
 **Cambio de alcance de F-04 (decisión del usuario, 2026-10-13; `design.md` §19.4).** La skill y la instalación de Nexo viven en el fork; el kit queda como histórico.
 - `engram nexo connect --server <url> (--token-stdin | --token <t> | NEXO_TOKEN)`: valida con `/nexo/authz/v1/me`, guarda servidor y token en `cloud.json` (0600), escribe el marcador `nexo.json` (sin token) y sincroniza la copia local; `engram nexo status`, `engram nexo disconnect [--keep-copy]`, `engram nexo setup <agente>`. Multiplataforma.
-- `engram setup <agente>` con la PC conectada instala además el protocolo Nexo: skill `nexo-protocol` en claude-code (`~/.claude/skills`), codex (`~/.codex/skills`, `~/.agents/skills`) y opencode; bloque administrado `<!-- BEGIN NEXO PROTOCOL (NX-10) ... -->` en el archivo de reglas de pi, gemini-cli, antigravity-cli, windsurf, qwen, kiro, kilocode, commandcode y kimi; archivo propio en cursor (`nexo-protocol.md`) y vscode-copilot (`nexo.instructions.md`). Sin conexión, `engram setup` no cambia.
+- `engram setup <agente>` con la PC conectada instala además el protocolo Nexo: skill `nexo-protocol` en opencode (claude-code y codex la reciben dentro del plugin del fork, ver abajo); bloque administrado `<!-- BEGIN NEXO PROTOCOL (NX-10) ... -->` en el archivo de reglas de pi, gemini-cli, antigravity-cli, windsurf, qwen, kiro, kilocode, commandcode y kimi; archivo propio en cursor (`nexo-protocol.md`) y vscode-copilot (`nexo.instructions.md`). Sin conexión, `engram setup` no cambia.
 - Con la PC conectada, `engram mcp --tools=agent` (el que escribe `engram setup`) registra las herramientas `nexo_*`.
 - Fuente única de la skill: `internal/nexo/setup/SKILL.md` (embebida); `go generate ./internal/nexo/setup/` copia a `plugin/claude-code/skills/nexo-protocol/SKILL.md` y `plugin/codex/skills/nexo-protocol/SKILL.md` (archivos nuevos); una prueba verifica que coincidan.
-- Marketplace del plugin hacia `Adriel2503/engram-nexo`: sin cambio, decisión pendiente (D-K2b-35).
+- Marketplace del plugin hacia `Adriel2503/engram-nexo` (D-K2b-35, opción A, decisión del usuario 2026-10-13): Claude Code (`claude plugin marketplace add Adriel2503/engram-nexo`, rama por defecto `develop`) y Codex (`--ref develop`; la rama `main` del fork es la de Engram original) instalan el plugin `engram` del fork, que ya trae `skills/nexo-protocol`. Para esos dos agentes `engram setup` ya no copia la skill aparte y borra copias directas anteriores (`removeDirectNexoSkill`). Requisito de la demo: cada persona necesita acceso de lectura al repositorio privado y credenciales de git para GitHub (HTTPS). Verificado con `CLAUDE_CONFIG_DIR` y `CODEX_HOME` temporales: el plugin instalado trae `memory` y `nexo-protocol`. Para producción queda la opción B (plugin embebido en el binario como marketplace local, sin acceso al repositorio), junto con OP-01.
 - Archivos nuevos: `internal/nexo/setup/{nexosetup.go,SKILL.md}`, `internal/nexo/kb/client/connect.go`, `internal/nexo/nexocli/{connection.go,connection_test.go}`, `internal/setup/{nexo_setup.go,nexo_setup_test.go}`. Archivo Nexo modificado: `internal/nexo/nexocli/nexocli.go` (comandos nuevos).
 
 ## 4. Líneas marcadas en archivos originales de Engram
@@ -316,6 +316,10 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/mcp/mcp.go:32` | NX-10 | Import `nexokbclient` (`internal/nexo/kb/client`) |
 | `internal/mcp/mcp.go:1165` | NX-10 | `registerTools`: `nexokbclient.RegisterTools(srv, s, allowlist)` registra las herramientas `nexo_*` (tanda 2; toda la lógica en `internal/nexo/kb/client/mcp.go`) |
 | `internal/setup/setup.go:297-299` | NX-10 | `Install`: `res, err := installFromAdapter(a)` + `nexoAfterInstall(a.slug)` (marcada) + `return res, err` (bloque de 3 líneas; antes `return installFromAdapter(a)`): protocolo Nexo con la PC conectada (`internal/setup/nexo_setup.go`) |
+| `internal/setup/setup.go:92-94` | NX-10 | `claudeCodeMarketplace` y `codexMarketplace` = `Adriel2503/engram-nexo`; constante nueva `codexMarketplaceRef = "develop"` (D-K2b-35, opción A) |
+| `internal/setup/setup.go:1675, 1682` | NX-10 | Codex: `--ref codexMarketplaceRef` en el mensaje de recuperación y en `codex plugin marketplace add` (antes `main`) |
+| `internal/setup/agents.go:61` | NX-10 | Nota de instalación manual de Codex con el marketplace del fork y `--ref develop` |
+| `internal/setup/setup_test.go:599, 698, 2088` | NX-10 | Pruebas de Engram ajustadas al marketplace del fork (`codexMarketplaceRef` y lista de plugins de Claude con `Adriel2503/engram-nexo`) |
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 

@@ -596,7 +596,7 @@ func assertCodexPluginSetupError(t *testing.T, result *Result, err error, reason
 	if result != nil || err == nil {
 		t.Fatalf("expected nil result and partial setup error, got %#v, %v", result, err)
 	}
-	for _, want := range []string{reason, "MCP config and instruction files were written", "plugin was not installed", "codex plugin marketplace add " + codexMarketplace + " --ref main", "codex plugin add engram@engram"} {
+	for _, want := range []string{reason, "MCP config and instruction files were written", "plugin was not installed", "codex plugin marketplace add " + codexMarketplace + " --ref " + codexMarketplaceRef, "codex plugin add engram@engram"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q missing %q", err, want)
 		}
@@ -695,7 +695,7 @@ func TestInstallCodexPluginCLIPresent(t *testing.T) {
 			cmd[0] == "/usr/local/bin/codex" &&
 			cmd[1] == "plugin" && cmd[2] == "marketplace" && cmd[3] == "add" &&
 			cmd[4] == codexMarketplace &&
-			cmd[5] == "--ref" && cmd[6] == "main" {
+			cmd[5] == "--ref" && cmd[6] == codexMarketplaceRef { // NX-10
 			foundMarketplace = true
 		}
 	}
@@ -2085,7 +2085,7 @@ func TestInstallClaudeCodeBranches(t *testing.T) {
 
 func TestVerifyClaudeCodeSlimCapability(t *testing.T) {
 	verified := `{"plugins":[{"name":"engram","version":"0.1.1","enabled":true,"marketplace":"engram"}]}`
-	current := `[{"name":"engram@engram","version":"0.1.2","enabled":true,"marketplace":"Gentleman-Programming/engram"}]`
+	current := `[{"name":"engram@engram","version":"0.1.2","enabled":true,"marketplace":"Adriel2503/engram-nexo"}]` // NX-10: marketplace del fork
 
 	tests := []struct {
 		name    string

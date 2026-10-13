@@ -89,8 +89,9 @@ type Result struct {
 	TUIPluginEnabled bool
 }
 
-const claudeCodeMarketplace = "Gentleman-Programming/engram"
-const codexMarketplace = "Gentleman-Programming/engram"
+const claudeCodeMarketplace = "Adriel2503/engram-nexo" // NX-10: plugin desde el fork (trae la skill nexo-protocol); rama por defecto develop
+const codexMarketplace = "Adriel2503/engram-nexo"      // NX-10: plugin desde el fork (trae la skill nexo-protocol)
+const codexMarketplaceRef = "develop"                  // NX-10: la rama main del fork es la de Engram original
 const claudeCodeSlimPluginFloor = "0.1.1"
 const claudeCodePluginListTimeout = 2 * time.Second // bounds only the read-only Claude plugin capability probe
 
@@ -1671,14 +1672,14 @@ func installCodex() (*Result, error) {
 
 	// The additive memory protocol requires the plugin hooks. Files already
 	// written remain available for manual recovery if activation fails.
-	const pluginRecovery = "MCP config and instruction files were written, but the Engram plugin was not installed. Ensure codex is in PATH, then run:\n  codex plugin marketplace add " + codexMarketplace + " --ref main\n  codex plugin add engram@engram"
+	const pluginRecovery = "MCP config and instruction files were written, but the Engram plugin was not installed. Ensure codex is in PATH, then run:\n  codex plugin marketplace add " + codexMarketplace + " --ref " + codexMarketplaceRef + "\n  codex plugin add engram@engram" // NX-10
 	codexBin, err := lookPathFn("codex")
 	if err != nil {
 		return nil, fmt.Errorf("codex CLI not found in PATH: %w; %s", err, pluginRecovery)
 	}
 
 	// Step 1: add the marketplace (idempotent — tolerate "already" in output).
-	addOut, err := runCommand(codexBin, "plugin", "marketplace", "add", codexMarketplace, "--ref", "main")
+	addOut, err := runCommand(codexBin, "plugin", "marketplace", "add", codexMarketplace, "--ref", codexMarketplaceRef) // NX-10
 	addOutputStr := strings.TrimSpace(string(addOut))
 	if err != nil && !strings.Contains(strings.ToLower(addOutputStr), "already") {
 		return nil, fmt.Errorf("codex plugin marketplace add failed: %w (output: %s); %s", err, addOutputStr, pluginRecovery)

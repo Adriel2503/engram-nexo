@@ -5,6 +5,10 @@ package setup
 // desde un único enganche marcado `// NX-10` en Install (setup.go). El texto
 // sale de una sola fuente (internal/nexo/setup/SKILL.md).
 //
+// Claude Code y Codex reciben la skill dentro del plugin, que se instala desde
+// el marketplace del fork (claudeCodeMarketplace y codexMarketplace en
+// setup.go, opción A de D-K2b-35); los demás agentes la reciben aquí.
+//
 // Solo actúa si la PC está conectada a Nexo (`engram nexo connect`): sin
 // conexión, `engram setup` hace exactamente lo de Engram. Un error al
 // instalar el protocolo nunca hace fallar la instalación de Engram: se avisa
@@ -60,6 +64,10 @@ type NexoProtocolTargets struct {
 	SkillDirs  []string
 	BlockFiles []string
 	OwnFiles   map[string]string // ruta -> prefijo (front matter)
+	// PluginSkillDirs: agentes cuyo plugin (marketplace del fork) ya trae la
+	// skill nexo-protocol. Aquí solo se borran copias directas de versiones
+	// anteriores para no tener la skill dos veces.
+	PluginSkillDirs []string
 }
 
 // nexoTargets resuelve los destinos de un agente (las mismas rutas que usa
@@ -71,14 +79,14 @@ func nexoTargets(slug string) (NexoProtocolTargets, error) {
 	}
 	t := NexoProtocolTargets{OwnFiles: map[string]string{}}
 	switch slug {
-	case "claude-code":
-		t.SkillDirs = []string{filepath.Join(claudeCodeConfigRoot(home), "skills")}
-	case "codex":
+	case "claude-code": // la skill llega con el plugin del fork (claudeCodeMarketplace)
+		t.PluginSkillDirs = []string{filepath.Join(claudeCodeConfigRoot(home), "skills")}
+	case "codex": // la skill llega con el plugin del fork (codexMarketplace)
 		codexDir := filepath.Join(home, ".codex")
 		if p := codexConfigPath(); p != "" {
 			codexDir = filepath.Dir(p)
 		}
-		t.SkillDirs = []string{filepath.Join(codexDir, "skills"), filepath.Join(home, ".agents", "skills")}
+		t.PluginSkillDirs = []string{filepath.Join(codexDir, "skills"), filepath.Join(home, ".agents", "skills")}
 	case "opencode":
 		t.SkillDirs = []string{filepath.Join(openCodeConfigDir(), "skills")}
 	case "pi":
@@ -120,6 +128,9 @@ func NexoInstallProtocol(slug string) ([]string, error) {
 		return nil, err
 	}
 	var files []string
+	for _, d := range t.PluginSkillDirs {
+		removeDirectNexoSkill(d)
+	}
 	for _, d := range t.SkillDirs {
 		p, err := nexosetup.WriteSkill(d)
 		if err != nil {
@@ -140,4 +151,17 @@ func NexoInstallProtocol(slug string) ([]string, error) {
 		files = append(files, p)
 	}
 	return files, nil
+}
+
+// removeDirectNexoSkill borra <dir>/nexo-protocol si es una copia directa de
+// la skill de Nexo (instalada por versiones anteriores). No toca nada más.
+func removeDirectNexoSkill(dir string) {
+	skillDir := filepath.Join(dir, "nexo-protocol")
+	b, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	if err != nil || !strings.HasPrefix(strings.ReplaceAll(string(b), "\r\n", "\n"), "---\nname: nexo-protocol") {
+		return
+	}
+	if err := os.RemoveAll(skillDir); err == nil {
+		fmt.Fprintf(nexoStderr, "[nexo] copia directa reemplazada por el plugin: %s\n", skillDir)
+	}
 }

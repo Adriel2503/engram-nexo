@@ -1,8 +1,9 @@
 package setup
 
 // NX-10 tanda 2: `engram setup` instala el protocolo Nexo solo con la PC
-// conectada (nexo.json), en claude-code y codex como skill propia y en los
-// agentes con archivo de reglas como bloque administrado o archivo propio.
+// conectada (nexo.json): en claude-code y codex llega con el plugin del fork
+// (opción A de D-K2b-35); en opencode como skill propia y en los agentes con
+// archivo de reglas como bloque administrado o archivo propio.
 
 import (
 	"os"
@@ -77,41 +78,52 @@ func TestNexoProtocolRulesFileAgents(t *testing.T) {
 	// Todos los agentes declarativos y gemini/pi resuelven destinos.
 	for _, slug := range supportedSlugs() {
 		tg, err := nexoTargets(slug)
-		if err != nil || len(tg.SkillDirs)+len(tg.BlockFiles)+len(tg.OwnFiles) == 0 {
+		if err != nil || len(tg.SkillDirs)+len(tg.BlockFiles)+len(tg.OwnFiles)+len(tg.PluginSkillDirs) == 0 {
 			t.Errorf("%s sin destino Nexo: %+v %v", slug, tg, err)
 		}
 	}
 }
 
-func TestNexoProtocolSkillAgents(t *testing.T) {
+// Claude Code y Codex reciben la skill dentro del plugin del fork: setup no
+// la copia aparte y borra copias directas de versiones anteriores.
+func TestNexoProtocolSkillAgentsViaPlugin(t *testing.T) {
 	home := stubRegistryEnv(t)
 	connectNexo(t, home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CODEX_HOME", "")
-	files, err := NexoInstallProtocol("claude-code")
-	if err != nil || len(files) != 1 {
-		t.Fatalf("claude-code: %v %v", files, err)
+	if claudeCodeMarketplace != "Adriel2503/engram-nexo" || codexMarketplace != "Adriel2503/engram-nexo" || codexMarketplaceRef != "develop" {
+		t.Fatalf("marketplace del plugin: %s %s %s", claudeCodeMarketplace, codexMarketplace, codexMarketplaceRef)
 	}
-	skill := readOrEmpty(filepath.Join(home, ".claude", "skills", "nexo-protocol", "SKILL.md"))
-	if skill != nexosetup.Skill() || !strings.HasPrefix(skill, "---\nname: nexo-protocol") {
-		t.Fatal("claude-code: skill distinta de la fuente")
+	stale := []string{
+		filepath.Join(home, ".claude", "skills", "nexo-protocol"),
+		filepath.Join(home, ".codex", "skills", "nexo-protocol"),
+		filepath.Join(home, ".agents", "skills", "nexo-protocol"),
 	}
-	files, err = NexoInstallProtocol("codex")
-	if err != nil || len(files) != 2 {
-		t.Fatalf("codex: %v %v", files, err)
-	}
-	for _, p := range []string{filepath.Join(home, ".codex", "skills", "nexo-protocol", "SKILL.md"), filepath.Join(home, ".agents", "skills", "nexo-protocol", "SKILL.md")} {
-		if readOrEmpty(p) != nexosetup.Skill() {
-			t.Fatalf("codex: falta %s", p)
+	for _, d := range stale {
+		if _, err := nexosetup.WriteSkill(filepath.Dir(d)); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// El enganche de Install también la instala aunque falle el CLI del
-	// agente (claude no está en el PATH de la prueba).
-	_ = os.RemoveAll(filepath.Join(home, ".claude"))
-	lookPathFn = func(string) (string, error) { return "", os.ErrNotExist }
-	_, _ = Install("claude-code")
-	if readOrEmpty(filepath.Join(home, ".claude", "skills", "nexo-protocol", "SKILL.md")) == "" {
-		t.Fatal("Install(claude-code) no dejó la skill de Nexo")
+	other := filepath.Join(home, ".claude", "skills", "otra", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(other), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("---\nname: otra\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, slug := range []string{"claude-code", "codex"} {
+		files, err := NexoInstallProtocol(slug)
+		if err != nil || len(files) != 0 {
+			t.Fatalf("%s: no debe escribir archivos (la skill llega con el plugin): %v %v", slug, files, err)
+		}
+	}
+	for _, d := range stale {
+		if _, err := os.Stat(d); err == nil {
+			t.Fatalf("copia directa no borrada: %s", d)
+		}
+	}
+	if readOrEmpty(other) == "" {
+		t.Fatal("se borró una skill que no es de Nexo")
 	}
 }
 
