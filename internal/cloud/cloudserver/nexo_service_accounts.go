@@ -24,6 +24,7 @@ package cloudserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
+	"github.com/Gentleman-Programming/engram/v3/internal/cloud/constants"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
@@ -39,29 +41,104 @@ import (
 const nexoSAMaxGraceMinutes = 7 * 24 * 60
 
 func (s *CloudServer) registerNexoServiceAccountRoutes(mux *http.ServeMux) {
+	// Todas las rutas /nexo/* de SG-10. Al integrar S5 pasan a s.nexoRoute con
+	// la capacidad de cada comentario.
 	p := nexoAuthzPrefix + "/service-accounts"
-	mux.HandleFunc("GET "+p, s.nexoAuthzRoute(s.handleNexoSAList))
-	mux.HandleFunc("POST "+p, s.nexoAuthzRoute(s.handleNexoSACreate))
-	mux.HandleFunc("GET "+p+"/{sa}", s.nexoAuthzRoute(s.handleNexoSAGet))
-	mux.HandleFunc("PATCH "+p+"/{sa}", s.nexoAuthzRoute(s.handleNexoSAUpdate))
-	mux.HandleFunc("POST "+p+"/{saAction}", s.nexoAuthzRoute(s.handleNexoSAAction))
-	mux.HandleFunc("POST "+p+"/{sa}/tokens", s.nexoAuthzRoute(s.handleNexoSAIssueToken))
-	mux.HandleFunc("POST "+p+"/{sa}/tokens/{tokenAction}", s.nexoAuthzRoute(s.handleNexoSATokenAction))
-	s.registerNexoServiceAccountDashboard(mux) // página del panel (nexo_service_accounts_dashboard.go)
+	mux.HandleFunc("GET "+p, s.nexoAuthzRoute(s.handleNexoSAList))                                      // cap: platform.directory.read
+	mux.HandleFunc("POST "+p, s.nexoAuthzRoute(s.handleNexoSACreate))                                   // cap: platform.users.manage
+	mux.HandleFunc("GET "+p+"/{sa}", s.nexoAuthzRoute(s.handleNexoSAGet))                               // cap: platform.directory.read
+	mux.HandleFunc("PATCH "+p+"/{sa}", s.nexoAuthzRoute(s.handleNexoSAUpdate))                          // cap: platform.users.manage
+	mux.HandleFunc("POST "+p+"/{saAction}", s.nexoAuthzRoute(s.handleNexoSAAction))                     // cap: platform.users.manage ({sa}:disable | {sa}:enable)
+	mux.HandleFunc("POST "+p+"/{sa}/tokens", s.nexoAuthzRoute(s.handleNexoSAIssueToken))                // cap: platform.tokens.manage (sin caducidad: platform.tokens.manage+platform.admins.manage)
+	mux.HandleFunc("POST "+p+"/{sa}/tokens/{tokenAction}", s.nexoAuthzRoute(s.handleNexoSATokenAction)) // cap: platform.tokens.manage ({id}:rotate | {id}:revoke)
+	// Panel (no son /nexo/*): sesión del panel + CSRF, ver nexo_service_accounts_dashboard.go.
+	s.registerNexoServiceAccountDashboard(mux)
 }
 
 // ─── Vistas ──────────────────────────────────────────────────────────────────
 
 // nexoSATokenView es un token de la cuenta con su último uso (sin secreto).
 type nexoSATokenView struct {
-	nexoTokenView
-	LastSeen *security.TokenLastSeen `json:"last_seen,omitempty"`
+	ID          string                  `json:"id"`
+	PrincipalID string                  `json:"principal_id"`
+	TokenPrefix string                  `json:"token_prefix"`
+	Name        string                  `json:"name"`
+	Scope       string                  `json:"scope"`
+	ExpiresAt   *time.Time              `json:"expires_at"`
+	NoExpiry    bool                    `json:"no_expiry"`
+	Expired     bool                    `json:"expired"`
+	CreatedAt   time.Time               `json:"created_at"`
+	CreatedBy   string                  `json:"created_by_principal_id,omitempty"`
+	LastUsedAt  *time.Time              `json:"last_used_at"`
+	RevokedAt   *time.Time              `json:"revoked_at,omitempty"`
+	LastSeen    *security.TokenLastSeen `json:"last_seen,omitempty"`
 }
 
-// nexoSADetail es la cuenta con sus tokens.
+func newNexoSATokenView(t nexoTokenView) nexoSATokenView {
+	return nexoSATokenView{ID: t.ID, PrincipalID: t.PrincipalID, TokenPrefix: t.TokenPrefix, Name: t.Name, Scope: t.Scope,
+		ExpiresAt: t.ExpiresAt, NoExpiry: t.NoExpiry, Expired: t.Expired, CreatedAt: t.CreatedAt, CreatedBy: t.CreatedBy,
+		LastUsedAt: t.LastUsedAt, RevokedAt: t.RevokedAt}
+}
+
+// nexoSADetail es GET .../service-accounts/{sa}: la cuenta con sus tokens.
 type nexoSADetail struct {
-	authz.ServiceAccount
-	Tokens []nexoSATokenView `json:"tokens"`
+	PrincipalID   string                        `json:"principal_id"`
+	Slug          string                        `json:"slug"`
+	DisplayName   string                        `json:"display_name"`
+	Description   string                        `json:"description"`
+	Enabled       bool                          `json:"enabled"`
+	OwnerID       string                        `json:"owner_principal_id"`
+	OwnerUsername string                        `json:"owner_username,omitempty"`
+	OwnerName     string                        `json:"owner_display_name,omitempty"`
+	OwnerEnabled  bool                          `json:"owner_enabled"`
+	CreatedBy     string                        `json:"created_by_principal_id,omitempty"`
+	CreatedByName string                        `json:"created_by_username,omitempty"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	Bindings      []authz.ServiceAccountBinding `json:"bindings"`
+	Tokens        []nexoSATokenView             `json:"tokens"`
+}
+
+func newNexoSADetail(a authz.ServiceAccount, tokens []nexoSATokenView) nexoSADetail {
+	return nexoSADetail{PrincipalID: a.PrincipalID, Slug: a.Slug, DisplayName: a.DisplayName, Description: a.Description, Enabled: a.Enabled,
+		OwnerID: a.OwnerID, OwnerUsername: a.OwnerUsername, OwnerName: a.OwnerName, OwnerEnabled: a.OwnerEnabled,
+		CreatedBy: a.CreatedBy, CreatedByName: a.CreatedByName, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
+		Bindings: a.Bindings, Tokens: tokens}
+}
+
+// nexoSAStateResponse es la respuesta de {sa}:disable y {sa}:enable.
+type nexoSAStateResponse struct {
+	ServiceAccount authz.ServiceAccount `json:"service_account"`
+	Changed        bool                 `json:"changed"`
+}
+
+// nexoSATokenIssuedResponse es la respuesta de la emisión; raw_token igual
+// que POST /nexo/authz/v1/tokens (solo esta vez).
+type nexoSATokenIssuedResponse struct {
+	RawToken string        `json:"raw_token"`
+	Token    nexoTokenView `json:"token"`
+}
+
+// nexoSAOldToken es el estado del token anterior tras una rotación.
+type nexoSAOldToken struct {
+	ID        string     `json:"id"`
+	Revoked   bool       `json:"revoked,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Error     string     `json:"error,omitempty"`
+}
+
+// nexoSATokenRotatedResponse es la respuesta de {id}:rotate.
+type nexoSATokenRotatedResponse struct {
+	RawToken string         `json:"raw_token"`
+	Token    nexoTokenView  `json:"token"`
+	OldToken nexoSAOldToken `json:"old_token"`
+}
+
+// nexoSATokenRevokedResponse es la respuesta de {id}:revoke.
+type nexoSATokenRevokedResponse struct {
+	TokenID string `json:"token_id"`
+	Revoked bool   `json:"revoked"`
+	Changed bool   `json:"changed"`
 }
 
 // nexoSATokens lista los tokens de la cuenta con caducidad, alcance, último
@@ -87,7 +164,7 @@ func (s *CloudServer) nexoSATokens(ctx context.Context, principalID string) ([]n
 	}
 	now := time.Now()
 	for i := len(tokens) - 1; i >= 0; i-- { // el más nuevo primero
-		v := nexoSATokenView{nexoTokenView: newNexoTokenView(tokens[i], now)}
+		v := newNexoSATokenView(newNexoTokenView(tokens[i], now))
 		if ls, ok := seen[tokens[i].ID]; ok {
 			ls := ls
 			v.LastSeen = &ls
@@ -111,7 +188,7 @@ func (s *CloudServer) handleNexoSAList(w http.ResponseWriter, r *http.Request, s
 	}
 	items, next, err := svc.ListServiceAccounts(r.Context(), id, q)
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return
 	}
 	jsonResponse(w, http.StatusOK, newNexoPage(items, next, authz.NormalizeLimit(q.Limit)))
@@ -132,7 +209,7 @@ func (s *CloudServer) handleNexoSACreate(w http.ResponseWriter, r *http.Request,
 	}
 	a, err := svc.CreateServiceAccount(r.Context(), id, authz.CreateServiceAccountInput{Slug: body.Slug, DisplayName: body.DisplayName, Description: body.Description, Owner: body.Owner})
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return
 	}
 	jsonResponse(w, http.StatusCreated, a)
@@ -141,15 +218,15 @@ func (s *CloudServer) handleNexoSACreate(w http.ResponseWriter, r *http.Request,
 func (s *CloudServer) handleNexoSAGet(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity) {
 	a, err := svc.GetServiceAccount(r.Context(), id, r.PathValue("sa"))
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return
 	}
 	tokens, err := s.nexoSATokens(r.Context(), a.PrincipalID)
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return
 	}
-	jsonResponse(w, http.StatusOK, nexoSADetail{ServiceAccount: a, Tokens: tokens})
+	jsonResponse(w, http.StatusOK, newNexoSADetail(a, tokens))
 }
 
 type nexoSAUpdateBody struct {
@@ -165,7 +242,7 @@ func (s *CloudServer) handleNexoSAUpdate(w http.ResponseWriter, r *http.Request,
 	}
 	a, err := svc.UpdateServiceAccount(r.Context(), id, r.PathValue("sa"), authz.UpdateServiceAccountInput{Description: body.Description, Owner: body.Owner})
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return
 	}
 	jsonResponse(w, http.StatusOK, a)
@@ -180,10 +257,10 @@ func (s *CloudServer) handleNexoSAAction(w http.ResponseWriter, r *http.Request,
 	}
 	a, changed, err := svc.SetServiceAccountEnabled(r.Context(), id, ref, action == "enable")
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return
 	}
-	jsonResponse(w, http.StatusOK, map[string]any{"service_account": a, "changed": changed})
+	jsonResponse(w, http.StatusOK, nexoSAStateResponse{ServiceAccount: a, Changed: changed})
 }
 
 // ─── Tokens ──────────────────────────────────────────────────────────────────
@@ -198,7 +275,7 @@ type nexoSAIssueBody struct {
 func (s *CloudServer) nexoSARequireTokens(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity, ref string) (authz.ServiceAccount, bool) {
 	d, err := svc.Engine().Require(r.Context(), id, authz.PlatformScope(), authz.CapPlatformTokensManage, map[string]any{"route": r.Pattern, "target": ref})
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return authz.ServiceAccount{}, false
 	}
 	if !d.Allowed {
@@ -207,7 +284,7 @@ func (s *CloudServer) nexoSARequireTokens(w http.ResponseWriter, r *http.Request
 	}
 	a, err := svc.LookupServiceAccount(r.Context(), ref)
 	if err != nil {
-		nexoAuthzWriteError(w, err)
+		nexoSAWriteError(w, err)
 		return authz.ServiceAccount{}, false
 	}
 	return a, true
@@ -236,7 +313,7 @@ func (s *CloudServer) handleNexoSAIssueToken(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.nexoRecordSATokenIssued(r, svc, id, a.PrincipalID, token)
-	jsonResponse(w, http.StatusCreated, map[string]any{"raw_token": raw, "token": newNexoTokenView(token, time.Now())})
+	jsonResponse(w, http.StatusCreated, nexoSATokenIssuedResponse{RawToken: raw, Token: newNexoTokenView(token, time.Now())})
 }
 
 // nexoSATokenName: sin nombre, el token se llama como la cuenta.
@@ -292,22 +369,22 @@ func (s *CloudServer) handleNexoSATokenAction(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	res, ok := s.nexoSATokenOp(w, r, svc, id, store, a, action, tokenID, body, nexoRespondJSON, func(err error) { nexoAuthzWriteError(w, err) })
+	res, ok := s.nexoSATokenOp(w, r, svc, id, store, a, action, tokenID, body, nexoRespondJSON, func(err error) { nexoSAWriteError(w, err) })
 	if !ok {
 		return
 	}
 	if action == "revoke" {
-		jsonResponse(w, http.StatusOK, map[string]any{"token_id": strings.TrimSpace(tokenID), "revoked": true, "changed": res.Changed})
+		jsonResponse(w, http.StatusOK, nexoSATokenRevokedResponse{TokenID: strings.TrimSpace(tokenID), Revoked: true, Changed: res.Changed})
 		return
 	}
-	jsonResponse(w, http.StatusCreated, map[string]any{"raw_token": res.Raw, "token": newNexoTokenView(res.Token, time.Now()), "old_token": res.Old})
+	jsonResponse(w, http.StatusCreated, nexoSATokenRotatedResponse{RawToken: res.Raw, Token: newNexoTokenView(res.Token, time.Now()), OldToken: res.Old})
 }
 
 // nexoSATokenResult es el resultado de rotar o revocar.
 type nexoSATokenResult struct {
 	Raw     string // token nuevo en claro (rotación), solo para entregarlo una vez
 	Token   cloudstore.PrincipalToken
-	Old     map[string]any
+	Old     nexoSAOldToken
 	Changed bool // revocación: false si ya estaba revocado
 }
 
@@ -377,18 +454,19 @@ func (s *CloudServer) nexoSATokenOp(w http.ResponseWriter, r *http.Request, svc 
 	details["new_token_id"] = details["token_id"]
 	delete(details, "token_id")
 	details["grace_minutes"] = body.GraceMinutes
-	res.Raw, res.Token, res.Old = raw, token, map[string]any{"id": old.ID}
+	res.Raw, res.Token, res.Old = raw, token, nexoSAOldToken{ID: old.ID}
 	expires, err := svc.ExpireTokenWithin(r.Context(), id, a.PrincipalID, old.ID, time.Duration(body.GraceMinutes)*time.Minute, details)
 	switch {
 	case err != nil:
 		// El token nuevo ya existe y solo se muestra ahora: se entrega igual y
 		// se avisa que el anterior sigue como estaba.
 		log.Printf("[nexo] cuentas de servicio: rotacion sin cerrar el token anterior (token_id=%s): %v", old.ID, err)
-		res.Old["error"] = "the previous token could not be expired or revoked; revoke it with :revoke"
+		res.Old.Error = "the previous token could not be expired or revoked; revoke it with :revoke"
 	case expires == nil:
-		res.Old["revoked"] = true
+		res.Old.Revoked = true
 	default:
-		res.Old["expires_at"] = expires.UTC()
+		v := expires.UTC()
+		res.Old.ExpiresAt = &v
 	}
 	return res, true
 }
@@ -401,4 +479,18 @@ func writeNexoNotFound(w http.ResponseWriter) {
 
 func writeNexoSAError(w http.ResponseWriter, status int, code, message string) {
 	nexoRespondJSON(w, status, code, message)
+}
+
+// nexoSAWriteError: los rechazos del servicio (403, 404, 409, 422, 400) como
+// en la API de roles; cualquier otro error, 500 genérico con el detalle solo
+// en el log (nunca texto de la base al cliente).
+func nexoSAWriteError(w http.ResponseWriter, err error) {
+	var denied *authz.DeniedError
+	var rule *authz.RuleError
+	if errors.As(err, &denied) || errors.As(err, &rule) || errors.Is(err, authz.ErrInvalidCursor) {
+		nexoAuthzWriteError(w, err)
+		return
+	}
+	log.Printf("[nexo] cuentas de servicio: %v", err)
+	writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, "service accounts: internal error")
 }

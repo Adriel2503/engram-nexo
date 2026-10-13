@@ -201,9 +201,9 @@ func (s *CloudServer) saPanelAction(w http.ResponseWriter, r *http.Request, svc 
 		}
 		old := "El token anterior quedó revocado."
 		switch {
-		case res.Old["error"] != nil:
+		case res.Old.Error != "":
 			old = "Aviso: el token anterior no se pudo cerrar; revócalo."
-		case res.Old["expires_at"] != nil:
+		case res.Old.ExpiresAt != nil:
 			old = fmt.Sprintf("El token anterior vale %d minutos más.", grace)
 		}
 		st.newToken, st.note = res.Raw, "Token "+res.Token.ID+" ("+res.Token.Name+") reemplaza al "+strings.TrimSpace(r.FormValue("token_id"))+", "+saPanelExpiry(res.Token.NexoExpiresAt)+". "+old

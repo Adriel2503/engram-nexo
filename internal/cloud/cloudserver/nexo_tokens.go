@@ -22,6 +22,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -261,12 +262,14 @@ func (s *CloudServer) nexoCreateManagedToken(w http.ResponseWriter, r *http.Requ
 	actor, _ := PrincipalFromContext(r.Context())
 	managedToken, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
-		respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, fmt.Sprintf("generate token: %v", err))
+		log.Printf("[nexo] emitir token: generar: %v", err)
+		respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, "issue token: internal error")
 		return "", cloudstore.PrincipalToken{}, false
 	}
 	tokenHash, err := s.managedHasher.Hash(managedToken.Raw)
 	if err != nil {
-		respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, fmt.Sprintf("hash token: %v", err))
+		log.Printf("[nexo] emitir token: hash: %v", err)
+		respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, "issue token: internal error")
 		return "", cloudstore.PrincipalToken{}, false
 	}
 	name = strings.TrimSpace(name)
@@ -280,10 +283,10 @@ func (s *CloudServer) nexoCreateManagedToken(w http.ResponseWriter, r *http.Requ
 			respond(w, http.StatusConflict, authz.CodePrincipalDisabled, disabledManagedUserTokenMessage(targetID))
 		case errors.Is(err, cloudstore.ErrPrincipalNotFound):
 			respond(w, http.StatusNotFound, authz.CodeNotFound, "principal not found")
-		case errors.Is(err, cloudstore.ErrAuthAuditInsertFailed):
-			respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, fmt.Sprintf("record auth audit: %v", err))
 		default:
-			respond(w, http.StatusBadRequest, authz.CodeInvalid, fmt.Sprintf("create token: %v", err))
+			// Auditoría o base: el detalle solo en el log (nunca el texto de la base al cliente).
+			log.Printf("[nexo] emitir token (principal %s): %v", targetID, err)
+			respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, "issue token: internal error")
 		}
 		return "", cloudstore.PrincipalToken{}, false
 	}
