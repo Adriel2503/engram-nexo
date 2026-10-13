@@ -39,7 +39,7 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 | RC-14 | Varias formulaciones de la pregunta desde el asistente, fusionadas | Estado del arte, WeKnora (`source_query` y `match_type` por resultado) | Más cobertura sin costo de modelos | R4 | M | pendiente |
 | RC-15 | Señal "útil / no útil" por sección que alimente el conjunto de evaluación (no el ranking) | Onyx tiene feedback | Mejora continua medida | E3 | M | pendiente |
 | RC-16 | Ciclo de vida del índice con cambio atómico de versión | Onyx, WeKnora (un solo modelo por consulta) | Reindexar sin cortar el servicio | R2 | M | pendiente |
-| RC-17 | Extensión BM25 en Postgres (pg_textsearch, VectorChord-bm25 o pg_search) o índice RUM | Investigación de motores | Si FTS nativo queda corto o lento a escala | Según medición | B | pendiente |
+| RC-17 | Mejorar el ranking de texto sin salir del Postgres estándar: FTS nativo, módulos contrib (`unaccent`, `pg_trgm`) y pgvector. Extensiones BM25 de terceros (pg_search de ParadeDB, VectorChord-bm25, pg_textsearch) e índice RUM **descartadas** por decisión del usuario (2026-10-13): Postgres oficial y extensiones estándar, disponibles en servicios administrados | Investigación de motores; decisión del usuario | Si FTS nativo queda corto, se mejora dentro de esos límites | Según medición | B | acotado |
 | RC-18 | Grafo temporal derivado de las secciones (relaciones con vigencia y cita); queda al final de la escalera | Utopia, graphiti | Preguntas de varios saltos | R5 | B | pendiente |
 | RC-19 | Consulta pgvector con filtro sin perder resultados: subconsulta con LIMIT ampliado (100-200), `SET LOCAL hnsw.ef_search` e `hnsw.iterative_scan` (pgvector >= 0.8), umbral en la consulta externa, índice HNSW parcial por versión de índice sobre la misma expresión que el `ORDER BY`. Cubre también el **filtro temporal**: índice parcial `WHERE is_current` para lo vigente y recorrido exacto para `at`/`known_at` cuando el conjunto filtrado es pequeño. La prueba de recall incluye un espacio pequeño y una consulta histórica (design §17.6) | WeKnora (`retriever/postgres/repository.go:369-469`, migraciones 000002 y 000059) | HU-17 c2, HU-05 c2; evita recorridos secuenciales silenciosos | R2 (diseño ahora) | A | pendiente |
 | RC-20 | Indexador asíncrono de embeddings con cola en Postgres (`FOR UPDATE SKIP LOCKED`, deduplicación por sección y versión del índice, `fail_count`, cartas muertas que se vuelven a encolar a mano, descarte del trabajo superado), alimentado por `nexo_kb_changes`; sin Redis | WeKnora (migración 000041, `asynqdl`) | §14.3 regla 2; define la ventana entre publicar y vectorizar | Diseño ahora (design §17.5), implementación en R2 | M | diseñado |
@@ -52,6 +52,7 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 | RC-27 | Consulta "qué cambió desde X": secciones agregadas, modificadas y retiradas entre dos fechas, calculadas desde las versiones existentes (`/nexo/kb/v1/changes`, modo `changes`) | Bitemporalidad E2a | HU-20 c2, HU-30 | R1 | M | hecho (2b tanda 1) |
 | RC-28 | Registro de corridas de evaluación (`nexo_kb_eval_runs`: configuración, versión de índice, conjunto de preguntas, métricas totales y por clase, resultado por pregunta) para ver la evolución y que el CI compare contra la última aceptada | Acuerdo 2026-10-13 | Decidir con datos; RC-02 | R0 | A | hecho (2b tanda 1) |
 | RC-29 | Puntos de extensión activables por configuración y medidos con R0: adaptadores de fuente y conversores, modos de búsqueda (`fts`, `exact`, `hybrid`, `changes`), embedders y rerankers (locales por defecto; externos solo con aprobación) | Acuerdo 2026-10-13; patrón de motores de WeKnora | RNF-K8 | E2b en adelante (design §17.7) | A | diseñado |
+| RC-30 | Búsqueda por significado en la copia local (`kb.db`) cuando el servidor no responde: vectores de cada sección bajados ya calculados en el feed `/sync`, modelo de embeddings en la PC (el **mismo** modelo y versión del servidor, unos 100 a 500 MB) para vectorizar la pregunta, y `sqlite-vec` o comparación en memoria. Solo es posible con un modelo local, no con una API externa | Pregunta del usuario (2026-10-13) | Respaldo sin red con paráfrasis | Después de R2, solo si el piloto muestra mucho uso sin conexión | B | decidido: no por ahora. En R2 los embeddings van solo en el servidor; la copia local sigue con BM25, que ya acierta más en paráfrasis que el servidor sin vectores (57 % frente a 0 %, 2b tanda 2) |
 
 ## 2. Ingesta y formatos
 
@@ -126,7 +127,8 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 - Glean u otra plataforma SaaS: no aplica nuestro modelo de gobierno y los datos quedan en su nube.
 - ParadeDB `pg_search` con tokenizador chino (WeKnora): sin raíces en español, imagen y versión propias,
   rara vez disponible en un Postgres administrado y con licencia AGPL; el FTS nativo `nexo_es` cubre el lado
-  de texto del híbrido.
+  de texto del híbrido. Regla general desde el 2026-10-13 (decisión del usuario): solo Postgres oficial, sus
+  módulos contrib y pgvector; ninguna extensión de nicho.
 - Rerank que rebaja el umbral o conserva el mejor resultado aunque no lo pase (WeKnora): rompe HU-06.
 - Documento sin versiones, activación de fragmentos fuera de la versión y Excel con una fila por fragmento
   (WeKnora).
@@ -143,6 +145,8 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 | Secretos detectados (SG-09) | Rechazar o enmascarar | Rechazar por defecto; enmascarar solo con una opción explícita y un evento |
 | Proveedor de Postgres de producción (OP-05) | Versión de Postgres, pgvector >= 0.8, `CREATE EXTENSION`, `CONCURRENTLY` | Consultar a Real Plaza antes de R2 |
 | Paso a R2 (vectores) | Empezar R2 o seguir con R1 | R0 (2b tanda 1) muestra la condición de §17.3: paráfrasis 0 % y 3 falsos "no hay" con el umbral. Recomendado empezar R2 tras validar las preguntas con 3-4 devs y la consulta OP-05 |
+| Búsqueda por significado en la copia local (RC-30) | En R2 o después | **Decidido** el 2026-10-13: no en R2; embeddings solo en el servidor y la copia local con BM25. Revisar tras el piloto |
+| Extensiones de Postgres (RC-17) | Extensiones BM25 de terceros o solo estándar | **Decidido** el 2026-10-13: solo Postgres oficial, contrib y pgvector |
 | Umbral de "no hay estándar" (RC-07) | Mantener 0,3 (no hay respuesta 50 %, paráfrasis 0 %) o bajarlo (0,2: no hay respuesta 12 %, menos falsos "no hay") | 0,3 hasta R2; revisar con las preguntas validadas |
 
 ## 9. Qué tomar de cada referencia por fase

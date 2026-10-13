@@ -338,7 +338,7 @@ func (h *handlers) handleDashboardHome(w http.ResponseWriter, r *http.Request) {
 		renderComponent(w, r, DashboardHome(p.DisplayName()))
 		return
 	}
-	renderComponent(w, r, Layout("Dashboard", p.DisplayName(), "dashboard", p.IsAdmin(), DashboardHome(p.DisplayName())))
+	renderComponent(w, r, Layout("Dashboard", p.DisplayName(), "dashboard", p.IsAdmin(), nexoHome(p.DisplayName()))) // NX-10 (panel): inicio con la marca de Nexo (nexo_brand.templ)
 }
 
 func (h *handlers) handleDashboardStats(w http.ResponseWriter, r *http.Request) {

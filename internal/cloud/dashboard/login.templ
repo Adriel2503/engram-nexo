@@ -3,36 +3,46 @@ package dashboard
 // LoginPage renders the standalone login page (no layout wrapper).
 // ADAPTED: added next string parameter for post-login redirect; token-only form
 // (integrated dashboard uses ENGRAM_CLOUD_TOKEN, not user/password credentials).
+// NX-10 (panel): con la marca de Nexo, textos en español y tema propio (nexoLoginPanel, nexo_brand.go).
 templ LoginPage(errorMsg string, next string) {
 	<!DOCTYPE html>
-	<html lang="en" data-theme="dark">
+	<html lang={ nexoLang() } data-theme={ nexoTheme() }>
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
-			<title>Login — Engram Cloud</title>
+			<title>{ nx("Login") } — { nx("Engram Cloud") }</title>
 			<link rel="stylesheet" href="/dashboard/static/pico.min.css"/>
 			<link rel="stylesheet" href="/dashboard/static/styles.css"/>
+			if NexoBrand() {
+				<link rel="stylesheet" href="/dashboard/static/nexo_theme.css"/>
+			}
 		</head>
-		<body class="shell-body">
+		<body class={ nexoBodyClass() }>
 			<div class="shell-backdrop">
 				<main class="login-shell">
-					<section class="login-sidepanel">
-						<p class="section-kicker">CLOUD ACTIVE</p>
-						<h1>Engram Cloud</h1>
-						<p class="login-lead">Bring Engram memory into a shared browser workspace without losing the local-first model.</p>
-						<div class="hero-console login-console">
-							<p><span class="console-key">mode</span> enterprise</p>
-							<p><span class="console-key">sync</span> local-first / cloud policy aware</p>
-							<p><span class="console-key">surface</span> shared memory for humans + agents</p>
-						</div>
-					</section>
+					if NexoBrand() {
+						@nexoLoginPanel()
+					} else {
+						<section class="login-sidepanel">
+							<p class="section-kicker">CLOUD ACTIVE</p>
+							<h1>Engram Cloud</h1>
+							<p class="login-lead">Bring Engram memory into a shared browser workspace without losing the local-first model.</p>
+							<div class="hero-console login-console">
+								<p><span class="console-key">mode</span> enterprise</p>
+								<p><span class="console-key">sync</span> local-first / cloud policy aware</p>
+								<p><span class="console-key">surface</span> shared memory for humans + agents</p>
+							</div>
+						</section>
+					}
 					<section class="login-container">
-						<p class="section-kicker">SIGN IN</p>
-						<h2>Sign In</h2>
-						<p class="login-copy">Use your cloud runtime token to open a signed dashboard session.</p>
+						if !NexoBrand() {
+							<p class="section-kicker">SIGN IN</p>
+						}
+						<h2>{ nx("Sign In") }</h2>
+						<p class="login-copy">{ nx("Use your cloud runtime token to open a signed dashboard session.") }</p>
 						if errorMsg != "" {
-							<div class="login-error" role="alert">
-								{ errorMsg }
+							<div class="login-error" role="alert" data-error-code={ errorMsg }>
+								{ nx(errorMsg) }
 							</div>
 						}
 						<form method="post" action="/dashboard/login" class="login-form">
@@ -40,20 +50,37 @@ templ LoginPage(errorMsg string, next string) {
 								<input type="hidden" name="next" value={ next }/>
 							}
 							<label>
-								Cloud token
+								{ nx("Cloud token") }
 								<input
 									type="password"
 									name="token"
-									placeholder="token"
+									placeholder={ nx("token") }
 									required
 									autocomplete="off"
 								/>
 							</label>
-							<button type="submit" class="shell-button">Sign In</button>
+							<button type="submit" class="shell-button">{ nx("Sign In") }</button>
 						</form>
 					</section>
 				</main>
 			</div>
 		</body>
 	</html>
+}
+
+// nexoLoginPanel es la columna de presentación del login de Nexo IA (NX-10, panel).
+templ nexoLoginPanel() {
+	<section class="login-sidepanel">
+		<h1>Nexo IA</h1>
+		<p class="login-lead">Memoria y estándares del equipo de ingeniería de Real Plaza, en un solo lugar.</p>
+		<dl class="nexo-login-facts">
+			<dt>Busca la regla vigente</dt>
+			<dd>Cada respuesta trae el documento, la sección, la versión y desde cuándo rige.</dd>
+			<dt>Publica documentos</dt>
+			<dd>Los responsables suben Markdown, Word, una carpeta o un zip.</dd>
+			<dt>Conecta tu asistente</dt>
+			<dd>Con <code>engram nexo connect</code> y <code>engram setup</code>, tu asistente consulta lo mismo que ves aquí.</dd>
+		</dl>
+		<p class="nexo-credit">Basado en Engram Cloud (código abierto).</p>
+	</section>
 }

@@ -4,9 +4,14 @@ package cloudserver
 // conocimiento (HU-29, HU-33): listar espacios, crear un espacio (admin),
 // subir archivos sueltos, una carpeta o un zip, ver el resultado del lote,
 // listar documentos y versiones, leer un documento (destino de los enlaces
-// permanentes de las citas, RC-08) y retirar.
+// permanentes de las citas, RC-08) y retirar. Rediseño para la presentación
+// (NX-10, panel; docs/nexo/panel/design.md): pasos de "Cómo funciona",
+// tarjetas de espacios, buscador con respuesta citada (?q=&at=, mismo
+// servicio que /nexo/kb/v1 search), documentos por carpeta, Markdown
+// renderizado de forma segura (internal/nexo/kb/mdhtml) y "qué cambió" entre
+// versiones (&changes=1).
 //
-//	GET  /dashboard/kb                               espacios visibles (+ formulario de creación)
+//	GET  /dashboard/kb?q=&at=                        espacios visibles, pasos, buscador (+ creación)
 //	POST /dashboard/kb/spaces                        crear espacio (platform.scope.create)
 //	GET  /dashboard/kb/spaces/{slug}                 documentos, subida y últimas ejecuciones
 //	POST /dashboard/kb/spaces/{slug}/upload          subida (multipart; space.publish)
@@ -32,6 +37,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,12 +50,15 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/httpapi"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/mdhtml"
 	kbservice "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 	kbstore "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
 )
 
 // registerNexoKBDashboard registra las páginas (enganche // NX-10 en routes()).
 func (s *CloudServer) registerNexoKBDashboard(mux *http.ServeMux) {
+	// Panel con la marca, los textos y el tema de Nexo IA (dashboard/nexo_brand.go).
+	dashboard.EnableNexoBrand()
 	mux.HandleFunc("GET /dashboard/kb", s.requireDashboardSession(s.nexoKBPage(s.kbHome)))
 	mux.HandleFunc("POST /dashboard/kb/spaces", s.requireDashboardSession(s.nexoKBPage(s.kbCreateSpace)))
 	mux.HandleFunc("GET /dashboard/kb/spaces/{slug}", s.requireDashboardSession(s.nexoKBPage(s.kbSpace)))
@@ -155,11 +165,25 @@ func (s *CloudServer) kbRender(w http.ResponseWriter, r *http.Request, status in
 	}
 }
 
+// kbErrorText traduce los errores de dominio más comunes a un texto que dice
+// qué pasó y qué hacer.
+func kbErrorText(de *domain.Error) string {
+	switch de.Kind {
+	case domain.KindNotFound:
+		return "No encontramos lo que buscas, o no tienes acceso. Revisa el enlace o pide acceso al responsable del espacio. Detalle: " + de.Message
+	case domain.KindForbidden:
+		return "Tu rol o tu token no permiten esta acción. Pide el permiso al responsable del espacio o entra con un token de escritura. Detalle: " + de.Message
+	case domain.KindTooLarge:
+		return "El archivo supera el tamaño permitido. Divide la subida en partes más pequeñas. Detalle: " + de.Message
+	}
+	return de.Message
+}
+
 func (s *CloudServer) kbError(w http.ResponseWriter, r *http.Request, err error) {
-	status, msg := http.StatusInternalServerError, "internal error"
+	status, msg := http.StatusInternalServerError, "Ocurrió un error interno. Vuelve a intentarlo; si se repite, avisa al administrador."
 	var de *domain.Error
 	if errors.As(err, &de) {
-		msg = de.Message
+		msg = kbErrorText(de)
 		switch de.Kind {
 		case domain.KindInvalid:
 			status = http.StatusUnprocessableEntity
@@ -175,8 +199,8 @@ func (s *CloudServer) kbError(w http.ResponseWriter, r *http.Request, err error)
 	} else {
 		fmt.Printf("dashboard kb: error: %v\n", err)
 	}
-	s.kbRender(w, r, status, "Conocimiento", `<section class="frame-section"><p class="section-kicker">ERROR</p><div class="data-frame policy-note danger-note"><p>`+
-		esc(msg)+`</p></div><p><a href="/dashboard/kb">Volver a los espacios</a></p></section>`)
+	s.kbRender(w, r, status, "Conocimiento", `<div class="nx-page"><header class="nx-head"><h1>No se pudo completar</h1></header><div class="nx-note nx-note-error" role="alert"><p>`+
+		esc(msg)+`</p></div><p><a href="/dashboard/kb">Volver a Conocimiento</a></p></div>`)
 }
 
 func kbDate(t time.Time) string { return t.UTC().Format("2006-01-02 15:04") }
@@ -190,20 +214,39 @@ func kbHasCap(caps []string, c authz.Capability) bool {
 	return false
 }
 
-func kbBadge(status string) string {
-	variant := "success"
-	switch status {
-	case domain.ResultRejected:
-		variant = "danger"
-	case domain.ResultUnchanged, domain.ResultSkipped:
-		variant = "muted"
-	case domain.ResultRetired: // también domain.DocRetired
-		variant = "warning"
-	}
-	return `<span class="badge badge-` + variant + `">` + esc(status) + `</span>`
-}
+// kbBadge se conserva para las páginas que muestran resultados de lote.
+func kbBadge(status string) string { return kbResultChip(status) }
 
 // ─── Páginas ─────────────────────────────────────────────────────────────────
+
+type kbSpaceStats struct {
+	active, retired int
+	last            time.Time
+}
+
+func (s *CloudServer) kbStats(r *http.Request, svc *kbservice.Service, id authz.Identity, slug string) kbSpaceStats {
+	var st kbSpaceStats
+	docs, err := svc.ListDocuments(r.Context(), id, slug, kbstore.DocQuery{Limit: 2000})
+	if err != nil {
+		return st
+	}
+	for _, d := range docs {
+		if d.Status == domain.DocRetired {
+			st.retired++
+		} else {
+			st.active++
+		}
+		if d.UpdatedAt.After(st.last) {
+			st.last = d.UpdatedAt
+		}
+	}
+	return st
+}
+
+func kbStep(title, text, state, stateClass, action string) string {
+	return `<li><div><p class="nx-step-title">` + esc(title) + `</p><p class="nx-step-text">` + text + `</p></div><div class="nx-step-side"><span class="` + stateClass + `">` +
+		esc(state) + `</span>` + action + `</div></li>`
+}
 
 func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity) {
 	spaces, err := svc.ListSpaces(r.Context(), id)
@@ -211,36 +254,155 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 		s.kbError(w, r, err)
 		return
 	}
-	var b strings.Builder
-	b.WriteString(`<section class="frame-section"><div class="section-header"><p class="section-kicker">NEXO / CONOCIMIENTO</p><h2>Espacios de conocimiento</h2></div>`)
-	if len(spaces) == 0 {
-		b.WriteString(`<div class="data-frame"><p class="muted">No hay espacios visibles para este usuario.</p></div>`)
-	} else {
-		b.WriteString(`<div class="data-frame table-scroll"><table class="data-table"><thead><tr><th>Espacio</th><th>Nombre</th><th>Visibilidad</th><th>Tu rol</th></tr></thead><tbody>`)
-		for _, sp := range spaces {
-			fmt.Fprintf(&b, `<tr><td><a href="/dashboard/kb/spaces/%s">%s</a></td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-				url.PathEscape(sp.Slug), esc(sp.Slug), esc(sp.Name), esc(sp.Visibility), esc(sp.Role))
+	canCreate, _ := svc.CanCreateSpace(r.Context(), id)
+	stats := make([]kbSpaceStats, len(spaces))
+	totalDocs := 0
+	var publishSlug, publishEmptySlug string
+	canMembers := false
+	for i, sp := range spaces {
+		stats[i] = s.kbStats(r, svc, id, sp.Slug)
+		totalDocs += stats[i].active
+		if kbHasCap(sp.Capabilities, authz.CapSpacePublish) {
+			if publishSlug == "" {
+				publishSlug = sp.Slug
+			}
+			if stats[i].active == 0 && publishEmptySlug == "" {
+				publishEmptySlug = sp.Slug
+			}
 		}
-		b.WriteString(`</tbody></table></div>`)
+		if kbHasCap(sp.Capabilities, authz.CapSpaceMembersManage) {
+			canMembers = true
+		}
 	}
-	if d, err := svc.CanCreateSpace(r.Context(), id); err == nil && d {
-		b.WriteString(`<h3 class="section-block-title">Crear espacio</h3><div class="data-frame"><form method="post" action="/dashboard/kb/spaces" class="managed-user-form">`)
-		b.WriteString(`<input type="hidden" name="csrf_token" value="` + esc(s.kbCSRFToken(r)) + `"/>`)
-		b.WriteString(`<input type="text" name="slug" placeholder="slug (arquitectura)" required pattern="[a-z0-9][a-z0-9-]{1,62}" autocomplete="off"/>`)
-		b.WriteString(`<input type="text" name="name" placeholder="Nombre" autocomplete="off"/>`)
-		b.WriteString(`<input type="text" name="description" placeholder="Descripción" autocomplete="off"/>`)
-		b.WriteString(`<input type="text" name="owner" placeholder="Responsable (usuario)" required autocomplete="off"/>`)
-		b.WriteString(`<select name="visibility"><option value="open" selected>Abierto</option><option value="restricted">Restringido</option></select>`)
-		b.WriteString(`<button type="submit">Crear espacio</button></form>`)
-		b.WriteString(`<p class="muted">El responsable gestiona miembros y puede subir documentos. Los espacios abiertos los leen todos los usuarios.</p></div>`)
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	atRaw := r.URL.Query().Get("at")
+
+	var b strings.Builder
+	b.WriteString(`<div class="nx-page">`)
+	b.WriteString(`<header class="nx-head"><h1>Conocimiento</h1><p>Los estándares, lineamientos y guías oficiales del equipo, con su versión y vigencia. Tu asistente consulta lo mismo que ves aquí.</p></header>`)
+
+	// Buscador en todos los espacios visibles.
+	if len(spaces) > 0 {
+		b.WriteString(kbSearchForm("/dashboard/kb", q, atRaw, "en todos tus espacios"))
+		if q != "" {
+			b.WriteString(s.kbSearchBlock(r, svc, id, nil, q, atRaw, true))
+		}
+		b.WriteString(`</section>`)
+	}
+
+	// Cómo funciona: cuatro pasos con su estado para quien mira.
+	b.WriteString(`<section aria-labelledby="nx-how"><h2 class="nx-h2" id="nx-how">Cómo funciona</h2><ol class="nx-steps">`)
+	// 1. Crear un espacio.
+	switch {
+	case len(spaces) > 0:
+		act := ""
+		if canCreate {
+			act = `<a href="#nx-crear">Crear otro espacio</a>`
+		}
+		b.WriteString(kbStep("Crear un espacio", "Un administrador crea el espacio de un tema (por ejemplo, arquitectura o frontend) y decide si es abierto o restringido.", "Hecho", "nx-step-done", act))
+	case canCreate:
+		b.WriteString(kbStep("Crear un espacio", "Crea el espacio de un tema (por ejemplo, arquitectura o frontend) y decide si es abierto o restringido.", "Pendiente", "nx-step-todo", `<a href="#nx-crear">Crear espacio</a>`))
+	default:
+		b.WriteString(kbStep("Crear un espacio", "Un administrador crea el espacio de un tema. Pídeselo si tu equipo necesita uno.", "No aplica a tu rol", "nx-step-na", ""))
+	}
+	// 2. Nombrar responsable y miembros.
+	switch {
+	case len(spaces) > 0 && (canMembers || canCreate):
+		b.WriteString(kbStep("Nombrar responsable y miembros", "El responsable se nombra al crear el espacio. Después agrega publicadores y, en los espacios restringidos, lectores, con la API <code>/nexo/authz/v1</code>.", "Hecho", "nx-step-done", ""))
+	case len(spaces) > 0:
+		b.WriteString(kbStep("Nombrar responsable y miembros", "Cada espacio tiene un responsable que decide quién publica. Si necesitas publicar, pídeselo.", "No aplica a tu rol", "nx-step-na", ""))
+	case canCreate:
+		b.WriteString(kbStep("Nombrar responsable y miembros", "Al crear el espacio, indica el usuario responsable. Él decide quién publica.", "Pendiente", "nx-step-todo", ""))
+	default:
+		b.WriteString(kbStep("Nombrar responsable y miembros", "Cada espacio tiene un responsable que decide quién publica.", "No aplica a tu rol", "nx-step-na", ""))
+	}
+	// 3. Subir documentos.
+	switch {
+	case publishSlug == "":
+		b.WriteString(kbStep("Subir documentos", "El responsable y los publicadores suben Markdown, Word, una carpeta o un zip (por ejemplo, la wiki exportada).", "No aplica a tu rol", "nx-step-na", ""))
+	case publishEmptySlug != "":
+		b.WriteString(kbStep("Subir documentos", "Sube Markdown, Word, una carpeta o un zip. Antes de publicar puedes probar la subida sin publicar nada.", "Pendiente", "nx-step-todo",
+			`<a href="/dashboard/kb/spaces/`+url.PathEscape(publishEmptySlug)+`#nx-subir">Ir a subir</a>`))
+	default:
+		b.WriteString(kbStep("Subir documentos", "Sube Markdown, Word, una carpeta o un zip. Volver a subir el mismo archivo no crea otra versión.", "Hecho", "nx-step-done",
+			`<a href="/dashboard/kb/spaces/`+url.PathEscape(publishSlug)+`#nx-subir">Subir más</a>`))
+	}
+	// 4. Consultar.
+	consult := "Desde tu asistente: <code>engram nexo connect</code> y luego <code>engram setup &lt;agente&gt;</code>. Desde aquí: con el buscador."
+	if totalDocs > 0 {
+		b.WriteString(kbStep("Consultar", consult, "Disponible", "nx-step-done", `<a href="#nx-q">Buscar ahora</a>`))
+	} else {
+		b.WriteString(kbStep("Consultar", consult, "Pendiente", "nx-step-todo", `<span class="nx-step-na">Aún no hay documentos publicados</span>`))
+	}
+	b.WriteString(`</ol></section>`)
+
+	// Espacios.
+	b.WriteString(`<section aria-labelledby="nx-spaces"><h2 class="nx-h2" id="nx-spaces">Tus espacios</h2>`)
+	if len(spaces) == 0 {
+		b.WriteString(`<p class="nx-empty">Todavía no ves ningún espacio. Cuando un administrador cree uno abierto, o te agreguen a uno restringido, aparecerá aquí.</p>`)
+	} else {
+		b.WriteString(`<div class="nx-spaces">`)
+		for i, sp := range spaces {
+			name := sp.Name
+			if name == "" {
+				name = sp.Slug
+			}
+			last := "sin documentos"
+			if !stats[i].last.IsZero() {
+				last = "última actualización " + kbDay(stats[i].last)
+			}
+			fmt.Fprintf(&b, `<article class="nx-space"><h3><a href="/dashboard/kb/spaces/%s">%s</a></h3>`, url.PathEscape(sp.Slug), esc(name))
+			if sp.Description != "" {
+				fmt.Fprintf(&b, `<p>%s</p>`, esc(sp.Description))
+			}
+			fmt.Fprintf(&b, `<p>%s. Tu rol: %s.</p>`, esc(kbVisibility(sp.Visibility)), esc(kbRole(sp.Role)))
+			fmt.Fprintf(&b, `<dl><div><dt>Vigentes</dt><dd>%d</dd></div><div><dt>Retirados</dt><dd>%d</dd></div></dl><p>%s</p></article>`,
+				stats[i].active, stats[i].retired, esc(last))
+		}
+		b.WriteString(`</div>`)
 	}
 	b.WriteString(`</section>`)
+
+	if canCreate {
+		b.WriteString(`<section aria-labelledby="nx-crear-t" id="nx-crear"><h2 class="nx-h2" id="nx-crear-t">Crear espacio</h2><div class="nx-panel"><form method="post" action="/dashboard/kb/spaces" class="nx-create">`)
+		b.WriteString(`<input type="hidden" name="csrf_token" value="` + esc(s.kbCSRFToken(r)) + `"/>`)
+		b.WriteString(`<label for="nx-slug">Identificador <span class="nx-hint">minúsculas y guiones, va en la URL</span><input id="nx-slug" type="text" name="slug" placeholder="arquitectura" required pattern="[a-z0-9][a-z0-9-]{1,62}" autocomplete="off"/></label>`)
+		b.WriteString(`<label for="nx-name">Nombre<input id="nx-name" type="text" name="name" placeholder="Arquitectura" autocomplete="off"/></label>`)
+		b.WriteString(`<label for="nx-desc">Descripción<input id="nx-desc" type="text" name="description" placeholder="Estándares de arquitectura de software" autocomplete="off"/></label>`)
+		b.WriteString(`<label for="nx-owner">Responsable <span class="nx-hint">usuario del panel</span><input id="nx-owner" type="text" name="owner" required autocomplete="off"/></label>`)
+		b.WriteString(`<label for="nx-vis">Visibilidad<select id="nx-vis" name="visibility"><option value="open" selected>Abierto a todo el equipo</option><option value="restricted">Restringido a sus miembros</option></select></label>`)
+		b.WriteString(`<div><button type="submit">Crear espacio</button></div></form>`)
+		b.WriteString(`<p class="nx-hint">El responsable decide quién publica. Los espacios abiertos los leen todos los usuarios con token.</p></div></section>`)
+	}
+	b.WriteString(`</div>`)
 	s.kbRender(w, r, http.StatusOK, "Conocimiento", b.String())
+}
+
+// kbSearchBlock ejecuta la búsqueda con el mismo servicio que /nexo/kb/v1
+// (permisos, vigencia y R1) y dibuja la respuesta.
+func (s *CloudServer) kbSearchBlock(r *http.Request, svc *kbservice.Service, id authz.Identity, spaces []string, q, atRaw string, showSpace bool) string {
+	at, msg := kbParseAt(atRaw)
+	if msg != "" {
+		return `<div class="nx-answers"><div class="nx-note nx-note-error" role="alert"><p>` + esc(msg) + `</p></div></div>`
+	}
+	res, err := svc.Search(r.Context(), id, kbservice.SearchRequest{Q: q, Spaces: spaces, At: at, Limit: 5})
+	if err != nil {
+		text := "No se pudo buscar. Vuelve a intentarlo."
+		var de *domain.Error
+		if errors.As(err, &de) {
+			text = "No se pudo buscar: " + de.Message
+		} else {
+			fmt.Printf("dashboard kb: search: %v\n", err)
+		}
+		return `<div class="nx-answers"><div class="nx-note nx-note-error" role="alert"><p>` + esc(text) + `</p></div></div>`
+	}
+	return kbSearchResults(res, at, showSpace)
 }
 
 func (s *CloudServer) kbCreateSpace(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, "formulario inválido", http.StatusBadRequest)
 		return
 	}
 	sp, err := svc.CreateSpace(r.Context(), id, kbservice.CreateSpaceInput{Slug: r.PostForm.Get("slug"), Name: r.PostForm.Get("name"),
@@ -260,83 +422,137 @@ func (s *CloudServer) kbSpace(w http.ResponseWriter, r *http.Request, svc *kbser
 		return
 	}
 	status := r.URL.Query().Get("status")
-	docs, err := svc.ListDocuments(r.Context(), id, slug, kbstore.DocQuery{Status: status, Limit: 500})
+	if status != domain.DocActive && status != domain.DocRetired {
+		status = ""
+	}
+	docs, err := svc.ListDocuments(r.Context(), id, slug, kbstore.DocQuery{Status: status, Limit: 2000})
 	if err != nil {
 		s.kbError(w, r, err)
 		return
 	}
+	st := s.kbStats(r, svc, id, slug)
 	canPublish := kbHasCap(sp.Capabilities, authz.CapSpacePublish)
+	base := "/dashboard/kb/spaces/" + url.PathEscape(sp.Slug)
+	name := sp.Name
+	if name == "" {
+		name = sp.Slug
+	}
+	now := time.Now()
+
 	var b strings.Builder
-	fmt.Fprintf(&b, `<section class="frame-section"><div class="section-header"><p class="section-kicker">ESPACIO / %s</p><h2>%s</h2><p class="muted">%s</p></div>`,
-		esc(strings.ToUpper(sp.Slug)), esc(sp.Name), esc(sp.Description))
-	fmt.Fprintf(&b, `<div class="metric-strip"><span class="badge badge-muted">visibilidad: %s</span> <span class="badge badge-muted">tu rol: %s</span> <span class="badge badge-muted">documentos: %d</span></div>`,
-		esc(sp.Visibility), esc(sp.Role), len(docs))
-	if canPublish {
-		b.WriteString(`<h3 class="section-block-title">Subir documentos</h3><div class="data-frame">`)
-		fmt.Fprintf(&b, `<form method="post" action="/dashboard/kb/spaces/%s/upload?csrf_token=%s" enctype="multipart/form-data" class="managed-user-form">`,
-			url.PathEscape(sp.Slug), url.QueryEscape(s.kbCSRFToken(r)))
-		b.WriteString(`<label>Archivos sueltos (.md, .txt, .docx) <input type="file" name="file" multiple accept=".md,.markdown,.txt,.docx"/></label>`)
-		b.WriteString(`<label>Una carpeta <input type="file" name="file" webkitdirectory directory multiple/></label>`)
-		b.WriteString(`<label>O un .zip con la carpeta <input type="file" name="zip" accept=".zip"/></label>`)
-		b.WriteString(`<input type="text" name="category" placeholder="Categoría por defecto (lineamiento)" autocomplete="off"/>`)
-		b.WriteString(`<input type="text" name="collection" placeholder="Colección (referencia de la poda)" autocomplete="off"/>`)
-		b.WriteString(`<select name="source"><option value="auto" selected>Detectar fuente</option><option value="dir">Archivos</option><option value="azure-devops-wiki">Wiki de Azure DevOps</option></select>`)
-		b.WriteString(`<label><input type="checkbox" name="dry_run" value="true"/> Solo probar (no publica)</label>`)
-		b.WriteString(`<label><input type="checkbox" name="prune" value="true"/> Retirar lo que ya no viene en esta colección</label>`)
-		b.WriteString(`<button type="submit">Subir</button></form>`)
-		b.WriteString(`<p class="muted">Volver a subir el mismo archivo no crea una versión nueva. Los originales no se guardan: para reprocesar un archivo hay que volver a subirlo.</p></div>`)
+	b.WriteString(`<div class="nx-page">`)
+	fmt.Fprintf(&b, `<header class="nx-head"><p class="nx-crumbs"><a href="/dashboard/kb">Conocimiento</a> / %s</p><h1>%s</h1>`, esc(sp.Slug), esc(name))
+	if sp.Description != "" {
+		fmt.Fprintf(&b, `<p>%s</p>`, esc(sp.Description))
 	}
-	b.WriteString(`<h3 class="section-block-title">Documentos</h3><p><a href="?">Todos</a> | <a href="?status=active">Vigentes</a> | <a href="?status=retired">Retirados</a></p>`)
+	fmt.Fprintf(&b, `<ul class="nx-meta"><li>%s</li><li>Tu rol: <strong>%s</strong></li><li><strong>%d</strong> vigentes</li><li><strong>%d</strong> retirados</li>`,
+		esc(kbVisibility(sp.Visibility)), esc(kbRole(sp.Role)), st.active, st.retired)
+	if !st.last.IsZero() {
+		fmt.Fprintf(&b, `<li>Última actualización %s</li>`, kbDay(st.last))
+	}
+	b.WriteString(`</ul></header>`)
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	atRaw := r.URL.Query().Get("at")
+	b.WriteString(kbSearchForm(base, q, atRaw, "en "+name))
+	if q != "" {
+		b.WriteString(s.kbSearchBlock(r, svc, id, []string{sp.Slug}, q, atRaw, false))
+	}
+	b.WriteString(`</section>`)
+
+	grid := "nx-space-grid"
+	if !canPublish {
+		grid += " nx-single"
+	}
+	b.WriteString(`<div class="` + grid + `"><section aria-labelledby="nx-docs-t"><h2 class="nx-h2" id="nx-docs-t">Documentos</h2>`)
+	b.WriteString(`<nav class="nx-filters" aria-label="Filtrar documentos">`)
+	for _, f := range []struct{ value, label string }{{"", "Todos"}, {domain.DocActive, "Vigentes"}, {domain.DocRetired, "Retirados"}} {
+		href := base
+		if f.value != "" {
+			href += "?status=" + f.value
+		}
+		cur := ""
+		if f.value == status {
+			cur = ` aria-current="page"`
+		}
+		fmt.Fprintf(&b, `<a href="%s"%s>%s</a>`, esc(href), cur, f.label)
+	}
+	b.WriteString(`</nav>`)
 	if len(docs) == 0 {
-		b.WriteString(`<div class="data-frame"><p class="muted">Sin documentos.</p></div>`)
+		msg := "Este espacio todavía no tiene documentos."
+		if status != "" {
+			msg = "No hay documentos con este filtro."
+		}
+		if canPublish && status == "" {
+			msg += " Usa el formulario de subida para publicar los primeros."
+		} else if status == "" {
+			msg += " El responsable del espacio los publica."
+		}
+		b.WriteString(`<p class="nx-empty">` + esc(msg) + `</p>`)
 	} else {
-		b.WriteString(`<div class="data-frame table-scroll"><table class="data-table"><thead><tr><th>Documento</th><th>Título</th><th>Categoría</th><th>Versión</th><th>Estado</th><th>Vigencia</th>`)
+		csrf := ""
 		if canPublish {
-			b.WriteString(`<th></th>`)
+			csrf = s.kbCSRFToken(r)
 		}
-		b.WriteString(`</tr></thead><tbody>`)
-		for _, d := range docs {
-			vig := "desde " + d.ValidFrom.Format("2006-01-02")
-			if d.ValidUntil != nil {
-				vig += " hasta " + d.ValidUntil.Format("2006-01-02")
+		docHTML := func(d domain.Document) string {
+			var li strings.Builder
+			title := d.Title
+			if title == "" {
+				title = path.Base(d.DocKey)
 			}
-			fmt.Fprintf(&b, `<tr><td><a href="/dashboard/kb/spaces/%s/doc?doc=%s">%s</a></td><td>%s</td><td>%s</td><td>v%d</td><td>%s</td><td>%s</td>`,
-				url.PathEscape(sp.Slug), url.QueryEscape(d.DocKey), esc(d.DocKey), esc(d.Title), esc(d.Category), d.CurrentVersion, kbBadge(d.Status), esc(vig))
-			if canPublish {
-				if d.Status == domain.DocActive {
-					fmt.Fprintf(&b, `<td><form method="post" action="/dashboard/kb/spaces/%s/retire" style="margin:0"><input type="hidden" name="csrf_token" value="%s"/><input type="hidden" name="doc_key" value="%s"/><input type="hidden" name="note" value="retirado desde el panel"/><button type="submit" class="page-btn">Retirar</button></form></td>`,
-						url.PathEscape(sp.Slug), esc(s.kbCSRFToken(r)), esc(d.DocKey))
-				} else {
-					b.WriteString(`<td></td>`)
+			fmt.Fprintf(&li, `<li class="nx-doc"><span class="nx-doc-title"><a href="%s">%s</a></span><span class="nx-doc-path">%s, versión %d, %s</span><span class="nx-doc-side">%s`,
+				esc(kbDocURL(sp.Slug, d.DocKey, 0, "")), esc(title), esc(d.DocKey), d.CurrentVersion, esc(kbVigencia(d.ValidFrom, d.ValidUntil)), kbDocChip(d, now))
+			if canPublish && d.Status == domain.DocActive {
+				fmt.Fprintf(&li, `<form method="post" action="%s/retire"><input type="hidden" name="csrf_token" value="%s"/><input type="hidden" name="doc_key" value="%s"/><input type="hidden" name="note" value="retirado desde el panel"/><button type="submit" class="nexo-btn-secondary" aria-label="Retirar %s">Retirar</button></form>`,
+					esc(base), esc(csrf), esc(d.DocKey), esc(title))
+			}
+			li.WriteString(`</span></li>`)
+			return li.String()
+		}
+		b.WriteString(`<div class="nx-tree">` + kbTreeHTML(kbTree(docs), 0, docHTML) + `</div>`)
+	}
+	b.WriteString(`</section>`)
+
+	if canPublish {
+		b.WriteString(`<aside class="nx-aside">`)
+		b.WriteString(`<section class="nx-panel" id="nx-subir" aria-labelledby="nx-subir-t"><h2 class="nx-h2" id="nx-subir-t">Subir documentos</h2>`)
+		fmt.Fprintf(&b, `<form method="post" action="%s/upload?csrf_token=%s" enctype="multipart/form-data" class="nx-upload">`, esc(base), url.QueryEscape(s.kbCSRFToken(r)))
+		b.WriteString(`<div class="nx-drop"><label for="nx-files">Archivos <span class="nx-hint">.md, .txt o .docx; arrástralos aquí o elígelos</span><input id="nx-files" type="file" name="file" multiple accept=".md,.markdown,.txt,.docx"/></label>`)
+		b.WriteString(`<label for="nx-dir">Una carpeta <span class="nx-hint">con sus subcarpetas</span><input id="nx-dir" type="file" name="file" webkitdirectory directory multiple/></label>`)
+		b.WriteString(`<label for="nx-zip">Un zip <span class="nx-hint">por ejemplo, la wiki exportada</span><input id="nx-zip" type="file" name="zip" accept=".zip"/></label></div>`)
+		b.WriteString(`<label for="nx-cat">Categoría <span class="nx-hint">si el documento no la trae</span><input id="nx-cat" type="text" name="category" placeholder="lineamiento" autocomplete="off"/></label>`)
+		b.WriteString(`<details><summary>Opciones avanzadas</summary>`)
+		b.WriteString(`<label for="nx-col">Colección <span class="nx-hint">nombre del conjunto, para retirar lo que ya no viene</span><input id="nx-col" type="text" name="collection" autocomplete="off"/></label>`)
+		b.WriteString(`<label for="nx-src">Tipo de fuente<select id="nx-src" name="source"><option value="auto" selected>Detectar</option><option value="dir">Archivos</option><option value="azure-devops-wiki">Wiki de Azure DevOps</option></select></label>`)
+		b.WriteString(`<label class="nx-check"><input type="checkbox" name="prune" value="true"/> <span>Retirar los documentos de esta colección que ya no vienen en la subida</span></label></details>`)
+		b.WriteString(`<div class="nx-actions"><button type="submit" name="dry_run" value="true" class="nexo-btn-secondary">Probar sin publicar</button><button type="submit">Publicar</button></div>`)
+		b.WriteString(`<p class="nx-hint">Volver a subir el mismo archivo no crea otra versión. Los originales no se guardan: para reprocesar un archivo, súbelo de nuevo.</p></form></section>`)
+		if kbHasCap(sp.Capabilities, authz.CapSpaceAuditRead) {
+			if runs, err := svc.ListPublishRuns(r.Context(), id, slug, nil, 5); err == nil && len(runs) > 0 {
+				b.WriteString(`<section class="nx-panel" aria-labelledby="nx-runs-t"><h2 class="nx-h2" id="nx-runs-t">Últimas subidas</h2><ul class="nx-runs">`)
+				for _, run := range runs {
+					keys := make([]string, 0, len(run.Summary))
+					for k := range run.Summary {
+						keys = append(keys, k)
+					}
+					sort.Strings(keys)
+					var parts []string
+					for _, k := range keys {
+						parts = append(parts, strconv.Itoa(run.Summary[k])+" "+kbResultWord(k))
+					}
+					kind := "Publicación"
+					if run.DryRun {
+						kind = "Prueba sin publicar"
+					}
+					fmt.Fprintf(&b, `<li>%s de %s<span>%s, %s</span></li>`, esc(kind), esc(run.Actor), kbDate(run.FinishedAt), esc(strings.Join(parts, ", ")))
 				}
+				b.WriteString(`</ul></section>`)
 			}
-			b.WriteString(`</tr>`)
 		}
-		b.WriteString(`</tbody></table></div>`)
+		b.WriteString(`</aside>`)
 	}
-	if runs, err := svc.ListPublishRuns(r.Context(), id, slug, nil, 10); err == nil && len(runs) > 0 {
-		b.WriteString(`<h3 class="section-block-title">Últimas ejecuciones</h3><div class="data-frame table-scroll"><table class="data-table"><thead><tr><th>Fecha</th><th>Tipo</th><th>Quién</th><th>Resultado</th><th>Prueba</th></tr></thead><tbody>`)
-		for _, run := range runs {
-			keys := make([]string, 0, len(run.Summary))
-			for k := range run.Summary {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			var parts []string
-			for _, k := range keys {
-				parts = append(parts, k+" "+strconv.Itoa(run.Summary[k]))
-			}
-			dry := ""
-			if run.DryRun {
-				dry = "sí"
-			}
-			fmt.Fprintf(&b, `<tr><td>%s</td><td>%s %s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, kbDate(run.FinishedAt), esc(run.Kind), esc(run.Source),
-				esc(run.Actor), esc(strings.Join(parts, ", ")), dry)
-		}
-		b.WriteString(`</tbody></table></div>`)
-	}
-	b.WriteString(`<p><a href="/dashboard/kb">Volver a los espacios</a></p></section>`)
-	s.kbRender(w, r, http.StatusOK, "Espacio "+sp.Slug, b.String())
+	b.WriteString(`</div></div>`)
+	s.kbRender(w, r, http.StatusOK, name, b.String())
 }
 
 func (s *CloudServer) kbUpload(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity) {
@@ -356,42 +572,49 @@ func (s *CloudServer) kbUpload(w http.ResponseWriter, r *http.Request, svc *kbse
 		return
 	}
 	var b strings.Builder
-	mode := ""
+	title := "Resultado de la subida"
+	lead := "Los documentos ya están publicados y se pueden buscar."
 	if res.DryRun {
-		mode = " (prueba: no se publicó nada)"
+		title = "Resultado de la prueba"
+		lead = "Es una prueba: no se publicó nada. Si el resultado es el esperado, vuelve a subir con Publicar."
 	}
-	fmt.Fprintf(&b, `<section class="frame-section"><div class="section-header"><p class="section-kicker">RESULTADO DE LA SUBIDA</p><h2>%s%s</h2><p class="muted">fuente %s, ejecución %s</p></div>`,
-		esc(res.Space), esc(mode), esc(res.Source), esc(res.RunID))
+	fmt.Fprintf(&b, `<div class="nx-page"><header class="nx-head"><p class="nx-crumbs"><a href="/dashboard/kb">Conocimiento</a> / <a href="/dashboard/kb/spaces/%s">%s</a></p><h1>%s</h1><p>%s</p></header>`,
+		url.PathEscape(slug), esc(res.Space), title, lead)
 	keys := make([]string, 0, len(res.Summary))
 	for k := range res.Summary {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	b.WriteString(`<div class="metric-strip">`)
+	b.WriteString(`<ul class="nx-meta">`)
 	for _, k := range keys {
-		fmt.Fprintf(&b, `%s <strong>%d</strong> &nbsp; `, kbBadge(k), res.Summary[k])
+		fmt.Fprintf(&b, `<li>%s <strong>%d</strong></li>`, kbResultChip(k), res.Summary[k])
 	}
-	b.WriteString(`</div><div class="data-frame table-scroll"><table class="data-table"><thead><tr><th>Documento</th><th>Archivo</th><th>Resultado</th><th>Versión</th><th>Secciones</th><th>Detalle</th></tr></thead><tbody>`)
+	b.WriteString(`</ul>`)
+	b.WriteString(`<div class="nx-scroll"><table><thead><tr><th>Documento</th><th>Resultado</th><th>Versión</th><th>Secciones</th><th>Detalle</th></tr></thead><tbody>`)
 	for _, d := range append(append([]kbservice.DocResult{}, res.Results...), res.Pruned...) {
 		detail := d.Reason
 		if d.Note != "" {
 			detail = strings.TrimSpace(d.Note + " " + detail)
 		}
-		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td></tr>`, esc(d.DocKey), esc(d.Path), kbBadge(d.Status), d.Version, d.Sections, esc(detail))
+		name := d.DocKey
+		if d.Path != "" && d.Path != d.DocKey {
+			name += " (" + d.Path + ")"
+		}
+		fmt.Fprintf(&b, `<tr><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td></tr>`, esc(name), kbResultChip(d.Status), d.Version, d.Sections, esc(detail))
 	}
 	b.WriteString(`</tbody></table></div>`)
 	if res.PruneSkipped != "" {
-		b.WriteString(`<div class="data-frame policy-note danger-note"><p>Poda omitida: ` + esc(res.PruneSkipped) + `</p></div>`)
+		b.WriteString(`<div class="nx-note"><p>No se retiró nada: ` + esc(res.PruneSkipped) + `</p></div>`)
 	}
 	if len(res.Skipped) > 0 {
-		b.WriteString(`<h3 class="section-block-title">Avisos</h3><div class="data-frame"><ul>`)
+		b.WriteString(`<section><h2 class="nx-h2">Archivos no publicados</h2><ul>`)
 		for _, sk := range res.Skipped {
 			b.WriteString(`<li>` + esc(sk.Path) + `: ` + esc(sk.Reason) + `</li>`)
 		}
-		b.WriteString(`</ul></div>`)
+		b.WriteString(`</ul></section>`)
 	}
-	fmt.Fprintf(&b, `<p><a href="/dashboard/kb/spaces/%s">Volver al espacio</a></p></section>`, url.PathEscape(slug))
-	s.kbRender(w, r, http.StatusOK, "Subida "+slug, b.String())
+	fmt.Fprintf(&b, `<p><a href="/dashboard/kb/spaces/%s">Volver al espacio</a></p></div>`, url.PathEscape(slug))
+	s.kbRender(w, r, http.StatusOK, title, b.String())
 }
 
 func (s *CloudServer) kbDocument(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity) {
@@ -407,43 +630,75 @@ func (s *CloudServer) kbDocument(w http.ResponseWriter, r *http.Request, svc *kb
 	}
 	versions, _ := svc.ListVersions(r.Context(), id, slug, key, 0, 50)
 	d, v := view.Document, view.Version
-	var b strings.Builder
-	fmt.Fprintf(&b, `<section class="frame-section"><div class="section-header"><p class="section-kicker">%s / %s</p><h2>%s</h2></div>`,
-		esc(strings.ToUpper(slug)), esc(d.DocKey), esc(v.Title))
-	fmt.Fprintf(&b, `<div class="metric-strip">%s <span class="badge badge-muted">v%d de %d</span> <span class="badge badge-muted">%s</span> <span class="badge badge-muted">vigente desde %s</span>`,
-		kbBadge(d.Status), v.Version, d.CurrentVersion, esc(v.Category), v.ValidFrom.Format("2006-01-02"))
-	if v.ValidUntil != nil {
-		fmt.Fprintf(&b, ` <span class="badge badge-warning">hasta %s</span>`, v.ValidUntil.Format("2006-01-02"))
-	}
-	b.WriteString(`</div>`)
-	if view.Notice != "" {
-		b.WriteString(`<div class="data-frame policy-note danger-note"><p>` + esc(view.Notice) + `</p></div>`)
-	}
-	fmt.Fprintf(&b, `<p class="muted">Publicado por %s el %s; origen %s; formato %s.`, esc(v.PublishedBy), kbDate(v.PublishedAt), esc(v.Origin.Kind), esc(v.SourceFormat))
-	if v.Origin.SourceURL != "" {
-		fmt.Fprintf(&b, ` <a href="%s" rel="noopener noreferrer">Ver la fuente</a>`, esc(v.Origin.SourceURL))
-	}
-	b.WriteString(`</p>`)
-	// Secciones con su ancla (destino de los enlaces permanentes).
 	secs := splitSections(v.ContentMD, view.Sections)
-	for _, sec := range secs {
-		fmt.Fprintf(&b, `<div class="data-frame" id="%s"><p class="section-kicker">%s <a href="#%s">#</a></p><pre class="observation-content-block" style="white-space:pre-wrap">%s</pre></div>`,
-			esc(sec.anchor), esc(strings.Join(sec.path, " > ")), esc(sec.anchor), esc(sec.body))
+	showDiff := r.URL.Query().Get("changes") != "" && v.Version > 1
+
+	var b strings.Builder
+	dir := path.Dir(d.DocKey)
+	crumbs := `<a href="/dashboard/kb">Conocimiento</a> / <a href="/dashboard/kb/spaces/` + url.PathEscape(slug) + `">` + esc(slug) + `</a>`
+	if dir != "." {
+		crumbs += " / " + esc(kbFolderLabel(dir))
+	}
+	fmt.Fprintf(&b, `<div class="nx-page"><header class="nx-head"><p class="nx-crumbs">%s</p><h1>%s</h1>`, crumbs, esc(v.Title))
+	label, class := kbState(d.Status, v.ValidFrom, v.ValidUntil, time.Now())
+	fmt.Fprintf(&b, `<ul class="nx-meta"><li>%s</li><li>Versión <strong>%d</strong> de %d</li><li>Vigente %s</li>`,
+		kbChip(label, class), v.Version, d.CurrentVersion, esc(kbVigencia(v.ValidFrom, v.ValidUntil)))
+	if v.Category != "" {
+		fmt.Fprintf(&b, `<li>Categoría: %s</li>`, esc(v.Category))
+	}
+	fmt.Fprintf(&b, `<li>Publicado por %s el %s</li>`, esc(v.PublishedBy), kbDay(v.PublishedAt))
+	if v.Origin.SourceURL != "" && kbSafeHTTP(v.Origin.SourceURL) {
+		fmt.Fprintf(&b, `<li><a href="%s" rel="noopener noreferrer">Ver la fuente original</a></li>`, esc(v.Origin.SourceURL))
+	}
+	b.WriteString(`</ul></header>`)
+	if view.Notice != "" {
+		b.WriteString(`<div class="nx-note" role="note"><p>Atención: ` + esc(view.Notice) + `.</p></div>`)
+	}
+
+	b.WriteString(`<div class="nx-doc-layout"><article class="nx-prose">`)
+	if showDiff {
+		fmt.Fprintf(&b, `<h2>Qué cambió de la versión %d a la %d</h2>`, v.Version-1, v.Version)
+		prev, err := svc.GetDocument(r.Context(), id, slug, key, v.Version-1)
+		if err != nil {
+			b.WriteString(`<p class="nx-empty">No se pudo leer la versión anterior.</p>`)
+		} else {
+			b.WriteString(kbDiffHTML(kbDiff(splitSections(prev.Version.ContentMD, prev.Sections), secs)))
+		}
+		fmt.Fprintf(&b, `<p><a href="%s">Leer la versión %d completa</a></p>`, esc(kbDocURL(slug, d.DocKey, v.Version, "")), v.Version)
+	} else {
+		for _, sec := range secs {
+			fmt.Fprintf(&b, `<section class="nx-sec" id="%s">%s</section>`, esc(sec.anchor), mdhtml.Render(sec.body))
+		}
+	}
+	b.WriteString(`</article><aside class="nx-side">`)
+	if !showDiff && len(secs) > 1 {
+		b.WriteString(`<nav aria-labelledby="nx-toc-t"><h2 id="nx-toc-t">En este documento</h2><ol>`)
+		for _, sec := range secs {
+			t := sec.anchor
+			if n := len(sec.path); n > 0 {
+				t = sec.path[n-1]
+			}
+			fmt.Fprintf(&b, `<li><a href="#%s">%s</a></li>`, esc(sec.anchor), esc(t))
+		}
+		b.WriteString(`</ol></nav>`)
 	}
 	if len(versions) > 0 {
-		b.WriteString(`<h3 class="section-block-title">Versiones</h3><div class="data-frame table-scroll"><table class="data-table"><thead><tr><th>Versión</th><th>Publicada</th><th>Por</th><th>Vigencia</th><th>Origen</th></tr></thead><tbody>`)
+		b.WriteString(`<section aria-labelledby="nx-ver-t"><h2 id="nx-ver-t">Versiones</h2><ol>`)
 		for _, ver := range versions {
-			vig := ver.ValidFrom.Format("2006-01-02")
-			if ver.ValidUntil != nil {
-				vig += " a " + ver.ValidUntil.Format("2006-01-02")
+			cur := ""
+			if ver.Version == v.Version {
+				cur = ` class="nx-current" aria-current="page"`
 			}
-			fmt.Fprintf(&b, `<tr><td><a href="/dashboard/kb/spaces/%s/doc?doc=%s&amp;v=%d">v%d</a></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
-				url.PathEscape(slug), url.QueryEscape(d.DocKey), ver.Version, ver.Version, kbDate(ver.PublishedAt), esc(ver.PublishedBy), esc(vig), esc(ver.Origin.Kind))
+			fmt.Fprintf(&b, `<li%s><a href="%s">Versión %d</a>, %s, %s`, cur, esc(kbDocURL(slug, d.DocKey, ver.Version, "")), ver.Version, kbDay(ver.PublishedAt), esc(ver.PublishedBy))
+			if ver.Version > 1 {
+				fmt.Fprintf(&b, `. <a href="%s">Qué cambió</a>`, esc(kbDocURL(slug, d.DocKey, ver.Version, "changes")))
+			}
+			b.WriteString(`</li>`)
 		}
-		b.WriteString(`</tbody></table></div>`)
+		b.WriteString(`</ol></section>`)
 	}
-	fmt.Fprintf(&b, `<p><a href="/dashboard/kb/spaces/%s">Volver al espacio</a></p></section>`, url.PathEscape(slug))
-	s.kbRender(w, r, http.StatusOK, d.DocKey, b.String())
+	b.WriteString(`</aside></div></div>`)
+	s.kbRender(w, r, http.StatusOK, v.Title, b.String())
 }
 
 type kbSec struct {
@@ -452,27 +707,76 @@ type kbSec struct {
 	body   string
 }
 
-// splitSections reparte el contenido por las líneas de procedencia de cada
-// sección (md); sin líneas, muestra el documento completo en una sola.
-func splitSections(content string, refs []kbservice.SectionRef) []kbSec {
-	lines := strings.Split(content, "\n")
-	var out []kbSec
-	// Las líneas de procedencia cuentan desde el inicio del archivo original
-	// (front matter incluido); el contenido guardado empieza en la primera
-	// línea de la primera sección.
-	offset := -1
-	for _, ref := range refs {
-		if ls, ok := ref.SourceLocation["line_start"].(float64); ok && (offset < 0 || int(ls)-1 < offset) {
-			offset = int(ls) - 1
+var kbHeadingRe = regexp.MustCompile(`^ {0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$`)
+
+// kbNormHeading compara títulos sin formato, mayúsculas ni espacios extra.
+func kbNormHeading(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case '*', '_', '`', '[', ']':
+			return -1
 		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
+}
+
+// splitSections reparte el contenido por sus títulos y asigna a cada tramo la
+// sección indexada (ancla y ruta de títulos) en orden de documento. (NX-10,
+// panel: antes se cortaba por las líneas de procedencia, que no coinciden con
+// el contenido guardado cuando el archivo tenía front matter o títulos sin
+// cuerpo.) Un tramo sin sección propia (por ejemplo, un título sin texto o un
+// subtítulo que el seccionador no corta) se une al anterior o, al inicio, al
+// siguiente. Sin coincidencias, muestra el documento completo en una sola.
+func splitSections(content string, refs []kbservice.SectionRef) []kbSec {
+	type chunk struct {
+		heading string
+		lines   []string
 	}
-	for _, ref := range refs {
-		ls, ok1 := ref.SourceLocation["line_start"].(float64)
-		le, ok2 := ref.SourceLocation["line_end"].(float64)
-		if !ok1 || !ok2 {
+	var chunks []chunk
+	cur := chunk{}
+	fence := ""
+	for _, l := range strings.Split(content, "\n") {
+		t := strings.TrimSpace(l)
+		if fence == "" && (strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~")) {
+			fence = t[:3]
+		} else if fence != "" && strings.HasPrefix(t, fence) {
+			fence = ""
+		} else if fence == "" {
+			if m := kbHeadingRe.FindStringSubmatch(l); m != nil {
+				chunks = append(chunks, cur)
+				cur = chunk{heading: m[2]}
+			}
+		}
+		cur.lines = append(cur.lines, l)
+	}
+	chunks = append(chunks, cur)
+
+	var out []kbSec
+	var pending []string
+	j := 0
+	for _, c := range chunks {
+		if strings.TrimSpace(strings.Join(c.lines, "\n")) == "" {
 			continue
 		}
-		out = append(out, kbSec{anchor: ref.Anchor, path: ref.HeadingPath, body: sliceLines(lines, int(ls)-offset, int(le)-offset)})
+		match := -1
+		for k := j; k < len(refs); k++ {
+			hp := refs[k].HeadingPath
+			if (c.heading == "" && len(hp) == 0) || (c.heading != "" && len(hp) > 0 && kbNormHeading(hp[len(hp)-1]) == kbNormHeading(c.heading)) {
+				match = k
+				break
+			}
+		}
+		switch {
+		case match >= 0:
+			out = append(out, kbSec{anchor: refs[match].Anchor, path: refs[match].HeadingPath, body: strings.Join(append(pending, c.lines...), "\n")})
+			pending = nil
+			j = match + 1
+		case len(out) > 0:
+			out[len(out)-1].body += "\n" + strings.Join(c.lines, "\n")
+		default:
+			pending = append(pending, c.lines...)
+		}
 	}
 	if len(out) == 0 {
 		anchor := "intro"
@@ -481,22 +785,10 @@ func splitSections(content string, refs []kbservice.SectionRef) []kbSec {
 		}
 		return []kbSec{{anchor: anchor, body: content}}
 	}
+	if len(pending) > 0 {
+		out[len(out)-1].body += "\n" + strings.Join(pending, "\n")
+	}
 	return out
-}
-
-func sliceLines(lines []string, from, to int) string {
-	// Las líneas de procedencia cuentan el front matter; el contenido
-	// guardado no lo tiene: se toma el tramo que exista.
-	if from < 1 {
-		from = 1
-	}
-	if to > len(lines) {
-		to = len(lines)
-	}
-	if from > to {
-		return ""
-	}
-	return strings.Join(lines[from-1:to], "\n")
 }
 
 func (s *CloudServer) kbRetire(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity) {

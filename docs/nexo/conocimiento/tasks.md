@@ -11,6 +11,8 @@ de Engram solo enganches de una línea marcados `// NX-05` o `// NX-10`; tests c
 Dependencia: la etapa R1 de roles (motor `internal/nexo/authz`, plataforma y API `/nexo/authz/v1`)
 va antes de la fase C.
 
+Panel web para la presentación (2026-10-13, sin commit): marca Nexo IA y textos en español, pestaña Conocimiento, pasos de "Cómo funciona", buscador con respuesta citada, documentos por carpeta, Markdown seguro (`internal/nexo/kb/mdhtml`) y "qué cambió" entre versiones; diseño en `docs/nexo/panel/design.md`, cambios en `NEXO_CHANGES.md` §3 y §4.
+
 ## Estado (entrega 2b, tanda 2, 2026-10-13, sin commit)
 
 Detalle y desviaciones D-K2b-22..D-K2b-30 en `design.md` §19. E2E: `nexo_ia/06-pruebas/conocimiento/RESULTADOS.md` §4

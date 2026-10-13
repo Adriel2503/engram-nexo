@@ -1,0 +1,41 @@
+package dashboard
+
+// Nexo IA · NX-10 (panel) — menú e inicio con la marca de Nexo. Sin la marca
+// activa delegan en los componentes de Engram (NavTabs, DashboardHome), así
+// components.templ no cambia.
+
+// nexoNavTabs agrega la pestaña Conocimiento y traduce las etiquetas.
+templ nexoNavTabs(activeTab string, isAdmin bool) {
+	if NexoBrand() {
+		<div role="tablist">
+			@navTab("/dashboard/", nx("Dashboard"), "dashboard", activeTab)
+			@navTab("/dashboard/kb", "Conocimiento", "kb", activeTab)
+			@navTab("/dashboard/browser", nx("Browser"), "browser", activeTab)
+			@navTab("/dashboard/projects", nx("Projects"), "projects", activeTab)
+			@navTab("/dashboard/contributors", nx("Contributors"), "contributors", activeTab)
+			if isAdmin {
+				@navTab("/dashboard/admin", nx("Admin"), "admin", activeTab)
+			}
+		</div>
+	} else {
+		@NavTabs(activeTab, isAdmin)
+	}
+}
+
+// nexoHome es el inicio con la marca de Nexo.
+templ nexoHome(username string) {
+	if NexoBrand() {
+		<section class="hero-panel nexo-home">
+			<div class="hero-copy">
+				<h2>Hola, { username }</h2>
+				<p class="hero-lead">Aquí ves la memoria que comparten los asistentes del equipo. Los estándares oficiales están en Conocimiento.</p>
+				<p><a href="/dashboard/kb" class="nexo-btn nexo-btn-primary">Buscar en Conocimiento</a></p>
+			</div>
+			<div class="data-frame" id="dashboard-stats" hx-get="/dashboard/stats" hx-trigger="load" hx-swap="innerHTML">
+				<p class="htmx-indicator terminal-note">Cargando estadísticas...</p>
+			</div>
+		</section>
+	} else {
+		@DashboardHome(username)
+	}
+}

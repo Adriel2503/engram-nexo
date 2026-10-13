@@ -163,7 +163,7 @@ func TestNexoKBUploadAPIAndDashboard(t *testing.T) {
 		t.Fatalf("subida sin CSRF: %d", rec.Code)
 	}
 	up := kbSend(env.h, http.MethodPost, "/dashboard/kb/spaces/arquitectura/upload?csrf_token="+url.QueryEscape(csrf), "", bytes.NewBuffer(form.Bytes()), fctype, cookie)
-	if up.Code != http.StatusOK || !strings.Contains(up.Body.String(), "RESULTADO DE LA SUBIDA") || !strings.Contains(up.Body.String(), "carpeta/nueva") {
+	if up.Code != http.StatusOK || !strings.Contains(up.Body.String(), "Resultado de la subida") || !strings.Contains(up.Body.String(), "carpeta/nueva") {
 		t.Fatalf("subida por el panel: %d %s", up.Code, up.Body.String())
 	}
 	doc := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/kb/spaces/arquitectura/doc?doc=logging", cookie)

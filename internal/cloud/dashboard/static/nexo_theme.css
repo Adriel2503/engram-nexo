@@ -1,0 +1,1674 @@
+/*
+ * Nexo IA · NX-10 (panel) — tema del panel de Nexo sobre el de Engram.
+ * Se carga solo con la marca de Nexo activa (layout.templ, login.templ).
+ * Diseño y tokens: docs/nexo/panel/design.md. Modo claro, tipo oración,
+ * estructura con espacio y líneas finas; el color marca estado y acción.
+ */
+
+:root {
+	--nx-paper: #f3f5f4;
+	--nx-surface: #ffffff;
+	--nx-ink: #17231f;
+	--nx-ink-soft: #4a5853;
+	--nx-line: #d3dbd7;
+	--nx-line-strong: #a9b6b0;
+	--nx-green: #0e5e4b;
+	--nx-green-hover: #0a4a3b;
+	--nx-green-tint: #e4efeb;
+	--nx-marker: #fbeea6;
+
+	--nx-ok-fg: #1e6b3a;
+	--nx-ok-bg: #e2f0e6;
+	--nx-sched-fg: #22518a;
+	--nx-sched-bg: #e3ebf5;
+	--nx-exp-fg: #8a4b00;
+	--nx-exp-bg: #faead5;
+	--nx-ret-fg: #4d5552;
+	--nx-ret-bg: #e6eae8;
+	--nx-danger-fg: #9b1c1c;
+	--nx-danger-bg: #fbe9e9;
+
+	--nx-font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+	--nx-font-read: "Sitka Text", "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif;
+	--nx-font-code: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+
+	--nx-s1: 0.8125rem; /* 13 */
+	--nx-s2: 0.875rem;  /* 14 */
+	--nx-s3: 1rem;      /* 16 */
+	--nx-s4: 1.25rem;   /* 20 */
+	--nx-s5: 1.5625rem; /* 25 */
+	--nx-s6: 1.9375rem; /* 31 */
+	--nx-s7: 2.4375rem; /* 39 */
+
+	--nx-radius-control: 4px;
+	--nx-radius-card: 8px;
+}
+
+/* ─── Variables de Engram y Pico en clave clara ───────────────────────────── */
+
+body.nexo,
+[data-theme="light"] body.nexo {
+	--engram-base: var(--nx-paper);
+	--engram-surface: var(--nx-surface);
+	--engram-surface-soft: var(--nx-surface);
+	--engram-overlay: var(--nx-line);
+	--engram-text: var(--nx-ink);
+	--engram-muted: var(--nx-ink-soft);
+	--engram-primary: var(--nx-green);
+	--engram-primary-hover: var(--nx-green-hover);
+	--engram-success: var(--nx-ok-fg);
+	--engram-warning: var(--nx-exp-fg);
+	--engram-danger: var(--nx-danger-fg);
+	--engram-accent: var(--nx-ink-soft);
+	--engram-blue: var(--nx-sched-fg);
+	--engram-shadow: transparent;
+	--engram-font-display: var(--nx-font-ui);
+	--engram-font-body: var(--nx-font-ui);
+
+	--pico-background-color: var(--nx-paper);
+	--pico-color: var(--nx-ink);
+	--pico-muted-color: var(--nx-ink-soft);
+	--pico-primary: var(--nx-green);
+	--pico-primary-hover: var(--nx-green-hover);
+	--pico-primary-background: var(--nx-green);
+	--pico-primary-inverse: #fff;
+	--pico-border-color: var(--nx-line);
+	--pico-form-element-background-color: var(--nx-surface);
+	--pico-form-element-border-color: var(--nx-line-strong);
+	--pico-form-element-color: var(--nx-ink);
+	--pico-form-element-placeholder-color: #6b7873;
+	--pico-form-element-focus-color: var(--nx-green);
+	--pico-font-family: var(--nx-font-ui);
+	--pico-font-size: 100%;
+
+	background: var(--nx-paper);
+	color: var(--nx-ink);
+	font-family: var(--nx-font-ui);
+	font-size: var(--nx-s3);
+	line-height: 1.55;
+}
+
+body.nexo * {
+	text-shadow: none;
+}
+
+body.nexo h1,
+body.nexo h2,
+body.nexo h3,
+body.nexo h4,
+body.nexo .brand,
+body.nexo .section-kicker,
+body.nexo .status-pill,
+body.nexo .metric-value,
+body.nexo .badge,
+body.nexo nav [role="tab"],
+body.nexo .admin-nav a,
+body.nexo th,
+body.nexo .shell-footer small,
+body.nexo .user-name,
+body.nexo .login-copy,
+body.nexo .login-lead,
+body.nexo .empty-state p,
+body.nexo .terminal-note,
+body.nexo button,
+body.nexo label {
+	font-family: var(--nx-font-ui);
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+body.nexo h1,
+body.nexo h2 {
+	font-family: var(--nx-font-read);
+	font-weight: 600;
+	color: var(--nx-ink);
+	letter-spacing: -0.01em;
+	line-height: 1.15;
+}
+
+body.nexo h3,
+body.nexo h4 {
+	color: var(--nx-ink);
+	font-weight: 600;
+}
+
+body.nexo a {
+	color: var(--nx-green);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.18em;
+}
+
+body.nexo a:hover {
+	color: var(--nx-green-hover);
+	text-decoration-thickness: 2px;
+}
+
+body.nexo :focus-visible {
+	outline: 3px solid var(--nx-green);
+	outline-offset: 2px;
+	box-shadow: none;
+}
+
+body.nexo code,
+body.nexo pre,
+body.nexo kbd {
+	font-family: var(--nx-font-code);
+	font-size: 0.9em;
+	background: var(--nx-green-tint);
+	color: var(--nx-ink);
+	border-radius: 3px;
+}
+
+body.nexo code {
+	padding: 0.05em 0.3em;
+}
+
+/* ─── Marco ───────────────────────────────────────────────────────────────── */
+
+body.nexo .shell-backdrop {
+	padding: 0;
+	overflow-x: clip;
+}
+
+body.nexo .shell-backdrop::before {
+	display: none;
+}
+
+body.nexo .status-ribbon {
+	max-width: none;
+	margin: 0;
+	padding: 0.35rem clamp(1rem, 3vw, 2rem);
+	border: 0;
+	border-bottom: 1px solid var(--nx-line);
+	background: var(--nx-surface);
+	box-shadow: none;
+	backdrop-filter: none;
+	gap: 0.6rem;
+}
+
+body.nexo .status-pill {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--nx-ok-fg);
+	font-size: var(--nx-s1);
+	font-weight: 600;
+}
+
+body.nexo .status-pill::before {
+	content: "";
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--nx-ok-fg);
+}
+
+body.nexo .status-copy {
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .app-shell,
+body.nexo .login-shell {
+	max-width: 1180px;
+	border: 0;
+	box-shadow: none;
+	background: transparent;
+	backdrop-filter: none;
+	overflow: visible;
+}
+
+body.nexo .shell-header {
+	align-items: flex-end;
+	padding-top: 1.5rem;
+	padding-bottom: 0.75rem;
+	border-bottom: 0;
+}
+
+body.nexo .brand-stack {
+	flex-direction: row;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 0.25rem 0.9rem;
+}
+
+body.nexo .brand {
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s6);
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	color: var(--nx-ink);
+	text-decoration: none;
+}
+
+body.nexo .brand-subtitle {
+	font-style: normal;
+	font-size: var(--nx-s3);
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .user-info {
+	align-items: center;
+	gap: 0.9rem;
+	padding: 0;
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .user-name {
+	text-transform: none;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink);
+	font-weight: 600;
+}
+
+body.nexo .user-link,
+body.nexo .logout-link {
+	background: none;
+	border: 0;
+	padding: 0;
+	color: var(--nx-green);
+	font-size: var(--nx-s2);
+	text-decoration: underline;
+	text-underline-offset: 0.18em;
+	box-shadow: none;
+}
+
+body.nexo .user-link:hover {
+	background: none;
+	color: var(--nx-green-hover);
+}
+
+body.nexo .shell-nav {
+	padding-top: 0;
+	padding-bottom: 0;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+body.nexo nav [role="tablist"] {
+	gap: 0 1.6rem;
+	overflow-x: auto;
+	flex-wrap: nowrap;
+	scrollbar-width: thin;
+}
+
+body.nexo nav [role="tab"] {
+	padding: 0.7rem 0 0.6rem;
+	border: 0;
+	border-bottom: 3px solid transparent;
+	background: none;
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s3);
+	text-decoration: none;
+	white-space: nowrap;
+	transition: none;
+}
+
+body.nexo nav [role="tab"]:hover {
+	transform: none;
+	color: var(--nx-ink);
+	border-bottom-color: var(--nx-line-strong);
+}
+
+body.nexo nav [role="tab"][aria-selected="true"] {
+	color: var(--nx-ink);
+	font-weight: 600;
+	border-bottom-color: var(--nx-green);
+	background: none;
+	box-shadow: none;
+}
+
+body.nexo .shell-main {
+	padding-top: 2rem;
+	padding-bottom: 3rem;
+	gap: 2rem;
+}
+
+body.nexo .shell-footer {
+	border-top: 1px solid var(--nx-line);
+}
+
+body.nexo .shell-footer small {
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+}
+
+/* ─── Piezas de Engram en clave clara (páginas heredadas) ────────────────── */
+
+body.nexo .hero-panel,
+body.nexo .data-frame,
+body.nexo .card,
+body.nexo .stat-card,
+body.nexo .metric-card,
+body.nexo .empty-state,
+body.nexo .browser-shell,
+body.nexo .hero-console,
+body.nexo .terminal-note,
+body.nexo .structured-block,
+body.nexo .observation-content-block,
+body.nexo .session-meta,
+body.nexo .linked-session-panel,
+body.nexo .project-card {
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line);
+	border-radius: var(--nx-radius-card);
+	box-shadow: none;
+	color: var(--nx-ink);
+}
+
+body.nexo .section-kicker {
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+	font-weight: 600;
+}
+
+body.nexo .hero-copy h2,
+body.nexo .section-header h2 {
+	font-size: var(--nx-s6);
+	line-height: 1.15;
+	letter-spacing: -0.01em;
+	margin-bottom: 0.5rem;
+}
+
+body.nexo .section-header h3,
+body.nexo .section-block-title {
+	font-family: var(--nx-font-ui);
+	font-size: var(--nx-s4);
+	letter-spacing: 0;
+}
+
+body.nexo .hero-lead,
+body.nexo .login-lead,
+body.nexo .login-copy,
+body.nexo .empty-state p,
+body.nexo .card p,
+body.nexo td,
+body.nexo label {
+	color: var(--nx-ink);
+	line-height: 1.55;
+}
+
+body.nexo .muted,
+body.nexo .metric-label,
+body.nexo .stat-label {
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .metric-value,
+body.nexo .stat-value {
+	color: var(--nx-ink);
+	font-family: var(--nx-font-ui);
+}
+
+body.nexo table,
+body.nexo .data-table {
+	background: transparent;
+	border-color: var(--nx-line);
+}
+
+body.nexo th {
+	background: var(--nx-paper);
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s2);
+	font-weight: 600;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+body.nexo td {
+	border-bottom: 1px solid var(--nx-line);
+	background: transparent;
+}
+
+body.nexo tbody tr:nth-child(even) {
+	background: transparent;
+}
+
+body.nexo tbody tr:hover {
+	background: var(--nx-paper);
+}
+
+body.nexo .badge,
+body.nexo .type-pill,
+body.nexo .page-btn {
+	border-radius: 999px;
+	font-size: var(--nx-s1);
+	font-weight: 600;
+	border: 0;
+	padding: 0.15rem 0.6rem;
+	background: var(--nx-ret-bg);
+	color: var(--nx-ret-fg);
+	text-decoration: none;
+}
+
+body.nexo .badge-success { background: var(--nx-ok-bg); color: var(--nx-ok-fg); }
+body.nexo .badge-warning { background: var(--nx-exp-bg); color: var(--nx-exp-fg); }
+body.nexo .badge-danger { background: var(--nx-danger-bg); color: var(--nx-danger-fg); }
+body.nexo .badge-muted { background: var(--nx-ret-bg); color: var(--nx-ret-fg); }
+
+body.nexo .type-pill.active,
+body.nexo .page-btn.active {
+	background: var(--nx-green);
+	color: #fff;
+}
+
+body.nexo .policy-note,
+body.nexo .danger-note,
+body.nexo .login-error,
+body.nexo .alert-danger {
+	background: var(--nx-danger-bg);
+	border: 1px solid #e7b9b9;
+	border-radius: var(--nx-radius-card);
+	color: var(--nx-danger-fg);
+}
+
+body.nexo .alert-success {
+	background: var(--nx-ok-bg);
+	border: 1px solid #b7d8c1;
+	color: var(--nx-ok-fg);
+}
+
+/* Botones y campos */
+
+body.nexo button,
+body.nexo .shell-button,
+body.nexo button[type="submit"],
+body.nexo .nexo-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4rem;
+	width: auto;
+	border-radius: var(--nx-radius-control);
+	border: 1px solid var(--nx-green);
+	background: var(--nx-green);
+	color: #fff;
+	box-shadow: none;
+	font-size: var(--nx-s3);
+	font-weight: 600;
+	padding: 0.55rem 1.1rem;
+	text-decoration: none;
+	line-height: 1.3;
+	cursor: pointer;
+}
+
+body.nexo button:hover,
+body.nexo .shell-button:hover,
+body.nexo button[type="submit"]:hover,
+body.nexo .nexo-btn:hover {
+	background: var(--nx-green-hover);
+	border-color: var(--nx-green-hover);
+	color: #fff;
+}
+
+body.nexo button.nexo-btn-secondary,
+body.nexo .nexo-btn-secondary,
+body.nexo button.page-btn,
+body.nexo button.outline.secondary {
+	background: var(--nx-surface);
+	color: var(--nx-green);
+	border: 1px solid var(--nx-line-strong);
+}
+
+body.nexo button.nexo-btn-secondary:hover,
+body.nexo .nexo-btn-secondary:hover,
+body.nexo button.page-btn:hover {
+	background: var(--nx-green-tint);
+	color: var(--nx-green-hover);
+	border-color: var(--nx-green);
+}
+
+body.nexo input[type="search"],
+body.nexo input[type="text"],
+body.nexo input[type="password"],
+body.nexo input[type="date"],
+body.nexo input[type="file"],
+body.nexo select,
+body.nexo textarea,
+body.nexo .login-form input {
+	border-radius: var(--nx-radius-control);
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line-strong);
+	box-shadow: none;
+	color: var(--nx-ink);
+	font-size: var(--nx-s3);
+}
+
+body.nexo input:focus,
+body.nexo select:focus,
+body.nexo textarea:focus {
+	border-color: var(--nx-green);
+	box-shadow: 0 0 0 3px var(--nx-green-tint);
+}
+
+/* ─── Login ───────────────────────────────────────────────────────────────── */
+
+body.nexo .login-shell {
+	min-height: 100vh;
+	max-width: 1080px;
+	align-items: center;
+	grid-template-columns: minmax(0, 1.15fr) minmax(20rem, 0.85fr);
+	gap: clamp(2rem, 6vw, 5rem);
+	padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 3vw, 2rem);
+}
+
+body.nexo .login-sidepanel,
+body.nexo .login-container {
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	gap: 0.75rem;
+}
+
+body.nexo .login-sidepanel h1 {
+	font-size: var(--nx-s7);
+	margin: 0;
+	letter-spacing: -0.02em;
+}
+
+body.nexo .login-lead {
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s4);
+	line-height: 1.45;
+	max-width: 32ch;
+	color: var(--nx-ink);
+}
+
+body.nexo .nexo-login-facts {
+	margin: 1.25rem 0 0;
+	display: grid;
+	gap: 0.15rem;
+	max-width: 46ch;
+}
+
+body.nexo .nexo-login-facts dt {
+	font-weight: 600;
+	margin-top: 0.85rem;
+	padding-left: 0.85rem;
+	border-left: 3px solid var(--nx-green);
+}
+
+body.nexo .nexo-login-facts dd {
+	margin: 0;
+	padding-left: calc(0.85rem + 3px);
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .nexo-credit {
+	margin-top: 1.5rem;
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .login-container {
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line);
+	border-radius: var(--nx-radius-card);
+	padding: clamp(1.5rem, 3vw, 2.25rem);
+}
+
+body.nexo .login-container h2 {
+	font-size: var(--nx-s5);
+	margin: 0;
+}
+
+body.nexo .login-copy {
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+body.nexo .login-form label {
+	color: var(--nx-ink);
+	font-size: var(--nx-s2);
+	font-weight: 600;
+}
+
+body.nexo .login-form button {
+	width: 100%;
+}
+
+@media (max-width: 900px) {
+	body.nexo .login-shell {
+		grid-template-columns: 1fr;
+		min-height: 0;
+	}
+	body.nexo .login-sidepanel {
+		border-bottom: 0;
+	}
+}
+
+/* ─── Conocimiento: piezas comunes ────────────────────────────────────────── */
+
+.nx-page {
+	display: grid;
+	gap: 2rem;
+	min-width: 0;
+}
+
+.nx-head h1 {
+	font-size: var(--nx-s6);
+	margin: 0 0 0.35rem;
+}
+
+.nx-head p {
+	margin: 0;
+	color: var(--nx-ink-soft);
+	max-width: 70ch;
+}
+
+.nx-crumbs {
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+	margin: 0 0 0.4rem;
+}
+
+.nx-crumbs a {
+	color: var(--nx-ink-soft);
+}
+
+.nx-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem 1.25rem;
+	margin: 0.75rem 0 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+.nx-meta strong {
+	color: var(--nx-ink);
+	font-weight: 600;
+}
+
+.nx-h2 {
+	font-family: var(--nx-font-ui) !important;
+	font-size: var(--nx-s4) !important;
+	font-weight: 600;
+	margin: 0 0 0.75rem;
+}
+
+.nx-chip {
+	display: inline-block;
+	border-radius: 999px;
+	padding: 0.1rem 0.6rem;
+	font-size: var(--nx-s1);
+	font-weight: 600;
+	white-space: nowrap;
+	line-height: 1.5;
+}
+
+.nx-chip-ok { background: var(--nx-ok-bg); color: var(--nx-ok-fg); }
+.nx-chip-sched { background: var(--nx-sched-bg); color: var(--nx-sched-fg); }
+.nx-chip-exp { background: var(--nx-exp-bg); color: var(--nx-exp-fg); }
+.nx-chip-ret { background: var(--nx-ret-bg); color: var(--nx-ret-fg); }
+.nx-chip-err { background: var(--nx-danger-bg); color: var(--nx-danger-fg); }
+
+.nx-note {
+	padding: 0.75rem 1rem;
+	border-left: 3px solid var(--nx-exp-fg);
+	background: var(--nx-exp-bg);
+	color: var(--nx-ink);
+	border-radius: 0 var(--nx-radius-control) var(--nx-radius-control) 0;
+}
+
+.nx-note-error {
+	border-left-color: var(--nx-danger-fg);
+	background: var(--nx-danger-bg);
+}
+
+.nx-empty {
+	color: var(--nx-ink-soft);
+	margin: 0;
+}
+
+.nx-filters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+	margin: 0 0 1rem;
+}
+
+.nx-filters a {
+	display: inline-block;
+	padding: 0.3rem 0.85rem;
+	border: 1px solid var(--nx-line-strong);
+	border-radius: 999px;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink);
+	text-decoration: none;
+	background: var(--nx-surface);
+}
+
+.nx-filters a:hover {
+	border-color: var(--nx-green);
+	color: var(--nx-green);
+}
+
+.nx-filters a[aria-current="page"] {
+	background: var(--nx-green);
+	border-color: var(--nx-green);
+	color: #fff;
+}
+
+.nx-scroll {
+	overflow-x: auto;
+	max-width: 100%;
+}
+
+.nx-scroll table {
+	margin: 0;
+	font-size: var(--nx-s2);
+}
+
+/* ─── /dashboard/kb ───────────────────────────────────────────────────────── */
+
+.nx-steps {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	counter-reset: nx-step;
+	border-top: 1px solid var(--nx-line);
+}
+
+.nx-steps > li {
+	counter-increment: nx-step;
+	display: grid;
+	grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+	gap: 0.25rem 1rem;
+	align-items: start;
+	padding: 0.9rem 0;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+.nx-steps > li::before {
+	content: counter(nx-step);
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s5);
+	font-weight: 700;
+	line-height: 1;
+	color: var(--nx-green);
+	padding-top: 0.1rem;
+}
+
+.nx-step-title {
+	font-weight: 600;
+	margin: 0;
+}
+
+.nx-step-text {
+	margin: 0.15rem 0 0;
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s2);
+	max-width: 70ch;
+}
+
+.nx-step-side {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 0.35rem;
+	font-size: var(--nx-s2);
+	text-align: right;
+}
+
+.nx-step-done { color: var(--nx-ok-fg); font-weight: 600; }
+.nx-step-todo { color: var(--nx-exp-fg); font-weight: 600; }
+.nx-step-na { color: var(--nx-ink-soft); }
+
+.nx-spaces {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+	gap: 1rem;
+}
+
+.nx-space {
+	position: relative;
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line);
+	border-radius: var(--nx-radius-card);
+	padding: 1.1rem 1.25rem 1rem;
+	display: grid;
+	gap: 0.5rem;
+	align-content: start;
+}
+
+.nx-space:hover,
+.nx-space:focus-within {
+	border-color: var(--nx-green);
+}
+
+.nx-space h3 {
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s4);
+	margin: 0;
+}
+
+.nx-space h3 a {
+	color: var(--nx-ink);
+	text-decoration: none;
+}
+
+.nx-space h3 a::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+}
+
+.nx-space p {
+	margin: 0;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+.nx-space dl {
+	display: grid;
+	grid-template-columns: repeat(3, auto);
+	justify-content: start;
+	gap: 0 1.5rem;
+	margin: 0.4rem 0 0;
+}
+
+.nx-space dt {
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+}
+
+.nx-space dd {
+	margin: 0;
+	font-size: var(--nx-s4);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+
+.nx-create {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	gap: 0.25rem 1rem;
+	align-items: end;
+	max-width: 60rem;
+}
+
+.nx-create label,
+.nx-upload label,
+.nx-search label {
+	display: grid;
+	gap: 0.3rem;
+	font-size: var(--nx-s2);
+	font-weight: 600;
+	color: var(--nx-ink);
+}
+
+.nx-create input,
+.nx-create select {
+	margin-bottom: 0.5rem;
+}
+
+.nx-hint {
+	font-size: var(--nx-s1);
+	font-weight: 400;
+	color: var(--nx-ink-soft);
+}
+
+/* ─── Espacio: buscador (elemento memorable) ──────────────────────────────── */
+
+.nx-search form {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 11rem auto;
+	gap: 0.75rem;
+	align-items: end;
+}
+
+.nx-search input[type="search"] {
+	margin: 0;
+	font-size: var(--nx-s4);
+	padding: 0.7rem 0.9rem;
+	height: auto;
+}
+
+.nx-search input[type="date"] {
+	margin: 0;
+}
+
+.nx-search button {
+	height: 3.1rem;
+	padding-inline: 1.5rem;
+}
+
+.nx-answers {
+	display: grid;
+	gap: 1rem;
+	margin-top: 1.25rem;
+}
+
+.nx-answers-head {
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+	margin: 0;
+}
+
+.nx-answer {
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line);
+	border-left: 4px solid var(--nx-green);
+	border-radius: 0 var(--nx-radius-card) var(--nx-radius-card) 0;
+	padding: 1rem 1.25rem;
+	display: grid;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.nx-answer:first-of-type {
+	box-shadow: 0 1px 2px rgba(23, 35, 31, 0.06), 0 6px 20px rgba(23, 35, 31, 0.06);
+}
+
+.nx-answer-cite {
+	margin: 0;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+	overflow-wrap: anywhere;
+}
+
+.nx-answer-title {
+	margin: 0;
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s4);
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+.nx-answer blockquote {
+	margin: 0.25rem 0;
+	padding: 0;
+	border: 0;
+	font-family: var(--nx-font-read);
+	font-size: 1.0625rem;
+	line-height: 1.65;
+	max-width: 68ch;
+	color: var(--nx-ink);
+	font-style: normal;
+	overflow-wrap: anywhere;
+}
+
+.nx-answer blockquote mark {
+	background: var(--nx-marker);
+	color: inherit;
+	padding: 0.05em 0.1em;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+
+.nx-answer-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.4rem 1rem;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+.nx-none {
+	background: var(--nx-surface);
+	border: 1px dashed var(--nx-line-strong);
+	border-radius: var(--nx-radius-card);
+	padding: 1rem 1.25rem;
+}
+
+.nx-none strong {
+	display: block;
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s4);
+	margin-bottom: 0.25rem;
+}
+
+.nx-none p {
+	margin: 0;
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s2);
+}
+
+/* ─── Espacio: documentos y subida ────────────────────────────────────────── */
+
+.nx-space-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 21rem;
+	gap: 2.5rem;
+	align-items: start;
+}
+
+.nx-space-grid.nx-single {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.nx-tree {
+	border-top: 1px solid var(--nx-line);
+}
+
+.nx-folder {
+	border-bottom: 1px solid var(--nx-line);
+}
+
+.nx-folder > summary {
+	list-style: none;
+	cursor: pointer;
+	display: flex;
+	align-items: baseline;
+	gap: 0.6rem;
+	padding: 0.7rem 0.25rem;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.nx-folder > summary::-webkit-details-marker {
+	display: none;
+}
+
+.nx-folder > summary::before {
+	content: "";
+	flex: none;
+	width: 0.45rem;
+	height: 0.45rem;
+	border-right: 2px solid var(--nx-ink-soft);
+	border-bottom: 2px solid var(--nx-ink-soft);
+	transform: rotate(-45deg);
+	position: relative;
+	top: -0.1rem;
+}
+
+.nx-folder[open] > summary::before {
+	transform: rotate(45deg);
+}
+
+.nx-folder > summary::after {
+	display: none;
+}
+
+.nx-folder > summary .nx-count {
+	font-weight: 400;
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+.nx-docs {
+	list-style: none;
+	margin: 0 0 0.5rem;
+	padding: 0 0 0 1.1rem;
+}
+
+.nx-doc {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.1rem 1rem;
+	padding: 0.5rem 0.25rem;
+	border-top: 1px solid #e8edeb;
+	align-items: start;
+}
+
+.nx-doc:first-child {
+	border-top: 0;
+}
+
+.nx-doc-title {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.nx-doc-title a {
+	color: var(--nx-ink);
+	text-decoration: none;
+}
+
+.nx-doc-title a:hover {
+	color: var(--nx-green);
+	text-decoration: underline;
+}
+
+.nx-doc-path {
+	grid-column: 1;
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+	overflow-wrap: anywhere;
+}
+
+.nx-doc-side {
+	grid-column: 2;
+	grid-row: 1 / span 2;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+.nx-doc-side form {
+	margin: 0;
+}
+
+.nx-doc-side button {
+	font-size: var(--nx-s1);
+	padding: 0.2rem 0.6rem;
+}
+
+.nx-aside {
+	display: grid;
+	gap: 1.5rem;
+}
+
+.nx-panel {
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line);
+	border-radius: var(--nx-radius-card);
+	padding: 1.1rem 1.25rem;
+}
+
+.nx-upload {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.nx-drop {
+	border: 2px dashed var(--nx-line-strong);
+	border-radius: var(--nx-radius-card);
+	padding: 0.85rem;
+	display: grid;
+	gap: 0.6rem;
+	background: var(--nx-paper);
+}
+
+.nx-drop:focus-within,
+.nx-drop.nx-drag {
+	border-color: var(--nx-green);
+	background: var(--nx-green-tint);
+}
+
+.nx-upload input[type="file"] {
+	font-size: var(--nx-s2);
+	margin: 0;
+	padding: 0.35rem;
+}
+
+.nx-upload input[type="text"],
+.nx-upload select {
+	margin: 0;
+	font-size: var(--nx-s2);
+}
+
+.nx-check {
+	display: flex !important;
+	grid-template-columns: none !important;
+	align-items: flex-start;
+	gap: 0.5rem !important;
+	font-weight: 400 !important;
+}
+
+.nx-check input {
+	margin: 0.2rem 0 0;
+	flex: none;
+}
+
+.nx-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.nx-runs {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	font-size: var(--nx-s2);
+}
+
+.nx-runs li {
+	padding: 0.5rem 0;
+	border-top: 1px solid var(--nx-line);
+}
+
+.nx-runs li:first-child {
+	border-top: 0;
+}
+
+.nx-runs span {
+	display: block;
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s1);
+}
+
+/* ─── Documento ───────────────────────────────────────────────────────────── */
+
+.nx-doc-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 16rem;
+	gap: 3rem;
+	align-items: start;
+}
+
+.nx-prose {
+	font-family: var(--nx-font-read);
+	font-size: 1.0625rem;
+	line-height: 1.65;
+	max-width: 68ch;
+	color: var(--nx-ink);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.nx-prose h1,
+.nx-prose h2,
+.nx-prose h3,
+.nx-prose h4,
+.nx-prose h5,
+.nx-prose h6 {
+	font-family: var(--nx-font-read);
+	color: var(--nx-ink);
+	line-height: 1.25;
+	margin: 1.6em 0 0.5em;
+}
+
+.nx-prose h1 { font-size: var(--nx-s5); }
+.nx-prose h2 { font-size: var(--nx-s4); }
+.nx-prose h3,
+.nx-prose h4,
+.nx-prose h5,
+.nx-prose h6 { font-size: 1.0625rem; }
+
+.nx-prose p,
+.nx-prose ul,
+.nx-prose ol,
+.nx-prose blockquote,
+.nx-prose pre,
+.nx-prose .nx-scroll {
+	margin: 0 0 1em;
+}
+
+.nx-prose li {
+	margin: 0.2em 0;
+}
+
+.nx-prose blockquote {
+	border-left: 3px solid var(--nx-line-strong);
+	padding: 0.1em 0 0.1em 1em;
+	color: var(--nx-ink-soft);
+	font-style: normal;
+}
+
+.nx-prose pre {
+	padding: 0.85rem 1rem;
+	overflow-x: auto;
+	line-height: 1.45;
+	font-size: 0.875rem;
+	border-radius: var(--nx-radius-control);
+	white-space: pre;
+	overflow-wrap: normal;
+}
+
+.nx-prose pre code {
+	background: none;
+	padding: 0;
+	font-size: inherit;
+}
+
+.nx-prose table {
+	font-family: var(--nx-font-ui);
+	font-size: var(--nx-s2);
+	width: auto;
+	min-width: 60%;
+	border-collapse: collapse;
+}
+
+.nx-prose th,
+.nx-prose td {
+	padding: 0.4rem 0.6rem;
+	border: 1px solid var(--nx-line);
+	vertical-align: top;
+	overflow-wrap: normal;
+}
+
+.nx-prose hr {
+	border: 0;
+	border-top: 1px solid var(--nx-line);
+	margin: 1.5em 0;
+}
+
+.nx-sec {
+	scroll-margin-top: 1rem;
+	position: relative;
+}
+
+.nx-sec:target {
+	background: linear-gradient(var(--nx-marker), var(--nx-marker)) left top / 4px 100% no-repeat;
+	padding-left: 1rem;
+	margin-left: -1rem;
+}
+
+.nx-anchor {
+	font-family: var(--nx-font-ui);
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+	text-decoration: none;
+	margin-left: 0.4rem;
+}
+
+.nx-side {
+	font-size: var(--nx-s2);
+	display: grid;
+	gap: 1.5rem;
+	position: sticky;
+	top: 1rem;
+}
+
+.nx-side h2 {
+	font-family: var(--nx-font-ui);
+	font-size: var(--nx-s3);
+	margin: 0 0 0.5rem;
+}
+
+.nx-side ol,
+.nx-side ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.nx-side li {
+	padding: 0.35rem 0;
+	border-top: 1px solid var(--nx-line);
+}
+
+.nx-side li:first-child {
+	border-top: 0;
+}
+
+.nx-side .nx-current {
+	font-weight: 600;
+}
+
+.nx-diff {
+	display: grid;
+	gap: 1rem;
+}
+
+.nx-diff-item {
+	border-left: 4px solid var(--nx-line-strong);
+	padding: 0.25rem 0 0.25rem 1rem;
+}
+
+.nx-diff-add { border-left-color: var(--nx-ok-fg); }
+.nx-diff-del { border-left-color: var(--nx-danger-fg); }
+.nx-diff-mod { border-left-color: var(--nx-sched-fg); }
+
+.nx-diff-item h3 {
+	font-size: var(--nx-s3);
+	margin: 0 0 0.35rem;
+}
+
+.nx-diff-item pre {
+	font-family: var(--nx-font-code);
+	font-size: var(--nx-s1);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	margin: 0.25rem 0 0;
+	padding: 0.6rem 0.75rem;
+	max-height: 18rem;
+	overflow-y: auto;
+}
+
+.nx-diff-item .nx-old {
+	background: var(--nx-danger-bg);
+}
+
+.nx-diff-item .nx-new {
+	background: var(--nx-ok-bg);
+}
+
+/* ─── Respuesta y accesibilidad ───────────────────────────────────────────── */
+
+.nx-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+@media (max-width: 1080px) {
+	.nx-space-grid,
+	.nx-doc-layout {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.nx-side {
+		position: static;
+	}
+}
+
+@media (max-width: 720px) {
+	body.nexo .shell-header {
+		align-items: stretch;
+	}
+	.nx-search form {
+		grid-template-columns: 1fr;
+	}
+	.nx-search button {
+		width: 100%;
+	}
+	.nx-steps > li {
+		grid-template-columns: 2rem minmax(0, 1fr);
+	}
+	.nx-step-side {
+		grid-column: 2;
+		align-items: flex-start;
+		text-align: left;
+	}
+	.nx-doc {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.nx-doc-side {
+		grid-column: 1;
+		grid-row: auto;
+		justify-content: flex-start;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	body.nexo *,
+	body.nexo *::before,
+	body.nexo *::after {
+		transition: none !important;
+		animation: none !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* ─── Ajustes tras la revisión con capturas ───────────────────────────────── */
+
+/* El contenido no puede ensanchar la columna (evita scroll horizontal). */
+body.nexo .shell-main {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+/* Cerrar sesión es un enlace, no un botón principal. */
+body.nexo button.user-link,
+body.nexo button.logout-link {
+	display: inline;
+	width: auto;
+	background: none;
+	border: 0;
+	padding: 0;
+	color: var(--nx-green);
+	font-size: var(--nx-s2);
+	font-weight: 400;
+	text-decoration: underline;
+	text-underline-offset: 0.18em;
+}
+
+body.nexo button.user-link:hover {
+	background: none;
+	color: var(--nx-green-hover);
+}
+
+/* Pico da a <article> fondo, sombra y margen de tarjeta: se anulan. */
+body.nexo article.nx-space,
+body.nexo article.nx-answer {
+	margin: 0;
+	box-shadow: none;
+	--pico-card-box-shadow: none;
+}
+
+body.nexo article.nx-answer:first-of-type {
+	box-shadow: 0 1px 2px rgba(23, 35, 31, 0.06), 0 6px 20px rgba(23, 35, 31, 0.06);
+}
+
+/* Etiquetas en bloque: texto e indicación en la misma línea, campo debajo. */
+.nx-create label,
+.nx-upload label,
+.nx-search label {
+	display: block;
+}
+
+.nx-create label > input,
+.nx-create label > select,
+.nx-upload label > input,
+.nx-upload label > select,
+.nx-search label > input {
+	display: block;
+	width: 100%;
+	margin-top: 0.3rem;
+}
+
+.nx-hint {
+	margin-left: 0.25rem;
+}
+
+p.nx-hint,
+.nx-diff-item .nx-hint {
+	margin-left: 0;
+}
+
+body.nexo .nx-meta li,
+body.nexo .nx-docs li,
+body.nexo .nx-runs li,
+body.nexo .nx-side li {
+	list-style: none;
+}
+
+/* Filtros como botones alineados a la izquierda (Pico reparte los <nav>). */
+body.nexo nav.nx-filters {
+	justify-content: flex-start;
+}
+
+body.nexo nav.nx-filters a {
+	margin: 0;
+	padding: 0.3rem 0.85rem;
+}
+
+/* Árbol compacto. */
+body.nexo details.nx-folder {
+	margin: 0;
+	padding: 0;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+body.nexo details.nx-folder > summary {
+	padding: 0.5rem 0.25rem;
+	line-height: 1.4;
+}
+
+body.nexo details.nx-folder > summary:focus-visible {
+	outline-offset: -2px;
+}
+
+.nx-folder-body {
+	padding-left: 1.1rem;
+	border-left: 1px solid var(--nx-line);
+	margin-left: 0.45rem;
+}
+
+.nx-folder-body > details.nx-folder:last-child {
+	border-bottom: 0;
+}
+
+.nx-tree > .nx-docs,
+.nx-folder-body > .nx-docs {
+	padding-left: 0;
+}
+
+/* Enlaces que son objetos (títulos, filtros, tarjetas) sin subrayado. */
+body.nexo .nx-doc-title a,
+body.nexo .nx-space h3 a,
+body.nexo nav.nx-filters a,
+body.nexo .nx-crumbs a {
+	text-decoration: none;
+}
+
+body.nexo .nx-doc-title a:hover,
+body.nexo .nx-space h3 a:hover,
+body.nexo .nx-crumbs a:hover {
+	text-decoration: underline;
+}
+
+body.nexo .nx-page section,
+body.nexo .nx-page aside {
+	margin: 0;
+}
+
+/* Documento: hoja blanca sin sombra; enlaces del lateral en línea. */
+body.nexo article.nx-prose {
+	margin: 0;
+	background: var(--nx-surface);
+	border: 1px solid var(--nx-line);
+	border-radius: var(--nx-radius-card);
+	box-shadow: none;
+	padding: clamp(1rem, 3vw, 2rem) clamp(1rem, 3vw, 2.25rem);
+	max-width: calc(68ch + 4.5rem);
+}
+
+body.nexo .nx-side li a,
+body.nexo .nx-side nav a {
+	display: inline;
+	padding: 0;
+	margin: 0;
+}
+
+body.nexo .nx-side nav ol,
+body.nexo .nx-side li {
+	display: block;
+	margin: 0;
+}
+
+/* Botón Retirar discreto en cada documento. */
+body.nexo .nx-doc-side button {
+	font-size: var(--nx-s1);
+	font-weight: 600;
+	padding: 0.15rem 0.6rem;
+}
+
+/* Botón de elegir archivos acorde al tema. */
+body.nexo input[type="file"]::file-selector-button {
+	background: var(--nx-surface);
+	color: var(--nx-green);
+	border: 1px solid var(--nx-line-strong);
+	border-radius: var(--nx-radius-control);
+	padding: 0.3rem 0.7rem;
+	margin-right: 0.6rem;
+	font-size: var(--nx-s2);
+	font-weight: 600;
+	cursor: pointer;
+}
+
+body.nexo input[type="file"]::file-selector-button:hover {
+	background: var(--nx-green-tint);
+	border-color: var(--nx-green);
+}
+
+body.nexo .nx-upload input[type="file"] {
+	background: var(--nx-surface);
+	border-style: solid;
+}
+
+/* Sin margen sobrante al inicio de la hoja del documento. */
+.nx-prose > :first-child,
+.nx-prose > .nx-sec:first-child > :first-child {
+	margin-top: 0;
+}
