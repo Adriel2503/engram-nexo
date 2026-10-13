@@ -221,7 +221,7 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, rep.Summary())
 		fmt.Fprint(stdout, rep.Table())
 		if line := rep.RerankLine(); line != "" {
-			fmt.Fprintln(stdout, line)
+			_, _ = fmt.Fprintln(stdout, line)
 		}
 		for _, q := range rep.Results {
 			mark := "acierto"
