@@ -311,7 +311,7 @@ func (p *PGStore) ListPlatformMembers(ctx context.Context, q MemberQuery) ([]Mem
 	rows, err := p.db.QueryContext(ctx, `
 		WITH c AS (SELECT nexo_authz_bootstrap_candidate() AS id),
 		m AS (
-			SELECT p.id, p.kind, p.display_name, p.enabled, COALESCE(h.username, '') AS username, COALESCE(h.email, '') AS email,
+			SELECT p.id, p.kind, p.display_name, p.enabled, COALESCE(h.username, sa.slug, '') AS username, COALESCE(h.email, '') AS email,
 			       CASE WHEN p.kind = 'service_account' THEN 'miembro'
 			            WHEN b.role IS NOT NULL THEN b.role
 			            WHEN p.id = c.id THEN 'superadmin'
@@ -325,6 +325,7 @@ func (p *PGStore) ListPlatformMembers(ctx context.Context, q MemberQuery) ([]Mem
 			       COALESCE(b.granted_by_principal_id::text, '') AS granted_by, b.updated_at
 			FROM cloud_principals p CROSS JOIN c
 			LEFT JOIN cloud_human_users h ON h.principal_id = p.id
+			LEFT JOIN nexo_service_accounts sa ON sa.principal_id = p.id -- SG-10: el slug hace de usuario
 			LEFT JOIN nexo_role_bindings b ON b.principal_id = p.id AND b.scope_type = 'platform' AND b.scope_key = '*'
 			WHERE p.id > $1
 		)
@@ -357,10 +358,11 @@ func (p *PGStore) ListScopeMembers(ctx context.Context, s Scope, q MemberQuery) 
 			WHERE $1 = 'project' AND g.project = $2
 			  AND NOT EXISTS (SELECT 1 FROM nexo_role_bindings x WHERE x.principal_id = g.principal_id AND x.scope_type = 'project' AND x.scope_key = $2)
 		)
-		SELECT m.principal_id::text, p.kind, p.display_name, p.enabled, COALESCE(h.username, ''), COALESCE(h.email, ''),
+		SELECT m.principal_id::text, p.kind, p.display_name, p.enabled, COALESCE(h.username, sa.slug, ''), COALESCE(h.email, ''),
 		       m.role, m.source, COALESCE(m.granted_by_principal_id::text, ''), m.updated_at
 		FROM m JOIN cloud_principals p ON p.id = m.principal_id
 		LEFT JOIN cloud_human_users h ON h.principal_id = p.id
+		LEFT JOIN nexo_service_accounts sa ON sa.principal_id = p.id -- SG-10: el slug hace de usuario
 		WHERE m.principal_id > $3 AND ($4 = '' OR m.role = $4)
 		ORDER BY m.principal_id LIMIT $5`, string(s.Type), s.Key, cursor, string(q.Role), limit+1)
 	if err != nil {

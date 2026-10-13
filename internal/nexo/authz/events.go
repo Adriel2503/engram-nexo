@@ -26,6 +26,9 @@ var EventActions = []string{
 	ActionBindingGranted, ActionBindingChanged, ActionBindingRevoked,
 	ActionScopeCreated, ActionScopeUpdated, ActionScopeArchived, ActionScopeRestored, ActionScopeRecovered,
 	ActionDenied, ActionRetentionPurged, ActionPrincipalDisabledInactive,
+	// SG-10: cuentas de servicio (serviceaccounts.go).
+	ActionServiceAccountCreated, ActionServiceAccountUpdated, ActionServiceAccountDisabled, ActionServiceAccountEnabled,
+	ActionServiceAccountTokenIssued, ActionServiceAccountTokenRotated, ActionServiceAccountTokenRevoked,
 }
 
 // SystemActorLabel es la etiqueta del actor en eventos que genera el propio

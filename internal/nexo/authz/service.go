@@ -107,7 +107,8 @@ type principalRow struct {
 	Label      string
 }
 
-// ResolvePrincipal acepta el id numérico o el nombre de usuario.
+// ResolvePrincipal acepta el id numérico, el nombre de usuario o, desde
+// SG-10, el nombre corto (slug) de una cuenta de servicio.
 func (s *Service) ResolvePrincipal(ctx context.Context, ref string) (principalRow, error) {
 	return resolvePrincipal(ctx, s.db, ref, false)
 }
@@ -129,6 +130,9 @@ func resolvePrincipal(ctx context.Context, q queryer, ref string, forUpdate bool
 	} else {
 		err = q.QueryRowContext(ctx, `SELECT p.id::text, p.kind, p.enabled, p.role, p.display_name FROM cloud_principals p JOIN cloud_human_users h ON h.principal_id = p.id WHERE h.username = $1`+lock, ref).
 			Scan(&row.ID, &row.Kind, &row.Enabled, &row.EngramRole, &row.Label)
+		if errors.Is(err, sql.ErrNoRows) {
+			row, err = resolveServiceAccountSlug(ctx, q, ref, lock) // SG-10: nombre corto de una cuenta de servicio
+		}
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return principalRow{}, ruleErr(CodeNotFound, "principal %q not found", ref)
