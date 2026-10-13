@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Versión de Nexo | `3.4.0-nexo.1` (base Engram v3.4.0) |
+| Versión de Nexo | `3.4.0-nexo.2` (base Engram v3.4.0) |
 | Para quién | Administradores de la plataforma, auditores y responsables de espacios de conocimiento |
 | Reemplaza a | `docs/nexo/trazabilidad/manual-admin.md` (base 3.3.2, solo trazabilidad) |
 | Fecha | 2026-10-13 |
@@ -424,7 +424,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      NEXO_VERSION: 3.4.0-nexo.1          # versión del fork con engram nexo kb upload
+      NEXO_VERSION: 3.4.0-nexo.2          # versión del fork con engram nexo kb upload
       ENGRAM_CLOUD_SERVER: ${{ vars.NEXO_SERVER }}
       ENGRAM_NO_UPDATE_CHECK: "1"
     steps:
@@ -465,7 +465,7 @@ pool:
 variables:
   - group: nexo
   - name: NEXO_VERSION
-    value: 3.4.0-nexo.1
+    value: 3.4.0-nexo.2
 steps:
   - checkout: self
   - bash: |
@@ -1344,6 +1344,6 @@ guardar el archivo en un lugar de solo lectura o con control de cambios.
 
 | Tema | Motivo |
 |---|---|
-| Cuentas de servicio y versión del fork | Las cuentas de servicio (3.8) llegan en la versión siguiente a `3.4.0-nexo.1`. Con un servidor anterior, use un usuario dedicado (por ejemplo `ci-lineamientos`) con rol publicador y token con caducidad. Los ejemplos de CI solo necesitan `engram nexo kb upload`, que ya existe en `3.4.0-nexo.1` |
+| Cuentas de servicio y versión del fork | Las cuentas de servicio (3.8) existen desde `3.4.0-nexo.2`. Con un servidor `3.4.0-nexo.1`, use un usuario dedicado (por ejemplo `ci-lineamientos`) con rol publicador y token con caducidad. Los ejemplos de CI solo necesitan `engram nexo kb upload`, que ya existe en `3.4.0-nexo.1` |
 | `ENGRAM_CLOUD_ALLOWED_PROJECTS` y personas con token asignado | La autorización por proyecto de una persona consulta solo sus permisos; no se confirmó si la lista del servidor también la limita |
 | Avisos de conocimiento para responsables | La ruta de alertas exige `platform.audit.read`; no hay una vista de avisos para el responsable del espacio |
