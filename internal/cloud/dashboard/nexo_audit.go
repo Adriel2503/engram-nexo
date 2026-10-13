@@ -277,6 +277,8 @@ type NexoAuditReviewView struct {
 	OnlyFlagged   bool
 	AllURL        string
 	FlaggedURL    string
+	ExportCSVURL  string // SG-07: descarga de la revisión (mismos filtros que la pantalla)
+	ExportJSONURL string
 	Generated     string
 	GeneratedISO  string
 	Last          *NexoReviewLast
@@ -294,6 +296,7 @@ type NexoReviewLast struct {
 	By            string
 	Notes         string
 	Summary       string
+	Hash          string // huella del contenido revisado (report_sha256)
 }
 
 // NexoReviewPerson es una persona o cuenta de servicio.

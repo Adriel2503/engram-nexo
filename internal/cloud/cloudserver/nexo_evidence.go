@@ -7,7 +7,7 @@ package cloudserver
 //	GET  /nexo/admin/audit/verify[?table=]          platform.audit.read   S4-01
 //	GET  /nexo/admin/alerts                         platform.audit.read   S4-03
 //	POST /nexo/admin/alerts/{id}:ack     {note}     platform.audit.read + token write
-//	GET  /nexo/admin/access-review[?inactive_days=] platform.audit.read   S4-04
+//	GET  /nexo/admin/access-review[?inactive_days=&format=csv|json&only=flags] platform.audit.read   S4-04, SG-07 (exportación)
 //	POST /nexo/admin/access-review:complete {notes} platform.audit.read + token write
 //
 // platform.audit.read la tienen el auditor, el admin y el superadmin (el
@@ -245,6 +245,22 @@ func (s *CloudServer) handleNexoAccessReview(w http.ResponseWriter, r *http.Requ
 	days, err := nexoReviewInactiveDays(r)
 	if err != nil {
 		nexoAuthzBadRequest(w, err.Error())
+		return
+	}
+	format, ok := nexoReviewExportFormat(r) // SG-07: ?format=csv|json baja el reporte con su huella
+	if !ok {
+		nexoAuthzBadRequest(w, "format must be csv or json")
+		return
+	}
+	if format != "" {
+		file, err := s.nexoBuildReviewExport(r.Context(), id, format, days, r.URL.Query().Get("only") == "flags")
+		if err != nil {
+			nexoInternalError(w, "nexo access review export", err)
+			return
+		}
+		s.nexoServeReviewExport(w, file, func(action string, metadata map[string]any) bool {
+			return s.nexoRecordAuditAction(w, r, action, metadata)
+		})
 		return
 	}
 	rep, err := evidence.BuildAccessReview(r.Context(), s.nexoDB(), days, time.Now())
