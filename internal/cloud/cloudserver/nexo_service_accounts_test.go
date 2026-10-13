@@ -10,10 +10,13 @@ package cloudserver
 import (
 	"bytes"
 	"encoding/json"
+	"html"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -247,4 +250,93 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// Panel: listado, alta, token mostrado una vez, rotación, revocación,
+// deshabilitar; un miembro no ve la página y sin CSRF no hay cambios.
+func TestNexoServiceAccountPanel(t *testing.T) {
+	env := newNexoSecEnv(t, nil)
+	cookie := managedDashboardLogin(t, env.srv, env.tokens["carla"], false)
+	page := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/admin/service-accounts", cookie)
+	body := page.Body.String()
+	if page.Code != http.StatusOK || !strings.Contains(body, "Cuentas de servicio") || !strings.Contains(body, "Crear cuenta de servicio") {
+		t.Fatalf("página: %d %s", page.Code, body)
+	}
+	m := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("sin token CSRF")
+	}
+	csrf := url.QueryEscape(html.UnescapeString(m[1]))
+
+	if rec := performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts", "slug=ci-panel&owner=ana", cookie, false); rec.Code != http.StatusForbidden {
+		t.Fatalf("alta sin CSRF: %d", rec.Code)
+	}
+	rec := performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts", "csrf_token="+csrf+"&slug=ci-panel&owner=ana&description=Bot+del+panel", cookie, false)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Cuenta ci-panel creada") {
+		t.Fatalf("alta: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts", "csrf_token="+csrf+"&slug=ci-panel&owner=ana", cookie, false)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "Ya existe") {
+		t.Fatalf("alta repetida: %d", rec.Code)
+	}
+
+	// Token: se muestra una vez y la página siguiente no lo trae.
+	rec = performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts/ci-panel/token", "csrf_token="+csrf+"&name=ci-github&expires_in_days=30&scope=write", cookie, false)
+	tm := regexp.MustCompile(`<code class="nexo-sa-token">([^<]+)</code>`).FindStringSubmatch(rec.Body.String())
+	if rec.Code != http.StatusOK || tm == nil || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("token en el panel: %d %s", rec.Code, rec.Body.String())
+	}
+	raw := html.UnescapeString(tm[1])
+	if r := env.req("GET", "/nexo/authz/v1/me", "raw:"+raw, "", "10.0.0.30"); r.Code != http.StatusOK {
+		t.Fatalf("el token del panel no sirve: %d", r.Code)
+	}
+	again := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/admin/service-accounts?sa=ci-panel", cookie).Body.String()
+	if strings.Contains(again, raw) || !strings.Contains(again, "ci-github") || !strings.Contains(again, "Activo") || strings.Contains(again, "<td>Activo</td><td>-</td>") {
+		t.Fatalf("detalle después de emitir: %s", again)
+	}
+	var tokenID string
+	if err := env.db.QueryRow(`SELECT t.id::text FROM cloud_principal_tokens t JOIN nexo_service_accounts sa ON sa.principal_id = t.principal_id WHERE sa.slug = 'ci-panel'`).Scan(&tokenID); err != nil {
+		t.Fatal(err)
+	}
+	// Rotar sin gracia: token nuevo y el anterior revocado.
+	rec = performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts/ci-panel/rotate", "csrf_token="+csrf+"&token_id="+tokenID+"&grace_minutes=0", cookie, false)
+	tm = regexp.MustCompile(`<code class="nexo-sa-token">([^<]+)</code>`).FindStringSubmatch(rec.Body.String())
+	if rec.Code != http.StatusOK || tm == nil || !strings.Contains(rec.Body.String(), "anterior quedó revocado") {
+		t.Fatalf("rotar en el panel: %d %s", rec.Code, rec.Body.String())
+	}
+	raw2 := html.UnescapeString(tm[1])
+	if r := env.req("GET", "/nexo/authz/v1/me", "raw:"+raw, "", "10.0.0.30"); r.Code != http.StatusUnauthorized {
+		t.Fatalf("token rotado sigue sirviendo: %d", r.Code)
+	}
+	// Deshabilitar: el token nuevo deja de servir.
+	if rec = performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts/ci-panel/disable", "csrf_token="+csrf, cookie, false); rec.Code != http.StatusOK {
+		t.Fatalf("deshabilitar: %d", rec.Code)
+	}
+	if r := env.req("GET", "/nexo/authz/v1/me", "raw:"+raw2, "", "10.0.0.30"); r.Code != http.StatusUnauthorized {
+		t.Fatalf("cuenta deshabilitada con token vigente: %d", r.Code)
+	}
+	if rec = performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts/ci-panel/enable", "csrf_token="+csrf, cookie, false); rec.Code != http.StatusOK {
+		t.Fatalf("habilitar: %d", rec.Code)
+	}
+	var newID string
+	if err := env.db.QueryRow(`SELECT t.id::text FROM cloud_principal_tokens t JOIN nexo_service_accounts sa ON sa.principal_id = t.principal_id WHERE sa.slug = 'ci-panel' AND t.revoked_at IS NULL`).Scan(&newID); err != nil {
+		t.Fatal(err)
+	}
+	if rec = performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/service-accounts/ci-panel/revoke", "csrf_token="+csrf+"&token_id="+newID, cookie, false); rec.Code != http.StatusOK {
+		t.Fatalf("revocar: %d", rec.Code)
+	}
+	if r := env.req("GET", "/nexo/authz/v1/me", "raw:"+raw2, "", "10.0.0.30"); r.Code != http.StatusUnauthorized {
+		t.Fatalf("token revocado sigue sirviendo: %d", r.Code)
+	}
+	for _, action := range []string{"service_account.created", "service_account.token_issued", "service_account.token_rotated", "service_account.disabled", "service_account.enabled", "service_account.token_revoked"} {
+		if n := env.count(`SELECT count(*) FROM nexo_authz_events e JOIN nexo_service_accounts sa ON sa.principal_id = e.target_principal_id WHERE sa.slug = 'ci-panel' AND e.action = $1`, action); n != 1 {
+			t.Errorf("evento %s desde el panel: %d", action, n)
+		}
+	}
+
+	// Un miembro no ve la página.
+	member := managedDashboardLogin(t, env.srv, env.tokens["ana"], false)
+	if rec := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/admin/service-accounts", member); rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "ci-panel") {
+		t.Fatalf("miembro en la página: %d", rec.Code)
+	}
 }

@@ -47,6 +47,7 @@ func (s *CloudServer) registerNexoServiceAccountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+p+"/{saAction}", s.nexoAuthzRoute(s.handleNexoSAAction))
 	mux.HandleFunc("POST "+p+"/{sa}/tokens", s.nexoAuthzRoute(s.handleNexoSAIssueToken))
 	mux.HandleFunc("POST "+p+"/{sa}/tokens/{tokenAction}", s.nexoAuthzRoute(s.handleNexoSATokenAction))
+	s.registerNexoServiceAccountDashboard(mux) // página del panel (nexo_service_accounts_dashboard.go)
 }
 
 // ─── Vistas ──────────────────────────────────────────────────────────────────
@@ -291,10 +292,35 @@ func (s *CloudServer) handleNexoSATokenAction(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	res, ok := s.nexoSATokenOp(w, r, svc, id, store, a, action, tokenID, body, nexoRespondJSON, func(err error) { nexoAuthzWriteError(w, err) })
+	if !ok {
+		return
+	}
+	if action == "revoke" {
+		jsonResponse(w, http.StatusOK, map[string]any{"token_id": strings.TrimSpace(tokenID), "revoked": true, "changed": res.Changed})
+		return
+	}
+	jsonResponse(w, http.StatusCreated, map[string]any{"raw_token": res.Raw, "token": newNexoTokenView(res.Token, time.Now()), "old_token": res.Old})
+}
+
+// nexoSATokenResult es el resultado de rotar o revocar.
+type nexoSATokenResult struct {
+	Raw     string // token nuevo en claro (rotación), solo para entregarlo una vez
+	Token   cloudstore.PrincipalToken
+	Old     map[string]any
+	Changed bool // revocación: false si ya estaba revocado
+}
+
+// nexoSATokenOp rota o revoca un token de la cuenta (ya autorizada con
+// platform.tokens.manage). Lo usan la API y el panel: respond escribe los
+// rechazos de validación y fail los errores del servicio.
+func (s *CloudServer) nexoSATokenOp(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity, store AdminIdentityStore, a authz.ServiceAccount,
+	action, tokenID string, body nexoSARotateBody, respond nexoRespond, fail func(error)) (nexoSATokenResult, bool) {
+	var res nexoSATokenResult
 	tokens, err := store.ListPrincipalTokens(r.Context(), a.PrincipalID)
 	if err != nil {
-		nexoAuthzWriteError(w, err)
-		return
+		fail(err)
+		return res, false
 	}
 	var old *cloudstore.PrincipalToken
 	for i := range tokens {
@@ -303,68 +329,68 @@ func (s *CloudServer) handleNexoSATokenAction(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if old == nil {
-		writeNexoSAError(w, http.StatusNotFound, authz.CodeNotFound, "token not found for this service account")
-		return
+		respond(w, http.StatusNotFound, authz.CodeNotFound, "token not found for this service account")
+		return res, false
 	}
 	if action == "revoke" {
 		reason := strings.TrimSpace(body.Reason)
 		if len(reason) > 200 {
-			nexoAuthzBadRequest(w, "reason must be at most 200 characters")
-			return
+			respond(w, http.StatusBadRequest, authz.CodeInvalid, "reason must be at most 200 characters")
+			return res, false
 		}
 		changed, err := svc.RevokeServiceAccountToken(r.Context(), id, a.PrincipalID, old.ID, reason)
 		if err != nil {
-			nexoAuthzWriteError(w, err)
-			return
+			fail(err)
+			return res, false
 		}
-		jsonResponse(w, http.StatusOK, map[string]any{"token_id": old.ID, "revoked": true, "changed": changed})
-		return
+		res.Changed = changed
+		return res, true
 	}
 
 	// Rotación: primero el token nuevo (si algo falla después, el CI no se
 	// queda sin token), luego el anterior vence en la gracia o se revoca.
 	if old.RevokedAt != nil {
-		writeNexoSAError(w, http.StatusConflict, authz.CodeInvalid, "the token is already revoked: issue a new one with POST .../tokens")
-		return
+		respond(w, http.StatusConflict, authz.CodeInvalid, "the token is already revoked: issue a new one")
+		return res, false
 	}
 	if body.GraceMinutes < 0 || body.GraceMinutes > nexoSAMaxGraceMinutes {
-		nexoAuthzBadRequest(w, fmt.Sprintf("grace_minutes must be between 0 and %d", nexoSAMaxGraceMinutes))
-		return
+		respond(w, http.StatusBadRequest, authz.CodeInvalid, fmt.Sprintf("grace_minutes must be between 0 and %d", nexoSAMaxGraceMinutes))
+		return res, false
 	}
 	scope := body.Scope
 	if strings.TrimSpace(scope) == "" {
 		scope = authz.NormalizeTokenScope(old.NexoScope)
 	}
-	issueCtx, ok := s.nexoTokenIssueContext(w, r, a.PrincipalID, security.IssueRequest{ExpiresInDays: body.ExpiresInDays, Scope: scope}, nexoRespondJSON)
+	issueCtx, ok := s.nexoTokenIssueContext(w, r, a.PrincipalID, security.IssueRequest{ExpiresInDays: body.ExpiresInDays, Scope: scope}, respond)
 	if !ok {
-		return
+		return res, false
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
 		name = old.Name
 	}
-	raw, token, ok := s.nexoCreateManagedToken(w, r, issueCtx, store, a.PrincipalID, nexoSATokenName(name, a.Slug), "nexo_service_account_rotate", nexoRespondJSON)
+	raw, token, ok := s.nexoCreateManagedToken(w, r, issueCtx, store, a.PrincipalID, nexoSATokenName(name, a.Slug), "nexo_service_account_rotate", respond)
 	if !ok {
-		return
+		return res, false
 	}
 	details := nexoSATokenDetails(token)
 	details["new_token_id"] = details["token_id"]
 	delete(details, "token_id")
 	details["grace_minutes"] = body.GraceMinutes
-	oldView := map[string]any{"id": old.ID}
+	res.Raw, res.Token, res.Old = raw, token, map[string]any{"id": old.ID}
 	expires, err := svc.ExpireTokenWithin(r.Context(), id, a.PrincipalID, old.ID, time.Duration(body.GraceMinutes)*time.Minute, details)
 	switch {
 	case err != nil:
 		// El token nuevo ya existe y solo se muestra ahora: se entrega igual y
 		// se avisa que el anterior sigue como estaba.
 		log.Printf("[nexo] cuentas de servicio: rotacion sin cerrar el token anterior (token_id=%s): %v", old.ID, err)
-		oldView["error"] = "the previous token could not be expired or revoked; revoke it with :revoke"
+		res.Old["error"] = "the previous token could not be expired or revoked; revoke it with :revoke"
 	case expires == nil:
-		oldView["revoked"] = true
+		res.Old["revoked"] = true
 	default:
-		oldView["expires_at"] = expires.UTC()
+		res.Old["expires_at"] = expires.UTC()
 	}
-	jsonResponse(w, http.StatusCreated, map[string]any{"raw_token": raw, "token": newNexoTokenView(token, time.Now()), "old_token": oldView})
+	return res, true
 }
 
 // ─── Errores ─────────────────────────────────────────────────────────────────
