@@ -56,6 +56,7 @@ type NexoAuditQuery struct {
 	Action  string    // exacto; con '*' final = prefijo (p. ej. "nexo.*")
 	Actor   string    // id de principal, usuario, email, nombre mostrado o actor_source
 	Outcome string    // success | denied | ...
+	Project string    // exacto, sin distinguir mayúsculas; vacío = todos (SG-07: filtro de ámbito del panel)
 	Cursor  string    // id de la última fila de la página anterior
 	Limit   int
 }
@@ -271,6 +272,9 @@ func (cs *CloudStore) ListAuthAudit(ctx context.Context, q NexoAuditQuery) ([]Ne
 	}
 	if outcome := strings.TrimSpace(q.Outcome); outcome != "" {
 		w.add("a.outcome = " + w.arg(outcome))
+	}
+	if project := strings.TrimSpace(q.Project); project != "" {
+		w.add("lower(a.project) = lower(" + w.arg(project) + ")")
 	}
 	if actor := strings.TrimSpace(q.Actor); actor != "" {
 		if nexoIsDigits(actor) {
