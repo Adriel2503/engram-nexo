@@ -16,6 +16,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/constants"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/dashboard"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security" // NX-07
 	engramproject "github.com/Gentleman-Programming/engram/v3/internal/project"
 	"github.com/Gentleman-Programming/engram/v3/internal/store"
 	engramsync "github.com/Gentleman-Programming/engram/v3/internal/sync"
@@ -85,6 +86,7 @@ type CloudServer struct {
 	mux                 *http.ServeMux
 	syncStatus          dashboard.SyncStatusProvider
 	listenAndServe      func(addr string, handler http.Handler) error
+	nexo                nexoState // NX-07: límites y bloqueo en memoria (nexo_security.go)
 }
 
 const defaultHost = "127.0.0.1"
@@ -224,7 +226,7 @@ func (s *CloudServer) Handler() http.Handler {
 	if s.mux == nil {
 		s.routes()
 	}
-	return nexoHandler(s.mux) // NX-04: contexto de petición (IP y User-Agent)
+	return s.nexoHandler(s.mux) // NX-04 / NX-07: contexto de petición (IP y User-Agent), límite de peticiones
 }
 
 func (s *CloudServer) pushBodyLimit() int64 {
@@ -299,7 +301,7 @@ func (s *CloudServer) routes() {
 		MaxLoginBodyBytes: maxDashboardLoginBodyBytes,
 		StatusProvider:    s.syncStatus,
 		NexoValidateLoginTokenRequest: func(r *http.Request, token string) error { // NX-04
-			return s.validateDashboardLoginTokenContext(context.WithoutCancel(r.Context()), token)
+			return s.nexoValidateDashboardLogin(r, token) // NX-07: bloqueo por fallos (S2-02)
 		},
 	})
 	s.mux.HandleFunc("GET /dashboard/bootstrap", s.handleDashboardBootstrapPage)
@@ -400,6 +402,9 @@ func (s *CloudServer) withAuthHandler(next http.Handler) http.Handler {
 }
 
 func (s *CloudServer) authenticateRequest(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+	if !s.nexoAuthPrecheck(w, r) { // NX-07: IP bloqueada por fallos de autenticación (S2-02)
+		return r, false
+	}
 	if s.principalAuth != nil {
 		token, err := bearerTokenFromRequest(r)
 		if err != nil {
@@ -413,7 +418,7 @@ func (s *CloudServer) authenticateRequest(w http.ResponseWriter, r *http.Request
 			http.Error(w, fmt.Sprintf("unauthorized: %v", err), http.StatusUnauthorized)
 			return r, false
 		}
-		return r.WithContext(WithPrincipal(r.Context(), principal)), true
+		return s.nexoAfterAuth(w, r.WithContext(WithPrincipal(r.Context(), principal)), principal) // NX-07: bloqueo, límite por token y alcance read
 	}
 	if s.auth != nil {
 		if err := s.auth.Authorize(r); err != nil {
@@ -448,6 +453,8 @@ func requestAuthDenyReason(err error) string {
 		return authAuditReasonTokenPrincipalMismatch
 	case errors.Is(err, cloudauth.ErrTokenPepperRequired):
 		return authAuditReasonPepperMissing
+	case errors.Is(err, security.ErrTokenExpired): // NX-07: token vencido (S3-01)
+		return nexoAuthAuditReasonExp
 	default:
 		return authAuditReasonResolverError
 	}
@@ -459,6 +466,7 @@ func requestAuthDenyReason(err error) string {
 // unaudited per request because it is a high-volume path.
 func (s *CloudServer) recordRequestAuthDeniedAudit(r *http.Request, reason string) {
 	log.Printf("[engram-cloud] request auth denied: %s (reason=%s)", r.RemoteAddr, reason)
+	s.nexoNoteAuthFailure(r, reason) // NX-07: contador de fallos por IP o persona (S2-02)
 	s.recordAuthAuditBestEffort(r.Context(), cloudstore.AuthAuditEvent{
 		ActorSource: authAuditActorSourceRequest,
 		Action:      authAuditActionRequestAuth,

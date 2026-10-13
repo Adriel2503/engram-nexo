@@ -38,6 +38,11 @@ Documentos: `requirements.md`, `design.md` (NX-05). Se implementa antes y junto 
 |---|---|---|
 | R4-01 | `scope` y `expires_at` en `cloud_principal_tokens`, emisión con 90 días por defecto, validación en cada petición | Token `read` sin escritura; token vencido rechazado |
 
+Estado R4 (2026-10-12): **cubierta por NX-07 fase S3** (`docs/nexo/seguridad`, S3-01..S3-04, rama
+`feat/seguridad`): columnas `nexo_expires_at` y `nexo_scope`, `Identity.TokenScope` desde el token
+resuelto, rechazo de token vencido (401 `token_expired`) y de subidas con token `read`. Desviaciones
+en `docs/nexo/seguridad/design.md` §8.2.
+
 ## Estimación orientativa
 
 | Etapa | Esfuerzo |

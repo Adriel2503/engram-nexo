@@ -66,6 +66,9 @@ func nexoClientContextMiddleware(trusted []netip.Prefix, next http.Handler) http
 }
 
 // nexoHandler aplica el middleware con los proxies confiables del entorno.
+// El servidor usa el método CloudServer.nexoHandler (NX-07, nexo_security.go),
+// que además aplica el límite de peticiones; esta variante sin estado queda
+// para las pruebas de NX-04.
 func nexoHandler(next http.Handler) http.Handler {
 	return nexoClientContextMiddleware(nexoParseTrustedProxies(os.Getenv(NexoTrustedProxiesEnv)), next)
 }

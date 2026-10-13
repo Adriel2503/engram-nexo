@@ -91,6 +91,8 @@ type PrincipalToken struct {
 	RevokedAt            *time.Time
 	RevokedByPrincipalID string
 	RevocationReason     string
+	NexoExpiresAt        *time.Time // NX-07: caducidad (nil = sin caducidad)
+	NexoScope            string     // NX-07: alcance read | write ("" = no leído)
 }
 
 type CreatePrincipalTokenParams struct {
@@ -492,6 +494,9 @@ func (cs *CloudStore) CreatePrincipalTokenWithAudit(ctx context.Context, params 
 	if err != nil {
 		return PrincipalToken{}, err
 	}
+	if err := nexoApplyTokenIssue(ctx, tx, &token, &audit); err != nil { // NX-07: caducidad y alcance en la misma transacción (S3-03)
+		return PrincipalToken{}, err
+	}
 	if err := insertAuthAuditEvent(ctx, tx, audit); err != nil {
 		return PrincipalToken{}, fmt.Errorf("%w: %w", ErrAuthAuditInsertFailed, err)
 	}
@@ -731,7 +736,7 @@ func (cs *CloudStore) ListPrincipalTokens(ctx context.Context, principalID strin
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("cloudstore: iterate principal tokens: %w", err)
 	}
-	return tokens, nil
+	return cs.nexoFillTokenFacts(ctx, tokens) // NX-07: caducidad y alcance para la API y el panel (RS-24)
 }
 
 // FindPrincipalTokenByHash looks up a managed token record and its owning
@@ -761,24 +766,30 @@ func (cs *CloudStore) FindPrincipalTokenByHash(ctx context.Context, tokenHash st
 		SELECT t.id::text, t.principal_id::text, t.token_prefix, '' AS token_hash, t.name,
 		       COALESCE(t.created_by_principal_id::text, ''), t.created_at, t.last_used_at, t.revoked_at,
 		       COALESCE(t.revoked_by_principal_id::text, ''), COALESCE(t.revocation_reason, ''),
-		       p.id::text, p.kind, p.display_name, p.role, p.enabled, p.created_at, p.updated_at
+		       p.id::text, p.kind, p.display_name, p.role, p.enabled, p.created_at, p.updated_at,
+		       t.nexo_expires_at, t.nexo_scope, (t.nexo_expires_at IS NOT NULL AND t.nexo_expires_at <= NOW()) -- NX-07
 		FROM cloud_principal_tokens t
 		JOIN cloud_principals p ON p.id = t.principal_id
 		WHERE t.token_hash = $1`
 	var token PrincipalToken
 	var principal Principal
+	var nexoExpired bool // NX-07
 	err := cs.db.QueryRowContext(ctx, q, tokenHash).Scan(
 		&token.ID, &token.PrincipalID, &token.TokenPrefix, &token.TokenHash, &token.Name,
 		&token.CreatedByPrincipalID, &token.CreatedAt, &token.LastUsedAt, &token.RevokedAt,
 		&token.RevokedByPrincipalID, &token.RevocationReason,
 		&principal.ID, &principal.Kind, &principal.DisplayName, &principal.Role, &principal.Enabled,
 		&principal.CreatedAt, &principal.UpdatedAt,
+		&token.NexoExpiresAt, &token.NexoScope, &nexoExpired, // NX-07
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PrincipalToken{}, Principal{}, ErrPrincipalTokenNotFound
 	}
 	if err != nil {
 		return PrincipalToken{}, Principal{}, fmt.Errorf("cloudstore: find principal token by hash: %w", err)
+	}
+	if err := nexoCheckResolvedToken(ctx, token, nexoExpired); err != nil { // NX-07: token vencido (S3-01) y alcance en el contexto (S3-02)
+		return PrincipalToken{}, Principal{}, err
 	}
 	return token, principal, nil
 }

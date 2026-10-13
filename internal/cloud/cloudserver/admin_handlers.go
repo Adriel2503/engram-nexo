@@ -13,6 +13,7 @@ import (
 	cloudauth "github.com/Gentleman-Programming/engram/v3/internal/cloud/auth"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/constants"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security" // NX-07
 )
 
 const (
@@ -51,7 +52,9 @@ type createAdminUserRequest struct {
 }
 
 type createAdminTokenRequest struct {
-	Name string `json:"name"`
+	Name          string `json:"name"`
+	ExpiresInDays *int   `json:"expires_in_days,omitempty"` // NX-07: días de vida (90 por defecto; 0 = sin caducidad, solo cuentas de servicio)
+	Scope         string `json:"scope,omitempty"`           // NX-07: read | write (write por defecto)
 }
 
 type revokeAdminTokenRequest struct {
@@ -73,6 +76,8 @@ type adminTokenMetadata struct {
 	RevokedAt            *time.Time `json:"revoked_at,omitempty"`
 	RevokedByPrincipalID string     `json:"revoked_by_principal_id,omitempty"`
 	RevocationReason     string     `json:"revocation_reason,omitempty"`
+	ExpiresAt            *time.Time `json:"expires_at"`      // NX-07: null = sin caducidad (RS-24)
+	Scope                string     `json:"scope,omitempty"` // NX-07: read | write
 }
 
 func (s *CloudServer) handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +212,10 @@ func (s *CloudServer) handleAdminCreateToken(w http.ResponseWriter, r *http.Requ
 	if !s.nexoAllowManageTargetTokens(w, r, principalID, nexoRespondJSON) { // NX-05: tokens de admins solo por superadmin (R-7)
 		return
 	}
+	nexoIssueCtx, ok := s.nexoTokenIssueContext(w, r, principalID, security.IssueRequest{ExpiresInDays: req.ExpiresInDays, Scope: req.Scope}, nexoRespondJSON) // NX-07: caducidad y alcance (S3-03)
+	if !ok {
+		return
+	}
 	if user, found, err := findManagedUserByPrincipalID(r.Context(), store, principalID); err != nil {
 		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("list users: %v", err))
 		return
@@ -227,7 +236,7 @@ func (s *CloudServer) handleAdminCreateToken(w http.ResponseWriter, r *http.Requ
 		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("hash token: %v", err))
 		return
 	}
-	token, err := store.CreatePrincipalTokenWithAudit(r.Context(),
+	token, err := store.CreatePrincipalTokenWithAudit(nexoIssueCtx, // NX-07
 		cloudstore.CreatePrincipalTokenParams{PrincipalID: principalID, TokenPrefix: managedToken.Prefix, TokenHash: tokenHash, Name: req.Name, CreatedByPrincipalID: actor.ID},
 		adminAuditEvent(actor, authAuditActionTokenCreate, principalID, "", map[string]any{"token_prefix": managedToken.Prefix, "name": strings.TrimSpace(req.Name)}),
 	)
@@ -343,6 +352,9 @@ func (s *CloudServer) handleAdminCreateGrant(w http.ResponseWriter, r *http.Requ
 	project := strings.TrimSpace(req.Project)
 	if project == "" {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, "project is required")
+		return
+	}
+	if !s.nexoAllowProjectGrant(w, r, principalID, project, nexoRespondJSON) { // NX-07: nadie se da acceso a sí mismo (RS-12)
 		return
 	}
 	grant, err := store.CreateProjectGrant(r.Context(), cloudstore.CreateProjectGrantParams{PrincipalID: principalID, Project: project, GrantedByPrincipalID: actor.ID})
@@ -463,5 +475,7 @@ func sanitizeToken(token cloudstore.PrincipalToken) adminTokenMetadata {
 		RevokedAt:            token.RevokedAt,
 		RevokedByPrincipalID: token.RevokedByPrincipalID,
 		RevocationReason:     token.RevocationReason,
+		ExpiresAt:            token.NexoExpiresAt, // NX-07
+		Scope:                token.NexoScope,     // NX-07
 	}
 }

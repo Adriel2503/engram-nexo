@@ -1,6 +1,6 @@
-# Guía de despliegue: dos cuentas de base de datos y TLS (NX-07, fase S1)
+# Guía de despliegue: dos cuentas de base de datos, TLS, límites y tokens (NX-07, fases S1 a S3)
 
-Fecha: 2026-10-12. Requisitos: RS-01, RS-02, RS-03, RS-04, RS-05, RS-06 (`requirements.md`).
+Fecha: 2026-10-12. Requisitos: RS-01..RS-06 (§1 a §5), RS-10..RS-13 y RS-20..RS-24 (§6) (`requirements.md`).
 Plantillas: `deploy/nexo/compose.example.yaml`, `deploy/nexo/postgres-init/01-cuentas.sh`,
 `deploy/nexo/Caddyfile.example`.
 
@@ -109,3 +109,57 @@ SELECT nexo_purge_activity(10);                             -- ERROR: nexo_reten
 ```
 
 La prueba de punta a punta está en el repositorio de Nexo: `06-pruebas/seguridad/Run-Seguridad.ps1`.
+
+## 6. Abuso, escalada y tokens (fases S2 y S3)
+
+| Variable | Por defecto | Efecto |
+|---|---|---|
+| `NEXO_RATE_LIMITS` | vacía: `sync` 600/600, `admin` 120/120, `login` 20/-, `nexo` 300/300, `other` 600/- (por IP / por token, por minuto) | JSON con los grupos a cambiar, por ejemplo `{"sync":{"ip":1200},"admin":{"token":240}}` (`0` = sin límite en esa dimensión); `off` desactiva el límite. Un JSON inválido se ignora con aviso y quedan los valores por defecto |
+| `NEXO_AUTH_LOCKOUT` | vacía: 20 tokens distintos rechazados desde una IP, o 20 fallos de una persona, en 5 min bloquean 15 min | JSON `{"max_failures":20,"user_max_failures":20,"window_seconds":300,"lockout_seconds":900}`. `max_failures` (1 a 10 000) es la cantidad de **tokens distintos** inválidos (desconocidos o mal formados, también en el login del panel) por IP dentro de la ventana, no de intentos: el mismo token repetido suma una sola vez. `user_max_failures` cuenta intentos con un token revocado o de una persona deshabilitada (`0` desactiva el bloqueo por persona). `off` lo desactiva |
+| `NEXO_SUPERADMIN_ALLOWED_CIDRS` | vacía (sin restricción, con aviso al iniciar) | Redes (CIDR o IP, separadas por comas) desde las que se pueden usar `platform.admins.manage` y `platform.settings` (crear, promover o habilitar admins; tokens sin caducidad). Fuera de ellas: 403 auditado (`reason=network`) |
+| `NEXO_TOKEN_MAX_DAYS` | `365` | Caducidad máxima al emitir un token. Por defecto se emiten con 90 días (o el máximo, si es menor) |
+
+Grupos de rutas: `sync` = `/sync/*`; `admin` = `/admin/*`, `/nexo/admin/*`, `/nexo/authz/*`;
+`login` = `POST /dashboard/login` y `/dashboard/bootstrap`; `nexo` = resto de `/nexo/*` (NX-10);
+`other` = panel, estáticos y `/health`. Al superar un límite: `429` con `Retry-After` y
+`error_code: rate_limited`; cada minuto queda un evento `nexo.rate_limited` por clave en la
+auditoría. Un bloqueo por fallos responde `429` `auth_locked` y deja un evento `auth.lockout`.
+
+Al iniciar, el log resume la configuración efectiva:
+
+```text
+[nexo] seguridad: limite de peticiones: sync=600/600 admin=120/120 ... (ip/token por minuto)
+[nexo] seguridad: bloqueo por fallos de autenticacion: ip 20 tokens distintos y usuario 20 fallos en 5m0s bloquean 15m0s
+[nexo] seguridad: NEXO_SUPERADMIN_ALLOWED_CIDRS vacio: ... (RS-13)
+[nexo] seguridad: tokens nuevos vencen a los 90 dias (maximo 365, NEXO_TOKEN_MAX_DAYS)
+```
+
+Recomendaciones de producción:
+
+- `NEXO_TRUSTED_PROXIES` con la IP del proxy (Caddy): sin ella todas las peticiones parecen venir
+  del proxy y comparten el límite y el bloqueo por IP.
+- `NEXO_SUPERADMIN_ALLOWED_CIDRS` con la red de administración o la VPN (ASVS 8.4.2).
+- Con muchas PCs detrás de un mismo NAT, subir `sync.ip` (600/min alcanza para unas 100 PCs con
+  autosync). Los límites son por réplica: con varias réplicas, el efectivo se multiplica.
+- Una PC con un token mal pegado o de un usuario eliminado reintenta cada ~30 s: suma un solo token
+  al contador de su IP y no bloquea a la oficina. Cada rechazo queda auditado (`sync.auth`,
+  `unknown_token`, con la IP y el User-Agent): ese es el rastro para encontrar la PC.
+
+Tokens (fase S3):
+
+- Emisión: `POST /admin/users/{id}/tokens` con `{"name":"...","expires_in_days":90,"scope":"read|write"}`,
+  el formulario del panel (campos de caducidad y alcance) o `POST /nexo/authz/v1/tokens`
+  `{"principal":"ana","expires_in_days":30,"scope":"read"}`. `expires_in_days: 0` (sin caducidad)
+  solo para cuentas de servicio y solo un superadmin (y desde las redes permitidas).
+- `engram cloud bootstrap admin --issue-token` emite con 90 días: el superadmin debe emitirse un
+  token nuevo antes de que venza.
+- Los tokens emitidos antes de NX-07 no tienen caducidad y siguen funcionando; se ven con
+  `expires_at: null` en `/admin/users/{id}/tokens` y deben rotarse (RS-23; reporte en S4).
+- Un token `read` descarga y consulta, pero no cambia nada: en las rutas de Engram solo usa `GET` y
+  `HEAD` (más `POST /sync/prompt-source-attestations/verify`, que solo lee); cualquier otra petición
+  (`/sync/push`, `/sync/mutations/push`, `/sync/session-authorities`, `/sync/prompt-pair-claims`,
+  `/sync/prompt-source-attestations` y las que se agreguen) recibe 403 "read-only". En `/admin/*` y
+  `/nexo/*` solo tiene las capacidades de lectura. Una sesión del panel abierta con un token `read`
+  puede mirar pero no administrar ni pausar la sincronización (403). Un token vencido recibe
+  `401 unauthorized: token_expired: ...`; la sesión del panel se cierra en la siguiente petición.
+- `GET /nexo/authz/v1/me` incluye `token` con `scope`, `expires_at`, `no_expiry` y `last_used_at`.

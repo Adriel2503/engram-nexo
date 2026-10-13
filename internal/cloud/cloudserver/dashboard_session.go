@@ -367,6 +367,9 @@ func (s *CloudServer) revalidateDashboardPrincipal(ctx context.Context, principa
 	if !current.Enabled {
 		return cloudauth.Principal{}, cloudauth.ErrPrincipalDisabled
 	}
+	if err := s.nexoRevalidateSessionToken(ctx, principal); err != nil { // NX-07: token revocado o vencido cierra la sesión; alcance en el contexto (S3)
+		return cloudauth.Principal{}, err
+	}
 	revalidated := cloudauth.Principal{
 		ID:          strings.TrimSpace(current.ID),
 		Kind:        cloudauth.PrincipalKind(strings.TrimSpace(current.Kind)),
