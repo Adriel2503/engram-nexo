@@ -15,6 +15,7 @@ templ nexoNavTabs(activeTab string, isAdmin bool) {
 			@navTab("/dashboard/contributors", nx("Contributors"), "contributors", activeTab)
 			if isAdmin {
 				@navTab("/dashboard/admin", nx("Admin"), "admin", activeTab)
+				@navTab("/dashboard/admin/service-accounts", "Cuentas de servicio", "service-accounts", activeTab)
 			}
 		</div>
 	} else {

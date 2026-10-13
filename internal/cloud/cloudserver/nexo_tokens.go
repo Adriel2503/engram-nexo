@@ -239,36 +239,54 @@ func (s *CloudServer) handleNexoAuthzIssueToken(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
+	raw, token, ok := s.nexoCreateManagedToken(w, r, issueCtx, store, target.ID, body.Name, "nexo_authz", nexoRespondJSON)
+	if !ok {
+		return
+	}
+	if target.Kind == authz.KindServiceAccount { // SG-10: emisión para una cuenta de servicio, también en nexo_authz_events
+		s.nexoRecordSATokenIssued(r, svc, id, target.ID, token)
+	}
+	jsonResponse(w, http.StatusCreated, map[string]any{"raw_token": raw, "token": newNexoTokenView(token, time.Now())})
+}
+
+// nexoCreateManagedToken genera, guarda (hash) y audita un token nuevo para
+// targetID con la caducidad y el alcance de issueCtx. Devuelve el token en
+// claro solo para entregarlo una vez; nunca se registra. Si falla, ya
+// respondió.
+func (s *CloudServer) nexoCreateManagedToken(w http.ResponseWriter, r *http.Request, issueCtx context.Context, store AdminIdentityStore, targetID, name, via string, respond nexoRespond) (string, cloudstore.PrincipalToken, bool) {
+	if s.managedHasher == nil {
+		respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, "managed token hasher is not configured")
+		return "", cloudstore.PrincipalToken{}, false
+	}
 	actor, _ := PrincipalFromContext(r.Context())
 	managedToken, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
 		nexoInternalError(w, "generate token", err)
-		return
+		return "", cloudstore.PrincipalToken{}, false
 	}
 	tokenHash, err := s.managedHasher.Hash(managedToken.Raw)
 	if err != nil {
 		nexoInternalError(w, "hash token", err)
-		return
+		return "", cloudstore.PrincipalToken{}, false
 	}
-	name := strings.TrimSpace(body.Name)
+	name = strings.TrimSpace(name)
 	token, err := store.CreatePrincipalTokenWithAudit(issueCtx,
-		cloudstore.CreatePrincipalTokenParams{PrincipalID: target.ID, TokenPrefix: managedToken.Prefix, TokenHash: tokenHash, Name: name, CreatedByPrincipalID: actor.ID},
-		adminAuditEvent(actor, authAuditActionTokenCreate, target.ID, "", map[string]any{"token_prefix": managedToken.Prefix, "name": name, "via": "nexo_authz"}),
+		cloudstore.CreatePrincipalTokenParams{PrincipalID: targetID, TokenPrefix: managedToken.Prefix, TokenHash: tokenHash, Name: name, CreatedByPrincipalID: actor.ID},
+		adminAuditEvent(actor, authAuditActionTokenCreate, targetID, "", map[string]any{"token_prefix": managedToken.Prefix, "name": name, "via": via}),
 	)
 	if err != nil {
 		switch {
 		case errors.Is(err, cloudstore.ErrPrincipalDisabled):
-			writeActionableError(w, http.StatusConflict, constants.UpgradeErrorClassPolicy, authz.CodePrincipalDisabled, disabledManagedUserTokenMessage(target.ID))
+			respond(w, http.StatusConflict, authz.CodePrincipalDisabled, disabledManagedUserTokenMessage(targetID))
 		case errors.Is(err, cloudstore.ErrPrincipalNotFound):
-			writeActionableError(w, http.StatusNotFound, constants.UpgradeErrorClassRepairable, authz.CodeNotFound, "principal not found")
-		case errors.Is(err, cloudstore.ErrAuthAuditInsertFailed):
-			writeAuditFailure(w, err)
+			respond(w, http.StatusNotFound, authz.CodeNotFound, "principal not found")
 		default:
-			writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, authz.CodeInvalid, fmt.Sprintf("create token: %v", err))
+			// Auditoría o base: el detalle solo en el log (nunca el texto de la base al cliente).
+			nexoInternalError(w, "issue token", fmt.Errorf("principal %s: %w", targetID, err))
 		}
-		return
+		return "", cloudstore.PrincipalToken{}, false
 	}
-	jsonResponse(w, http.StatusCreated, map[string]any{"raw_token": managedToken.Raw, "token": newNexoTokenView(token, time.Now())})
+	return managedToken.Raw, token, true
 }
 
 // ─── /me ─────────────────────────────────────────────────────────────────────

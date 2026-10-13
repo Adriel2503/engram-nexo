@@ -203,6 +203,12 @@ func Migrate(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("authz migrate: %w", err)
 		}
 	}
+	// SG-10: tabla lateral de las cuentas de servicio (serviceaccounts.go).
+	for _, q := range serviceAccountMigrations {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("authz migrate service accounts: %w", err)
+		}
+	}
 	if err := bootstrapSuperadminTx(ctx, tx); err != nil {
 		return fmt.Errorf("authz migrate bootstrap: %w", err)
 	}

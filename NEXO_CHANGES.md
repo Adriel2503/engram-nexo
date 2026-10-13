@@ -338,6 +338,25 @@ Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram
 - **Documentación.** `conocimiento/design.md` §19.4 (D-K2b-33), `seguridad/guia-despliegue.md` §6 (log real), `deploy/nexo/Dockerfile` (comentarios y descripción), §6 de este archivo (volver a la imagen oficial) y los manuales.
 - **Pendiente: textos del panel en inglés** ("Create User", "Create Token", "Expires in days (default 90)"). Pasarlos por `nx()` exige regenerar `components_templ.go`, y templ renumera sus variables: el diff fue de unas 800 líneas en un archivo de Engram. Se dejó como está; anotado en `docs/nexo/mejoras-y-referencias.md`.
 
+### SG-10 · Cuentas de servicio para CI y bots
+
+**Especificación.** `docs/nexo/seguridad/cuentas-servicio.md` (nota de diseño), backlog SG-10 en `docs/nexo/mejoras-y-referencias.md`, manual `docs/nexo/manuales/administracion.md` §3.8. Reglas de base: RS-20..RS-24, DS-2, D-S3-5, D-S3-6 (seguridad) y R-10 (roles).
+
+**Motivo.** Los pipelines de CI y los bots publicaban con el token de una persona (o de un usuario dedicado que se hacía pasar por persona): sin responsable, sin rotación ordenada y sin forma de ver desde dónde se usaba el token.
+
+**Qué hace.**
+- **Cuenta de servicio** = `cloud_principals` con `kind = 'service_account'` (ya admitido por Engram) + tabla lateral `nexo_service_accounts` (slug, descripción, persona responsable obligatoria, quién la creó). Trigger: la fila es de una cuenta de servicio y el responsable es una persona. `ResolvePrincipal` acepta el slug donde acepta un usuario (API de roles, `POST /nexo/authz/v1/tokens`); los listados de miembros muestran el slug como usuario.
+- **API** `/nexo/authz/v1/service-accounts`: listado y detalle (`platform.directory.read`), alta, cambio de descripción o responsable, `:disable` y `:enable` (`platform.users.manage`), emisión, `:rotate` (gracia opcional de 0 a 10080 minutos: el anterior se revoca o vence a la gracia) y `:revoke` (`platform.tokens.manage`). Sin caducidad solo un superadmin (mismo `nexoTokenIssueContext`). Deshabilitada, todos sus tokens se rechazan en la siguiente petición.
+- **Roles**: con la API de roles de siempre (`PUT /nexo/authz/v1/scopes/{type}/{key}/members/{slug}`); R-10 la hacen cumplir el servicio y el trigger existente (responsable o rol de plataforma: 422).
+- **Último uso** por token: `last_used_at` y la última acción registrada (hora, IP, cliente y fuente: `sync`, `kb` o `authz`) de `nexo_actor_presence`, `nexo_kb_events` y `nexo_authz_events` (`security.LoadTokensLastSeen`), sin escrituras nuevas por petición.
+- **Auditoría**: eventos `service_account.created`, `.updated`, `.disabled`, `.enabled`, `.token_issued`, `.token_rotated`, `.token_revoked` en `nexo_authz_events` (filtro `?action=service_account.*`); las denegaciones dejan `authz.denied`. El token en claro solo va en la respuesta de emisión o rotación; nunca en logs ni eventos (id y prefijo).
+- **CLI** `engram nexo sa` (`list`, `show`, `create`, `update`, `disable`, `enable`, `grant`, `ungrant`, `token issue|rotate|revoke`): el token nuevo es lo único que se imprime en la salida estándar, o va a `--out` con permisos 0600.
+- **Panel** `/dashboard/admin/service-accounts` (pestaña "Cuentas de servicio" para admins): listado, alta, detalle con tokens y último uso, deshabilitar y habilitar, emitir, rotar y revocar; CSRF del panel de conocimiento; el token se muestra una vez (`Cache-Control: no-store`).
+
+**Archivos nuevos.** `internal/nexo/authz/serviceaccounts.go`, `internal/nexo/security/tokenusage.go`, `internal/nexo/nexocli/serviceaccounts.go` (+ `_test.go`), `internal/cloud/cloudserver/nexo_service_accounts.go`, `nexo_service_accounts_dashboard.go`, `nexo_service_accounts_test.go` (Postgres: ciclo completo con publicación en un espacio con el token de la cuenta, rotación con y sin gracia, revocación, deshabilitar, R-10, denegaciones, un evento por acción, el token nunca en logs, eventos ni respuestas; panel), `internal/cloud/dashboard/nexo_service_accounts.go`, `nexo_service_accounts.templ` y `nexo_service_accounts_templ.go` (templ v0.3.1001), `docs/nexo/seguridad/cuentas-servicio.md`.
+
+**Archivos Nexo modificados.** `internal/nexo/authz/service.go` (slug en `resolvePrincipal`), `migrate.go` (tabla lateral), `events.go` (acciones), `pgstore.go` (slug en los listados de miembros); `cloudserver/nexo_tokens.go` (emisión extraída a `nexoCreateManagedToken`; evento al emitir para una cuenta de servicio), `cloudserver/nexo_authz_routes.go` (registro de las rutas); `dashboard/nexo_brand.templ` y `nexo_brand_templ.go` (pestaña, +12/-4 líneas generadas); `internal/nexo/nexocli/nexocli.go` (área `sa`); manual de administración y `docs/nexo/conocimiento/github-actions/LEEME.md`.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -428,6 +447,8 @@ NX-07 S5 no agrega líneas en archivos de Engram: las rutas Nexo se registran co
 
 Archivos nuevos fuera de `internal/`: `.github/workflows/nexo-security.yml` (NX-07 S5), `plugin/claude-code/skills/nexo-protocol/SKILL.md` y `plugin/codex/skills/nexo-protocol/SKILL.md` (NX-10, copias generadas de `internal/nexo/setup/SKILL.md`), `deploy/nexo/Dockerfile`, `deploy/nexo/Dockerfile.dockerignore`, `deploy/nexo/postgres-init/01-cuentas.sh`, `deploy/nexo/compose.example.yaml`, `deploy/nexo/Caddyfile.example`, `deploy/nexo/.gitattributes` (NX-07), `docs/nexo/**`, este archivo.
 
+SG-10 (cuentas de servicio) no agrega líneas en archivos de Engram: las rutas se registran con `nexoRoute` desde `registerNexoServiceAccountRoutes` (llamada por `registerNexoAuthzRoutes`, archivo propio, desde `registerNexoAdminRoutes`, línea NX-03 de `routes()`), la página del panel usa una plantilla nueva (`nexo_service_accounts.templ`) y la pestaña va en `nexo_brand.templ`; `components.templ` y `components_templ.go` no cambian.
+
 ## 5. Variables de entorno nuevas
 
 | Variable | Por defecto | Efecto |
@@ -493,6 +514,8 @@ Archivos nuevos fuera de `internal/`: `.github/workflows/nexo-security.yml` (NX-
 | `NEXO_CHAIN_PERF_EVENTS` | — | Solo tests: RNF-S3, carga y verifica esa cantidad de eventos encadenados (por ejemplo `1000000`) |
 | `NEXO_AUTHZ_PERF` | — | Solo tests: `1` activa `TestPGAuthorizationCostWith100kBindings` (prueba de tiempos de NX-05; correr sola) |
 
+SG-10 (cuentas de servicio) no agrega variables: usa `NEXO_TOKEN_MAX_DAYS` y, en el CI, `ENGRAM_CLOUD_SERVER` y `ENGRAM_CLOUD_TOKEN` como cualquier cliente.
+
 Las variables de Engram no cambian. Recomendación operativa (RN-A3): `ENGRAM_CLOUD_TOKEN` con un valor aleatorio largo que no se entrega a nadie; todo lo que llegue con él figura como `no-identificado`.
 
 ## 6. Migraciones (`cloudstore/nexo_migrations.go`)
@@ -540,6 +563,7 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `nexo_audit_exports`, `nexo_access_reviews` (NX-07 S4) | Registro de exportaciones firmadas (`UNIQUE (table_name, day)`) y de revisiones de acceso; solo inserción |
 | Guardas (NX-07 S4) | Función `nexo_evidence_guard()` y triggers `nexo_guard_<tabla>` / `nexo_guard_trunc_<tabla>` en `cloud_auth_audit_log` y las tablas anteriores; `nexo_evidence_purge_allowed(tabla, oid, hora)`; los triggers de NX-05 y NX-10 en `nexo_authz_events` y `nexo_kb_events` la usan para el `DELETE` de la depuración |
 | Función `nexo_purge_evidence(text, integer)` (NX-07 S4) | `SECURITY DEFINER` de la dueña, `search_path` fijo, mínimos de 365 días; depura el prefijo de la cadena con ancla, eventos `retention.purged`; `EXECUTE` solo para la cuenta de aplicación |
+| `nexo_service_accounts` (SG-10, desde `authz.Migrate`) | Tabla lateral de las cuentas de servicio: `principal_id` (PK, FK `cloud_principals` ON DELETE CASCADE), `slug` único (`^[a-z0-9][a-z0-9-]{1,62}$`), `description` (hasta 500), `owner_principal_id` (FK, obligatorio), `created_by_principal_id`, `created_at`, `updated_at`; índice por responsable; función y trigger `nexo_service_accounts_validate` (la fila es de una cuenta de servicio y el responsable es una persona). Sin cambios en `cloud_principals` ni en `cloud_principal_tokens` |
 
 **Volver a la imagen oficial de Engram.** Con la base del fork sobre Engram 3.3.2 (NX-01 a NX-05), volver a la imagen oficial 3.3.2 era posible. Con la base actual (Engram 3.4.0, que puede traer migraciones propias que 3.3.2 no conoce, más las guardas de evidencia de NX-07 y las tablas de NX-10) **no está verificado**: volver a 3.3.2 no es una opción soportada, y volver a la imagen oficial 3.4.0 queda pendiente de probar en una copia de la base. Lo que sigue describe el comportamiento con 3.3.2: Engram ignora las columnas, tablas y la vista nuevas, y el trigger `nexo_stamp_actor` no modifica las filas cuando nadie publicó el actor en la transacción (quedan con `actor` NULL, como los datos anteriores al fork). Con NX-05, el trigger `nexo_authz_guard_principal` sigue activo en la base aunque se use la imagen oficial: impide deshabilitar al último superadmin habilitado (se puede quitar con `DROP TRIGGER nexo_authz_guard_principal ON cloud_principals` si se abandona el fork).
 

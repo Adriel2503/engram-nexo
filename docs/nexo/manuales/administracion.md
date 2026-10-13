@@ -20,9 +20,9 @@ propuestas, proyectos, auditoría y revisión de accesos. La instalación del se
 
 | Herramienta | Para qué | Dónde |
 |---|---|---|
-| Panel web | Usuarios y tokens, permisos de proyecto, crear espacios, subir y retirar documentos, buscar | `https://<dominio>/dashboard/` (entrar con su token). Conocimiento en `https://<dominio>/dashboard/kb` |
+| Panel web | Usuarios y tokens, cuentas de servicio, permisos de proyecto, crear espacios, subir y retirar documentos, buscar | `https://<dominio>/dashboard/` (entrar con su token). Conocimiento en `https://<dominio>/dashboard/kb`; cuentas de servicio en `https://<dominio>/dashboard/admin/service-accounts` |
 | API con `curl` | Todo lo anterior y además: roles de plataforma, miembros de espacios, propuestas, avisos, auditoría y revisión de accesos | `https://<dominio>/...` con `Authorization: Bearer <token>` |
-| CLI `engram nexo` | Subir carpetas o la wiki, ver cambios, reindexar, verificar la auditoría | En su PC conectada (`engram nexo connect`) o dentro del contenedor del servidor |
+| CLI `engram nexo` | Subir carpetas o la wiki, ver cambios, reindexar, verificar la auditoría, cuentas de servicio (`engram nexo sa`) | En su PC conectada (`engram nexo connect`) o dentro del contenedor del servidor |
 
 No hay pantalla para gestionar miembros de espacios ni roles de plataforma: se hace con la API
 `/nexo/authz/v1` (secciones 2.4 y 4.3).
@@ -265,6 +265,206 @@ En el panel: botones "Disable User" y "Enable User" del detalle. Deshabilitar a 
 o auditor solo lo puede hacer un superadmin; el último superadmin no se deshabilita (`409`). Si la
 persona era el único responsable de un espacio, ese espacio queda sin responsable: un superadmin lo
 recupera (4.4).
+
+### 3.8 Cuentas de servicio (CI y bots)
+
+Una **cuenta de servicio** es una identidad para un pipeline o un bot: publica en los espacios con su
+propio token, sin usar el de una persona. La auditoría muestra la cuenta (por ejemplo `ci-wiki`)
+como autora de cada publicación.
+
+Reglas:
+
+- Toda cuenta tiene una **persona responsable** (obligatoria): a quien se le pregunta por ella.
+- Solo puede ser `lector`, `proponente` o `publicador` en espacios y proyectos. Nunca `responsable`
+  ni un rol de plataforma (regla R-10; la base lo impide aunque se intente por SQL).
+- Sus tokens vencen como los de las personas (90 días por defecto, máximo `NEXO_TOKEN_MAX_DAYS`).
+  Un token **sin caducidad** solo lo emite un superadmin (`expires_in_days: 0`, `--days 0`).
+- Deshabilitada, **todos** sus tokens se rechazan desde la siguiente petición; al habilitarla, los
+  tokens vigentes vuelven a funcionar.
+- El token se muestra **una sola vez** al emitirlo o rotarlo. Nexo nunca lo escribe en sus logs ni
+  en la auditoría (solo el id y el prefijo).
+
+| Quién | Qué puede hacer |
+|---|---|
+| admin o superadmin (`platform.users.manage`) | Crear, cambiar responsable o descripción, deshabilitar y habilitar |
+| admin o superadmin (`platform.tokens.manage`) | Emitir, rotar y revocar tokens |
+| auditor | Ver las cuentas, sus roles y el último uso de sus tokens |
+| responsable del espacio | Darle o quitarle un rol en su espacio (igual que a una persona, 4.3) |
+
+En el panel: pestaña **Cuentas de servicio** (`/dashboard/admin/service-accounts`, solo admins):
+listado, alta, detalle con tokens y último uso, deshabilitar, emitir, rotar y revocar.
+
+#### Alta, rol y token con la CLI
+
+La CLI usa el servidor y el token de `engram cloud config` (o `ENGRAM_CLOUD_SERVER` y
+`ENGRAM_CLOUD_TOKEN`) de quien administra.
+
+```sh
+# 1. Alta (admin): nombre corto, persona responsable y para qué sirve
+engram nexo sa create --slug ci-wiki --owner <usuario> --description "Publica la wiki de arquitectura"
+# 2. Rol en el espacio (lo da el responsable del espacio)
+engram nexo sa grant ci-wiki --space arquitectura --role publicador
+# 3. Token (admin): se muestra una sola vez; con --out va a un archivo con permisos 0600
+engram nexo sa token issue ci-wiki --name ci-github --days 90 --out token-ci.txt
+# Ver la cuenta, sus roles y sus tokens con el último uso
+engram nexo sa show ci-wiki
+engram nexo sa list --all
+```
+
+Cargue el contenido de `token-ci.txt` como **secreto** del CI y borre el archivo. Sin `--out`, el
+token es lo único que se imprime en la salida estándar (los mensajes van a la salida de errores).
+
+#### Por API
+
+```sh
+curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
+  -d '{"slug":"ci-wiki","owner":"<usuario>","description":"Publica la wiki de arquitectura"}' \
+  "$NEXO_URL/nexo/authz/v1/service-accounts"
+curl -fsS -X PUT -H "$H" -H "Content-Type: application/json" -d '{"role":"publicador"}' \
+  "$NEXO_URL/nexo/authz/v1/scopes/space/arquitectura/members/ci-wiki"
+curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
+  -d '{"name":"ci-github","expires_in_days":90}' \
+  "$NEXO_URL/nexo/authz/v1/service-accounts/ci-wiki/tokens"        # trae raw_token una sola vez
+curl -fsS -H "$H" "$NEXO_URL/nexo/authz/v1/service-accounts/ci-wiki" # detalle con tokens y último uso
+```
+
+`POST /nexo/authz/v1/tokens` con `"principal":"ci-wiki"` también emite tokens para la cuenta.
+
+#### Rotar un token
+
+Rotar emite un token nuevo (mismo nombre y alcance, salvo que indique otros) y cierra el anterior:
+sin gracia lo revoca en el acto; con `--grace-minutes M` (hasta 10080, una semana) el anterior
+sigue valiendo M minutos para que el CI cambie el secreto sin cortar publicaciones.
+
+```sh
+engram nexo sa show ci-wiki                                          # id del token actual
+engram nexo sa token rotate ci-wiki <token-id> --grace-minutes 60 --out token-ci.txt
+# cargue el token nuevo en el secreto del CI; pasada la gracia el anterior vence solo, o:
+engram nexo sa token revoke ci-wiki <token-id> --reason "rotado"
+```
+
+Por API: `POST /nexo/authz/v1/service-accounts/ci-wiki/tokens/<token-id>:rotate` con
+`{"grace_minutes":60}` (opcional `name`, `expires_in_days`, `scope`) y
+`POST .../tokens/<token-id>:revoke` con `{"reason":"..."}`. La respuesta de la rotación trae
+`raw_token`, `token` y `old_token` (`revoked: true` o su nuevo `expires_at`).
+
+#### Último uso
+
+El detalle de la cuenta (panel, `engram nexo sa show` o `GET .../service-accounts/<cuenta>`) muestra
+por token:
+
+| Dato | De dónde sale |
+|---|---|
+| `last_used_at` | Cualquier petición con el token (lo actualiza el servidor en cada una) |
+| `last_seen` (`at`, `ip`, `user_agent`, `source`) | La última acción registrada con ese token: subida o publicación de conocimiento (`kb`), sincronización (`sync`) o administración y denegaciones (`authz`) |
+
+Una petición de solo lectura (por ejemplo una búsqueda) actualiza `last_used_at` pero no deja IP.
+
+#### Deshabilitar y habilitar
+
+```sh
+engram nexo sa disable ci-wiki      # todos sus tokens se rechazan (401) desde la siguiente petición
+engram nexo sa enable ci-wiki
+engram nexo sa update ci-wiki --owner <otro-usuario>   # cuando la persona responsable cambia de equipo
+```
+
+Cada acción deja un evento en la auditoría de roles (`GET /nexo/authz/v1/events?action=service_account.*`):
+`service_account.created`, `.updated`, `.disabled`, `.enabled`, `.token_issued`, `.token_rotated` y
+`.token_revoked`. Un intento sin permiso deja `authz.denied`.
+
+#### Ejemplo: publicar una carpeta de la wiki desde GitHub Actions
+
+Secretos y variables del repositorio (Settings > Secrets and variables > Actions):
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| Secreto | `NEXO_TOKEN` | Token de la cuenta de servicio (`write`, rol `publicador` en el espacio) |
+| Secreto | `NEXO_RELEASES_TOKEN` | Token de lectura de GitHub para descargar el release del fork (si el repositorio del fork es privado) |
+| Variable | `NEXO_SERVER` | `https://<dominio>` |
+| Variable | `NEXO_KB_SPACE` | Slug del espacio, por ejemplo `arquitectura` |
+
+```yaml
+name: Publicar la wiki en Nexo
+on:
+  push:
+    branches: [main]
+    paths: ["wiki/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nexo-wiki
+  cancel-in-progress: false
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXO_VERSION: 3.4.0-nexo.1          # versión del fork con engram nexo kb upload
+      ENGRAM_CLOUD_SERVER: ${{ vars.NEXO_SERVER }}
+      ENGRAM_NO_UPDATE_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar engram (fork Nexo)
+        env:
+          GH_TOKEN: ${{ secrets.NEXO_RELEASES_TOKEN }}
+        run: |
+          gh release download "v$NEXO_VERSION" -R Adriel2503/engram-nexo \
+            -p "engram_${NEXO_VERSION}_linux_amd64.tar.gz" -p checksums.txt -D "$RUNNER_TEMP"
+          (cd "$RUNNER_TEMP" && sha256sum -c checksums.txt --ignore-missing)
+          tar -xzf "$RUNNER_TEMP/engram_${NEXO_VERSION}_linux_amd64.tar.gz" -C "$RUNNER_TEMP" engram
+      - name: Publicar la carpeta wiki
+        env:
+          ENGRAM_CLOUD_TOKEN: ${{ secrets.NEXO_TOKEN }}   # solo en este paso; nunca en la línea de comandos
+        run: |
+          "$RUNNER_TEMP/engram" nexo kb upload --space "${{ vars.NEXO_KB_SPACE }}" \
+            --collection wiki --note "commit ${GITHUB_SHA::7}" ./wiki
+```
+
+Para revisar antes de publicar, agregue un job en `pull_request` con `--dry-run`. La plantilla
+completa (dry-run en PR, compilación del fork) está en `docs/nexo/conocimiento/github-actions/`.
+
+#### Ejemplo: publicar una carpeta de la wiki desde Azure Pipelines
+
+En **Pipelines > Library** cree un grupo de variables `nexo` con `NEXO_TOKEN` marcada como
+**secreta** (candado), `NEXO_SERVER` y `NEXO_KB_SPACE`. Las variables secretas no llegan solas al
+entorno de los scripts: se pasan explícitamente en `env`.
+
+```yaml
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: [wiki/*]
+pool:
+  vmImage: ubuntu-latest
+variables:
+  - group: nexo
+  - name: NEXO_VERSION
+    value: 3.4.0-nexo.1
+steps:
+  - checkout: self
+  - bash: |
+      set -euo pipefail
+      gh release download "v$NEXO_VERSION" -R Adriel2503/engram-nexo \
+        -p "engram_${NEXO_VERSION}_linux_amd64.tar.gz" -p checksums.txt -D "$(Agent.TempDirectory)"
+      cd "$(Agent.TempDirectory)" && sha256sum -c checksums.txt --ignore-missing
+      tar -xzf "engram_${NEXO_VERSION}_linux_amd64.tar.gz" engram
+    displayName: Instalar engram (fork Nexo)
+    env:
+      GH_TOKEN: $(NEXO_RELEASES_TOKEN)      # lectura de GitHub, si el fork es privado (también secreta)
+  - bash: |
+      "$(Agent.TempDirectory)/engram" nexo kb upload --space "$(NEXO_KB_SPACE)" \
+        --collection wiki --note "build $(Build.BuildNumber)" ./wiki
+    displayName: Publicar la carpeta wiki
+    env:
+      ENGRAM_CLOUD_SERVER: $(NEXO_SERVER)
+      ENGRAM_CLOUD_TOKEN: $(NEXO_TOKEN)     # secreta: solo en este paso
+      ENGRAM_NO_UPDATE_CHECK: "1"
+```
+
+Si la wiki es la de Azure DevOps (repositorio `<proyecto>.wiki`), haga `checkout` de ese repositorio
+y agregue `--source azure-devops-wiki --wiki-url <url-de-la-wiki>` (5.6).
 
 ## 4. Espacios de conocimiento
 
@@ -816,6 +1016,9 @@ superadmin. Cada caso deja el evento `principal.disabled_inactive` y la alerta
 | `PUT` y `DELETE /nexo/authz/v1/platform/members/<usuario>` | `platform.admins.manage` |
 | `GET /nexo/authz/v1/tokens[?principal=]` | `self.read` (propios) o `platform.tokens.manage` |
 | `POST /nexo/authz/v1/tokens` | `platform.tokens.manage` |
+| `GET /nexo/authz/v1/service-accounts`, `GET /nexo/authz/v1/service-accounts/<cuenta>` | `platform.directory.read` |
+| `POST /nexo/authz/v1/service-accounts`, `PATCH .../<cuenta>`, `POST .../<cuenta>:disable` y `:enable` | `platform.users.manage` |
+| `POST /nexo/authz/v1/service-accounts/<cuenta>/tokens`, `.../tokens/<id>:rotate` y `:revoke` | `platform.tokens.manage` (sin caducidad: además `platform.admins.manage`) |
 | `GET`, `POST /admin/users`; `POST /admin/users/<id>/enable` y `/disable` | `platform.users.manage` (lectura: también auditor) |
 | `GET`, `POST /admin/users/<id>/tokens`; `POST /admin/tokens/<id>/revoke` | `platform.tokens.manage` |
 | `GET`, `POST /admin/users/<id>/grants`; `POST /admin/users/<id>/grants/<proyecto>/revoke` | `platform.users.manage` |
@@ -840,6 +1043,6 @@ superadmin. Cada caso deja el evento `principal.disabled_inactive` y la alerta
 
 | Tema | Motivo |
 |---|---|
-| Cuentas de servicio | Las reglas (sin caducidad, no pueden ser responsables) existen, pero en esta versión no hay ruta de API ni pantalla para crear una cuenta de servicio. Para la integración continua use un usuario dedicado (por ejemplo `ci-lineamientos`) con rol publicador y token con caducidad. Pendiente en el backlog (`docs/nexo/mejoras-y-referencias.md`, SG-10) |
+| Cuentas de servicio y versión del fork | Las cuentas de servicio (3.8) llegan en la versión siguiente a `3.4.0-nexo.1`. Con un servidor anterior, use un usuario dedicado (por ejemplo `ci-lineamientos`) con rol publicador y token con caducidad. Los ejemplos de CI solo necesitan `engram nexo kb upload`, que ya existe en `3.4.0-nexo.1` |
 | `ENGRAM_CLOUD_ALLOWED_PROJECTS` y personas con token asignado | La autorización por proyecto de una persona consulta solo sus permisos; no se confirmó si la lista del servidor también la limita |
 | Avisos de conocimiento para responsables | La ruta de alertas exige `platform.audit.read`; no hay una vista de avisos para el responsable del espacio |
