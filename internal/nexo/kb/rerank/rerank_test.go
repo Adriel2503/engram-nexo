@@ -503,7 +503,7 @@ func TestLLMGeminiContract(t *testing.T) {
 		t.Fatalf("llamadas: %d", len(calls))
 	}
 	cl := calls[0]
-	if cl.path != "/v1beta/models/gemini-2.5-flash:generateContent" || cl.query != "" {
+	if cl.path != "/v1beta/models/"+DefaultGeminiModel+":generateContent" || cl.query != "" {
 		t.Fatalf("ruta %q?%q (la clave no va en la URL)", cl.path, cl.query)
 	}
 	if cl.header.Get("x-goog-api-key") != testKey || cl.header.Get("Authorization") != "" {
@@ -514,7 +514,7 @@ func TestLLMGeminiContract(t *testing.T) {
 		t.Fatalf("generationConfig: %v", gen)
 	}
 	if tc, ok := gen["thinkingConfig"].(map[string]any); !ok || tc["thinkingBudget"] != float64(0) {
-		t.Fatalf("gemini-2.5-flash va sin razonamiento: %v", gen)
+		t.Fatalf("los modelos flash van sin razonamiento: %v", gen)
 	}
 	if cl.body["systemInstruction"] == nil {
 		t.Fatal("la rúbrica va como instrucción de sistema")
@@ -858,3 +858,57 @@ func TestEmptyAndOversizedInputs(t *testing.T) {
 }
 
 func writeFile(path, content string) error { return os.WriteFile(path, []byte(content), 0o600) }
+
+// TestRerankerLive llama a la API real del proveedor configurado, solo con
+// NEXO_KB_RERANK_LIVE=1 (fuera del CI; NEXO_KB_RERANKER y su clave en el
+// entorno, gemini por defecto con GEMINI_API_KEY): una pregunta y cuatro
+// pasajes, el pertinente queda primero. Es la prueba de humo de Cohere (incluido
+// el despliegue de Azure AI con NEXO_KB_RERANK_URL y NEXO_KB_RERANK_AUTH),
+// Jina, Voyage, TEI, OpenAI y Azure OpenAI cuando haya una clave. Nunca imprime
+// la clave.
+func TestRerankerLive(t *testing.T) {
+	if os.Getenv("NEXO_KB_RERANK_LIVE") != "1" {
+		t.Skip("NEXO_KB_RERANK_LIVE=1 no definido (prueba con la API real del proveedor)")
+	}
+	cfg, err := ConfigFrom(func(k string) string {
+		if k == EnvReranker && os.Getenv(k) == "" {
+			return "gemini"
+		}
+		return os.Getenv(k)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs := passages(
+		"Lineamientos > Base de datos > Tablas\n\nLos nombres de tabla van en singular y en minúsculas, con prefijo del esquema.",
+		"Lineamientos > Backend > Reintentos HTTP\n\nTres reintentos con espera exponencial en llamadas a servicios externos, con Polly.",
+		"Lineamientos > Frontend > Formularios\n\nLos formularios validan en el cliente y en el servidor.",
+		"Lineamientos > Backend > Logging\n\nNunca registrar contraseñas ni tokens en los logs.",
+	)
+	start := time.Now()
+	got, err := r.Rerank(context.Background(), "cuántas veces se reintenta una llamada a otro servicio", docs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%s %s: %d puntajes en %s", r.Name(), r.Model(), len(got), time.Since(start).Round(time.Millisecond))
+	best := 0
+	for i, s := range got {
+		t.Logf("  pasaje %d: %.3f (ok=%t)", i, s.Value, s.OK)
+		if !s.OK {
+			t.Fatalf("pasaje %d sin puntaje", i)
+		}
+		if s.Value > got[best].Value {
+			best = i
+		}
+	}
+	if best != 1 {
+		t.Fatalf("el pasaje de reintentos debía quedar primero, quedó el %d", best)
+	}
+	if sr, ok := r.(StatsReporter); ok {
+		t.Logf("uso: %+v", sr.Stats())
+	}
+}

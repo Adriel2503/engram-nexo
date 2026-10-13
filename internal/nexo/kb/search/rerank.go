@@ -96,9 +96,12 @@ type RerankOptions struct {
 	Default bool `json:"default"`
 }
 
-// DefaultRerankOptions: 50 candidatos, 10 s, orden puro y sin descarte. El
-// valor de Default sale de la medición (design §21.6).
-var DefaultRerankOptions = RerankOptions{TopN: 50, Budget: 10 * time.Second, Blend: 1}
+// DefaultRerankOptions: 20 candidatos, 6 s, mezcla 0,7 y sin descarte ni
+// reordenamiento por defecto (Default falso). Salen de la medición (design
+// §21.6): con la wiki, la mediana de candidatos que pasan el umbral es 7 y
+// el 90 % tiene 28 o menos, así que TopN 20 no pierde nada y acota costo y
+// latencia.
+var DefaultRerankOptions = RerankOptions{TopN: 20, Budget: 6 * time.Second, Blend: 0.7}
 
 // PassageLoader devuelve el pasaje (título, ruta de títulos y cuerpo) de cada
 // sección. Solo se le pasan secciones que ya pasaron el filtro común.

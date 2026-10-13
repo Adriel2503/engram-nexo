@@ -107,9 +107,11 @@ const (
 // DefaultAzureAPIVersion es la versión de la API de Azure OpenAI por defecto.
 const DefaultAzureAPIVersion = "2024-10-21"
 
-// DefaultGeminiModel es el modelo Gemini por defecto del reordenador LLM
-// (medido en R3, design §21).
-const DefaultGeminiModel = "gemini-2.5-flash"
+// DefaultGeminiModel es el modelo Gemini por defecto del reordenador LLM: en la
+// medición de R3 (design §21.5) acierta como gemini-3.8-flash con menos de la
+// mitad de la latencia. gemini-2.5-flash ya no está disponible para cuentas
+// nuevas.
+const DefaultGeminiModel = "gemini-3.1-flash-lite"
 
 // Config es la configuración de un reordenador.
 type Config struct {
@@ -263,7 +265,7 @@ func ConfigFrom(getenv func(string) string) (Config, error) {
 		c.APIKey = orDefault(c.APIKey, firstEnv(get, "GEMINI_API_KEY", "GOOGLE_API_KEY"))
 		c.AuthHeader = ""
 		batch, concurrency, maxChars, timeout = 25, 4, 1500, 30
-		if strings.Contains(c.Model, "2.5") && !strings.Contains(c.Model, "pro") {
+		if !strings.Contains(c.Model, "pro") {
 			c.Thinking = 0 // sin razonamiento: más rápido y barato para puntuar
 		}
 		if v := get(EnvThinking); v != "" {

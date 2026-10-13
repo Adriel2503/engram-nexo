@@ -77,6 +77,7 @@ func scoreByID(m map[string]float64) func(rerank.Passage) rerank.Score {
 // ropts parte de los valores por defecto (orden puro del reordenador).
 func ropts(f func(*RerankOptions)) RerankOptions {
 	o := DefaultRerankOptions
+	o.Blend = 1 // las pruebas de orden esperan el orden puro del reordenador
 	f(&o)
 	return o
 }
@@ -187,7 +188,7 @@ func TestRerankFallsBackToSearchOrder(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			s, _ := newRerankSearcher(&fixedRetriever{hits: base}, tc.spy, DefaultRerankOptions)
+			s, _ := newRerankSearcher(&fixedRetriever{hits: base}, tc.spy, ropts(func(*RerankOptions) {}))
 			res, err := s.Search(context.Background(), Query{Text: "q", Rerank: "on"}, []string{"visible"}, nil, nil)
 			if err != nil {
 				t.Fatalf("nunca es un error para quien busca: %v", err)
@@ -243,7 +244,7 @@ func TestRerankNeverLowersTheThresholdNorBypassesFilters(t *testing.T) {
 		}
 		return rerank.Score{Value: 0.1, OK: true}
 	}}
-	s, _ := newRerankSearcher(r, spy, DefaultRerankOptions)
+	s, _ := newRerankSearcher(r, spy, ropts(func(*RerankOptions) {}))
 	s.SetOptions(SearcherOptions{MinCoverage: 0.3})
 	res, err := s.Search(context.Background(), Query{Text: "q", Rerank: "on"}, []string{"visible"}, nil, nil)
 	if err != nil {
@@ -264,7 +265,7 @@ func TestRerankNeverLowersTheThresholdNorBypassesFilters(t *testing.T) {
 	// Todo bajo el umbral: "no hay estándar" sin una sola llamada al proveedor.
 	r2 := &fixedRetriever{hits: []Hit{rhit("w1", "d1", 1, 0.1), rhit("w2", "d2", 0.9, 0.2)}}
 	spy2 := &spyReranker{score: scoreByID(map[string]float64{"w1": 1, "w2": 1})}
-	s2, _ := newRerankSearcher(r2, spy2, DefaultRerankOptions)
+	s2, _ := newRerankSearcher(r2, spy2, ropts(func(*RerankOptions) {}))
 	s2.SetOptions(SearcherOptions{MinCoverage: 0.3})
 	res, err = s2.Search(context.Background(), Query{Text: "q", Rerank: "on"}, []string{"visible"}, nil, nil)
 	if err != nil || !res.NoResults || res.Message != NoResultsMessage || spy2.calls != 0 {
@@ -293,7 +294,7 @@ func TestRerankRequestParameters(t *testing.T) {
 
 	// Por defecto apagado: solo con rerank=on. Por defecto encendido: rerank=off lo apaga.
 	spy := &spyReranker{score: score}
-	s, _ = newRerankSearcher(&fixedRetriever{hits: hits}, spy, DefaultRerankOptions)
+	s, _ = newRerankSearcher(&fixedRetriever{hits: hits}, spy, ropts(func(*RerankOptions) {}))
 	res, _ = s.Search(context.Background(), Query{Text: "q"}, []string{"visible"}, nil, nil)
 	if spy.calls != 0 || res.Rerank != nil || ids(res.Hits) != "a,b" {
 		t.Fatalf("Default=false sin pedirlo: llamadas %d", spy.calls)
@@ -347,13 +348,13 @@ func TestRerankTopNLimitsWhatIsSent(t *testing.T) {
 	}
 	// Un solo candidato: no hay nada que reordenar.
 	spy = &spyReranker{score: scoreByID(nil)}
-	s, _ = newRerankSearcher(&fixedRetriever{hits: hits[:1]}, spy, DefaultRerankOptions)
+	s, _ = newRerankSearcher(&fixedRetriever{hits: hits[:1]}, spy, ropts(func(*RerankOptions) {}))
 	res, _ = s.Search(context.Background(), Query{Text: "q", Rerank: "on"}, []string{"visible"}, nil, nil)
 	if spy.calls != 0 || res.Rerank.Status != RerankSkipped || ids(res.Hits) != "a" {
 		t.Fatalf("un candidato: %+v", res.Rerank)
 	}
 	// TopN por encima del máximo se recorta al límite de la búsqueda.
-	if s.rerankTopN() != 50 {
+	if s.rerankTopN() != DefaultRerankOptions.TopN || DefaultRerankOptions.TopN != 20 {
 		t.Fatalf("tope %d", s.rerankTopN())
 	}
 	s.SetReranker(spy, nil, RerankOptions{TopN: 500})
@@ -377,7 +378,7 @@ func TestRerankMinScoreDropsLowScoresOnlyWhenConfigured(t *testing.T) {
 		t.Fatalf("todo descartado: %+v", res.Rerank)
 	}
 	// Apagado (0): nada se descarta aunque el puntaje sea bajo.
-	s, _ = newRerankSearcher(&fixedRetriever{hits: hits}, &spyReranker{score: score}, DefaultRerankOptions)
+	s, _ = newRerankSearcher(&fixedRetriever{hits: hits}, &spyReranker{score: score}, ropts(func(*RerankOptions) {}))
 	res, _ = s.Search(context.Background(), Query{Text: "q", Rerank: "on"}, []string{"visible"}, nil, nil)
 	if len(res.Hits) != 3 || res.Rerank.Dropped != 0 {
 		t.Fatalf("MinScore apagado: %+v", res.Rerank)
@@ -390,7 +391,7 @@ func TestRerankThenDiversityAndLimit(t *testing.T) {
 	// sobre el orden nuevo y el límite corta al final.
 	hits := []Hit{rhit("a1", "d1", 1, 1), rhit("a2", "d1", 0.9, 1), rhit("a3", "d1", 0.8, 1), rhit("b1", "d2", 0.7, 1)}
 	spy := &spyReranker{score: scoreByID(map[string]float64{"a1": 0.1, "a2": 0.2, "a3": 0.9, "b1": 0.5})}
-	s, _ := newRerankSearcher(&fixedRetriever{hits: hits}, spy, DefaultRerankOptions)
+	s, _ := newRerankSearcher(&fixedRetriever{hits: hits}, spy, ropts(func(*RerankOptions) {}))
 	s.SetOptions(SearcherOptions{MaxPerDoc: 2})
 	res, _ := s.Search(context.Background(), Query{Text: "q", Limit: 3, Rerank: "on"}, []string{"visible"}, nil, nil)
 	if ids(res.Hits) != "a3,b1,a2" {

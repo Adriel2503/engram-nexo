@@ -84,14 +84,15 @@ func (g *llmGemini) call(ctx context.Context, hc *http.Client, query string, tex
 			BlockReason string `json:"blockReason"`
 		} `json:"promptFeedback"`
 		Usage struct {
-			Prompt int `json:"promptTokenCount"`
-			Output int `json:"candidatesTokenCount"`
+			Prompt   int `json:"promptTokenCount"`
+			Output   int `json:"candidatesTokenCount"`
+			Thoughts int `json:"thoughtsTokenCount"`
 		} `json:"usageMetadata"`
 	}
 	if err := json.Unmarshal(data, &out); err != nil {
 		return batchResult{}, fmt.Errorf("%w: %s", ErrMalformed, shortBody(data))
 	}
-	res := batchResult{promptTokens: out.Usage.Prompt, outputTokens: out.Usage.Output}
+	res := batchResult{promptTokens: out.Usage.Prompt, outputTokens: out.Usage.Output + out.Usage.Thoughts}
 	if out.PromptFeedback.BlockReason != "" {
 		return res, fmt.Errorf("%w: el proveedor bloqueó el lote (%s)", ErrMalformed, out.PromptFeedback.BlockReason)
 	}
