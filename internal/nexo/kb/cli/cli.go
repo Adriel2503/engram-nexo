@@ -1,0 +1,701 @@
+// Package cli implementa el comando `engram nexo kb ...` (NX-10, design §6.1
+// y §14.5) contra el servidor: publicar un repositorio de lineamientos,
+// buscar, listar espacios y medir la búsqueda. El cliente HTTP es mínimo; en
+// la entrega 2b pasa al paquete client junto con la copia local y las
+// herramientas MCP.
+//
+// Servidor y token: los de `engram cloud config` (cloud.json) o
+// ENGRAM_CLOUD_SERVER y ENGRAM_CLOUD_TOKEN; --server reemplaza el servidor.
+// El token nunca se acepta como argumento (quedaría en el historial).
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/cloudconfig"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
+)
+
+const usage = `Uso: engram nexo kb <comando> [opciones]
+
+Comandos:
+  spaces                                  Espacios visibles y rol efectivo
+  publish --space S [--prune] [--dry-run] [--repo org/repo] [--commit SHA]
+          [--branch B] [--category C] [--owner O] [--base DIR] <rutas...>
+                                          Publica archivos .md y .txt (directorios recursivos)
+  search [--space S]... [--category C] [--tag T] [--at FECHA] [--known-at FECHA]
+         [--limit N] [--json] <consulta>  Busca en los espacios visibles
+  eval <preguntas.yaml> [--retriever pgfts] [--k 5] [--json]
+                                          Mide Recall@5 y MRR contra el servidor
+
+Servidor y token: engram cloud config / ENGRAM_CLOUD_SERVER y ENGRAM_CLOUD_TOKEN.
+En CI (GitHub Actions) el origen sale de GITHUB_REPOSITORY, GITHUB_SHA,
+GITHUB_REF_NAME, GITHUB_ACTOR y GITHUB_RUN_ID; las opciones lo reemplazan.
+Un nexo-kb.yaml en la carpeta base fija valores por defecto (space, category,
+owner, tags, repo). Al recorrer carpetas se omiten README.md, archivos y
+carpetas ocultos, node_modules y eval/ (el conjunto de evaluación).
+`
+
+// Run ejecuta `engram nexo <args>` y devuelve el código de salida.
+func Run(args []string, dataDir string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "kb" {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	args = args[1:]
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		fmt.Fprint(stdout, usage)
+		return 0
+	}
+	cmd, rest := args[0], args[1:]
+	var err error
+	switch cmd {
+	case "spaces":
+		err = runSpaces(rest, dataDir, stdout)
+	case "publish":
+		err = runPublish(rest, dataDir, stdout)
+	case "search":
+		err = runSearch(rest, dataDir, stdout)
+	case "eval":
+		err = runEval(rest, dataDir, stdout)
+	default:
+		fmt.Fprintf(stderr, "comando desconocido: %s\n\n%s", cmd, usage)
+		return 2
+	}
+	if err != nil {
+		var ee exitError
+		if errors.As(err, &ee) {
+			fmt.Fprintln(stderr, ee.msg)
+			return ee.code
+		}
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
+	}
+	return 0
+}
+
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e exitError) Error() string { return e.msg }
+
+// ─── Cliente HTTP mínimo ─────────────────────────────────────────────────────
+
+// Client llama a /nexo/kb/v1.
+type Client struct {
+	Server string
+	Token  string
+	HTTP   *http.Client
+}
+
+// APIError es un error de la API.
+type APIError struct {
+	Status int
+	Code   string `json:"error_code"`
+	Msg    string `json:"error"`
+}
+
+func (e *APIError) Error() string { return fmt.Sprintf("HTTP %d %s: %s", e.Status, e.Code, e.Msg) }
+
+func newClient(dataDir, server string) (*Client, error) {
+	cc, err := cloudconfig.Load(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("leer configuración cloud: %w", err)
+	}
+	cc = cloudconfig.ApplyServerOverride(cc)
+	token, _ := cloudconfig.EffectiveToken(dataDir)
+	if strings.TrimSpace(server) == "" && cc != nil {
+		server = cc.ServerURL
+	}
+	server = strings.TrimRight(strings.TrimSpace(server), "/")
+	if server == "" {
+		return nil, errors.New("falta el servidor: engram cloud config --server <url> o ENGRAM_CLOUD_SERVER")
+	}
+	if strings.TrimSpace(token) == "" {
+		return nil, errors.New("falta el token: ENGRAM_CLOUD_TOKEN o engram cloud config (el conocimiento exige un token de usuario administrado)")
+	}
+	return &Client{Server: server, Token: strings.TrimSpace(token), HTTP: &http.Client{Timeout: 120 * time.Second}}, nil
+}
+
+// Do envía una petición JSON y decodifica la respuesta en out.
+func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
+	var rd io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rd = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.Server+path, rd)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "engram-nexo-kb/1")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= 300 {
+		ae := &APIError{Status: resp.StatusCode}
+		_ = json.Unmarshal(raw, ae)
+		if ae.Msg == "" {
+			ae.Msg = strings.TrimSpace(string(raw))
+		}
+		return ae
+	}
+	if out != nil {
+		return json.Unmarshal(raw, out)
+	}
+	return nil
+}
+
+func spacePath(slug string) string { return "/nexo/kb/v1/spaces/" + url.PathEscape(slug) }
+
+// ─── spaces ──────────────────────────────────────────────────────────────────
+
+func runSpaces(args []string, dataDir string, stdout io.Writer) error {
+	fsx := flag.NewFlagSet("spaces", flag.ContinueOnError)
+	server := fsx.String("server", "", "URL del servidor")
+	asJSON := fsx.Bool("json", false, "salida JSON")
+	if err := fsx.Parse(args); err != nil {
+		return exitError{2, err.Error()}
+	}
+	c, err := newClient(dataDir, *server)
+	if err != nil {
+		return err
+	}
+	var out struct {
+		Items []domain.Space `json:"items"`
+	}
+	if err := c.Do(context.Background(), "GET", "/nexo/kb/v1/spaces", nil, &out); err != nil {
+		return err
+	}
+	if *asJSON {
+		return json.NewEncoder(stdout).Encode(out)
+	}
+	if len(out.Items) == 0 {
+		fmt.Fprintln(stdout, "No hay espacios visibles para este usuario.")
+	}
+	for _, s := range out.Items {
+		fmt.Fprintf(stdout, "%-30s %-12s %-10s %s\n", s.Slug, s.Role, s.Visibility, s.Name)
+	}
+	return nil
+}
+
+// ─── publish ─────────────────────────────────────────────────────────────────
+
+// Defaults es nexo-kb.yaml.
+type Defaults struct {
+	Space    string   `yaml:"space"`
+	Category string   `yaml:"category"`
+	Owner    string   `yaml:"owner"`
+	Tags     []string `yaml:"tags"`
+	Repo     string   `yaml:"repo"`
+}
+
+// LocalDoc es un archivo leído para publicar.
+type LocalDoc struct {
+	Rel    string
+	DocKey string
+	Doc    service.PublishDoc
+}
+
+// Collect recorre las rutas: archivos con conversor registrado; los
+// directorios se recorren sin entrar en carpetas ocultas ni node_modules. Rel
+// es relativo a base, con barras normales.
+func Collect(paths []string, base string, reg *ingest.Registry) ([]LocalDoc, error) {
+	var files []string
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			files = append(files, p)
+			continue
+		}
+		err = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			name := d.Name()
+			if d.IsDir() {
+				if path != p && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "eval") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if name == "nexo-kb.yaml" || strings.HasPrefix(name, ".") || strings.EqualFold(name, "README.md") {
+				return nil
+			}
+			if reg.Supported(name) {
+				files = append(files, path)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	sort.Strings(files)
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return nil, err
+	}
+	var out []LocalDoc
+	seen := map[string]string{}
+	for _, f := range files {
+		abs, err := filepath.Abs(f)
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(absBase, abs)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			rel = filepath.Base(f)
+		}
+		rel = filepath.ToSlash(rel)
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		res, err := reg.Convert(context.Background(), "", ingest.Input{Name: rel, Data: data}, ingest.Limits{})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", rel, err)
+		}
+		key := res.Meta.ID
+		if key == "" {
+			key = service.DocKeyFromPath(rel)
+		}
+		if prev, dup := seen[key]; dup {
+			return nil, fmt.Errorf("doc_key %q repetido en %s y %s", key, prev, rel)
+		}
+		seen[key] = rel
+		out = append(out, LocalDoc{Rel: rel, DocKey: key, Doc: service.PublishDoc{Path: rel, Content: string(data)}})
+	}
+	return out, nil
+}
+
+// OriginFromEnv toma el origen de GitHub Actions si corre en CI.
+func OriginFromEnv() domain.Origin {
+	o := domain.Origin{
+		Repo:   os.Getenv("GITHUB_REPOSITORY"),
+		Commit: os.Getenv("GITHUB_SHA"),
+		Branch: os.Getenv("GITHUB_REF_NAME"),
+		Author: os.Getenv("GITHUB_ACTOR"),
+	}
+	if id := os.Getenv("GITHUB_RUN_ID"); id != "" {
+		o.CIRun = id
+		if server := os.Getenv("GITHUB_SERVER_URL"); server != "" && o.Repo != "" {
+			o.CIRun = server + "/" + o.Repo + "/actions/runs/" + id
+		}
+	}
+	return o
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error {
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			*m = append(*m, p)
+		}
+	}
+	return nil
+}
+
+func runPublish(args []string, dataDir string, stdout io.Writer) error {
+	fsx := flag.NewFlagSet("publish", flag.ContinueOnError)
+	space := fsx.String("space", "", "espacio (slug)")
+	prune := fsx.Bool("prune", false, "retirar los documentos del mismo repositorio que ya no están")
+	dryRun := fsx.Bool("dry-run", false, "mostrar el resultado sin escribir")
+	repo := fsx.String("repo", "", "repositorio de origen (org/repo)")
+	commit := fsx.String("commit", "", "commit de origen")
+	branch := fsx.String("branch", "", "rama de origen")
+	approver := fsx.String("approver", "", "aprobador del cambio (referencia)")
+	category := fsx.String("category", "", "categoría por defecto")
+	owner := fsx.String("owner", "", "responsable por defecto")
+	base := fsx.String("base", "", "carpeta base para doc_key (por defecto, la carpeta indicada o la actual)")
+	batchSize := fsx.Int("batch-size", 200, "documentos por petición (máximo del servidor: 200)")
+	server := fsx.String("server", "", "URL del servidor")
+	asJSON := fsx.Bool("json", false, "salida JSON")
+	if err := fsx.Parse(reorder(args, map[string]bool{"prune": true, "dry-run": true, "json": true})); err != nil {
+		return exitError{2, err.Error()}
+	}
+	paths := fsx.Args()
+	if len(paths) == 0 {
+		return exitError{2, "indique al menos una ruta (archivo o carpeta)"}
+	}
+	root := *base
+	if root == "" {
+		root = "."
+		if info, err := os.Stat(paths[0]); err == nil && info.IsDir() && len(paths) == 1 {
+			root = paths[0]
+		}
+	}
+	var defs Defaults
+	if raw, err := os.ReadFile(filepath.Join(root, "nexo-kb.yaml")); err == nil {
+		if err := yaml.Unmarshal(raw, &defs); err != nil {
+			return fmt.Errorf("nexo-kb.yaml: %w", err)
+		}
+	}
+	slug := firstNonEmpty(*space, defs.Space)
+	if slug == "" {
+		return exitError{2, "falta --space (o space: en nexo-kb.yaml)"}
+	}
+	origin := OriginFromEnv()
+	origin.Repo = firstNonEmpty(*repo, origin.Repo, defs.Repo)
+	origin.Commit = firstNonEmpty(*commit, origin.Commit)
+	origin.Branch = firstNonEmpty(*branch, origin.Branch)
+	origin.Approver = firstNonEmpty(*approver, origin.Approver)
+	if origin.Repo != "" {
+		origin.Kind = domain.OriginGit
+	} else {
+		origin.Kind = domain.OriginUpload
+	}
+	if *prune && origin.Kind != domain.OriginGit {
+		return exitError{2, "--prune exige un repositorio de origen (--repo, GITHUB_REPOSITORY o repo: en nexo-kb.yaml)"}
+	}
+	docs, err := Collect(paths, root, ingest.DefaultRegistry())
+	if err != nil {
+		return err
+	}
+	if len(docs) == 0 && !*prune {
+		return exitError{2, "no hay archivos .md ni .txt en las rutas indicadas"}
+	}
+	for i := range docs {
+		d := &docs[i].Doc
+		d.Category, d.Owner, d.Tags = firstNonEmpty(*category, defs.Category), firstNonEmpty(*owner, defs.Owner), defs.Tags
+		d.Origin = origin
+		d.Origin.Path = docs[i].Rel
+		if origin.Kind == domain.OriginUpload {
+			d.Origin.Filename = docs[i].Rel
+		}
+	}
+	c, err := newClient(dataDir, *server)
+	if err != nil {
+		return err
+	}
+	if *batchSize <= 0 || *batchSize > 200 {
+		*batchSize = 200
+	}
+	keys := make([]string, len(docs))
+	for i, d := range docs {
+		keys[i] = d.DocKey
+	}
+	total := service.BatchResult{Space: slug, DryRun: *dryRun, Summary: map[string]int{}}
+	ctx := context.Background()
+	send := func(req service.BatchRequest) error {
+		var res service.BatchResult
+		if err := c.Do(ctx, "POST", spacePath(slug)+"/documents:batch", req, &res); err != nil {
+			return err
+		}
+		total.Results = append(total.Results, res.Results...)
+		total.Pruned = append(total.Pruned, res.Pruned...)
+		for k, v := range res.Summary {
+			total.Summary[k] += v
+		}
+		if res.PruneSkipped != "" {
+			total.PruneSkipped = res.PruneSkipped
+		}
+		return nil
+	}
+	pruneSpec := func() *service.PruneSpec {
+		if !*prune {
+			return nil
+		}
+		return &service.PruneSpec{OriginKind: domain.OriginGit, OriginRef: origin.Repo, Total: len(keys), Keys: keys}
+	}
+	if len(docs) <= *batchSize {
+		req := service.BatchRequest{DryRun: *dryRun, Prune: pruneSpec()}
+		for _, d := range docs {
+			req.Documents = append(req.Documents, d.Doc)
+		}
+		if err := send(req); err != nil {
+			return err
+		}
+	} else {
+		for start := 0; start < len(docs); start += *batchSize {
+			end := min(start+*batchSize, len(docs))
+			req := service.BatchRequest{DryRun: *dryRun}
+			for _, d := range docs[start:end] {
+				req.Documents = append(req.Documents, d.Doc)
+			}
+			if err := send(req); err != nil {
+				return err
+			}
+		}
+		if *prune { // lote completo: todas las claves en una petición final
+			if err := send(service.BatchRequest{DryRun: *dryRun, Prune: pruneSpec()}); err != nil {
+				return err
+			}
+		}
+	}
+	if *asJSON {
+		if err := json.NewEncoder(stdout).Encode(total); err != nil {
+			return err
+		}
+	} else {
+		printBatch(stdout, total)
+	}
+	if total.Summary[domain.ResultRejected] > 0 {
+		return exitError{1, fmt.Sprintf("%d documentos rechazados", total.Summary[domain.ResultRejected])}
+	}
+	if *prune && total.PruneSkipped != "" {
+		return exitError{1, "poda omitida: " + total.PruneSkipped}
+	}
+	return nil
+}
+
+func printBatch(w io.Writer, r service.BatchResult) {
+	mode := ""
+	if r.DryRun {
+		mode = " (dry-run: no se escribió nada)"
+	}
+	fmt.Fprintf(w, "Espacio %s%s\n", r.Space, mode)
+	for _, d := range r.Results {
+		line := fmt.Sprintf("  %-10s %s", d.Status, d.DocKey)
+		if d.Version > 0 {
+			line += fmt.Sprintf(" v%d", d.Version)
+		}
+		if d.Reason != "" {
+			line += "  (" + d.Code + ": " + d.Reason + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
+	for _, d := range r.Pruned {
+		fmt.Fprintf(w, "  %-10s %s  (%s)\n", d.Status, d.DocKey, d.Reason)
+	}
+	if r.PruneSkipped != "" {
+		fmt.Fprintf(w, "  poda omitida: %s\n", r.PruneSkipped)
+	}
+	fmt.Fprintf(w, "Resumen: creados %d, actualizados %d, sin cambios %d, rechazados %d, retirados %d\n",
+		r.Summary[domain.ResultCreated], r.Summary[domain.ResultUpdated], r.Summary[domain.ResultUnchanged], r.Summary[domain.ResultRejected], r.Summary[domain.ResultRetired])
+}
+
+// ─── search ──────────────────────────────────────────────────────────────────
+
+// SearchResponse es la respuesta de /search.
+type SearchResponse struct {
+	Results []struct {
+		Space          string                `json:"space"`
+		DocKey         string                `json:"doc_key"`
+		Title          string                `json:"title"`
+		Anchor         string                `json:"anchor"`
+		HeadingPath    []string              `json:"heading_path"`
+		Excerpt        string                `json:"excerpt"`
+		Version        int                   `json:"version"`
+		Citation       string                `json:"citation"`
+		Match          string                `json:"match"`
+		SourceLocation domain.SourceLocation `json:"source_location"`
+	} `json:"results"`
+	NoResults bool   `json:"no_results"`
+	Message   string `json:"message"`
+}
+
+// SearchQuery arma la URL de búsqueda.
+func SearchQuery(q string, spaces []string, category, tag, at, knownAt string, limit int) string {
+	v := url.Values{}
+	v.Set("q", q)
+	if len(spaces) > 0 {
+		v.Set("spaces", strings.Join(spaces, ","))
+	}
+	for k, val := range map[string]string{"category": category, "tag": tag, "at": at, "known_at": knownAt} {
+		if val != "" {
+			v.Set(k, val)
+		}
+	}
+	if limit > 0 {
+		v.Set("limit", fmt.Sprint(limit))
+	}
+	return "/nexo/kb/v1/search?" + v.Encode()
+}
+
+func runSearch(args []string, dataDir string, stdout io.Writer) error {
+	fsx := flag.NewFlagSet("search", flag.ContinueOnError)
+	var spaces multiFlag
+	fsx.Var(&spaces, "space", "espacio (repetible o separado por comas)")
+	category := fsx.String("category", "", "categoría")
+	tag := fsx.String("tag", "", "etiqueta")
+	at := fsx.String("at", "", "vigente en esta fecha (YYYY-MM-DD)")
+	knownAt := fsx.String("known-at", "", "publicado a esta fecha (YYYY-MM-DD)")
+	limit := fsx.Int("limit", 10, "resultados (máximo 50)")
+	server := fsx.String("server", "", "URL del servidor")
+	asJSON := fsx.Bool("json", false, "salida JSON")
+	if err := fsx.Parse(reorder(args, map[string]bool{"json": true})); err != nil {
+		return exitError{2, err.Error()}
+	}
+	q := strings.TrimSpace(strings.Join(fsx.Args(), " "))
+	if q == "" {
+		return exitError{2, "falta la consulta"}
+	}
+	c, err := newClient(dataDir, *server)
+	if err != nil {
+		return err
+	}
+	var raw json.RawMessage
+	if err := c.Do(context.Background(), "GET", SearchQuery(q, spaces, *category, *tag, *at, *knownAt, *limit), nil, &raw); err != nil {
+		return err
+	}
+	if *asJSON {
+		_, err := stdout.Write(append(raw, '\n'))
+		return err
+	}
+	var res SearchResponse
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return err
+	}
+	if res.NoResults {
+		fmt.Fprintln(stdout, res.Message)
+		return nil
+	}
+	for i, h := range res.Results {
+		fmt.Fprintf(stdout, "%d. %s\n", i+1, h.Citation)
+		if h.Match == "some_terms" {
+			fmt.Fprintln(stdout, "   (coincidencia parcial: no contiene todos los términos)")
+		}
+		fmt.Fprintf(stdout, "   %s\n", strings.ReplaceAll(strings.TrimSpace(h.Excerpt), "\n", " "))
+	}
+	return nil
+}
+
+// ─── eval ────────────────────────────────────────────────────────────────────
+
+// ServerRetriever evalúa la búsqueda del servidor (pgfts).
+type ServerRetriever struct{ C *Client }
+
+// Name implementa eval.Retriever.
+func (s ServerRetriever) Name() string { return "pgfts" }
+
+// Search implementa eval.Retriever.
+func (s ServerRetriever) Search(ctx context.Context, q eval.Question, spaces []string, at *time.Time, limit int) ([]eval.Hit, error) {
+	atS := ""
+	if at != nil {
+		atS = at.Format(time.RFC3339)
+	}
+	var res SearchResponse
+	if err := s.C.Do(ctx, "GET", SearchQuery(q.Question, spaces, "", "", atS, "", limit), nil, &res); err != nil {
+		return nil, err
+	}
+	out := make([]eval.Hit, 0, len(res.Results))
+	for _, h := range res.Results {
+		out = append(out, eval.Hit{Space: h.Space, DocKey: h.DocKey, Anchor: h.Anchor})
+	}
+	return out, nil
+}
+
+func runEval(args []string, dataDir string, stdout io.Writer) error {
+	fsx := flag.NewFlagSet("eval", flag.ContinueOnError)
+	retriever := fsx.String("retriever", "pgfts", "motor: pgfts (servidor); local-bm25 e hybrid llegan después")
+	k := fsx.Int("k", 5, "Recall@k")
+	server := fsx.String("server", "", "URL del servidor")
+	asJSON := fsx.Bool("json", false, "salida JSON")
+	if err := fsx.Parse(reorder(args, map[string]bool{"json": true})); err != nil {
+		return exitError{2, err.Error()}
+	}
+	if fsx.NArg() != 1 {
+		return exitError{2, "uso: engram nexo kb eval <preguntas.yaml> [--retriever pgfts] [--k 5]"}
+	}
+	set, err := eval.Load(fsx.Arg(0))
+	if err != nil {
+		return err
+	}
+	var r eval.Retriever
+	switch *retriever {
+	case "pgfts", "server":
+		c, err := newClient(dataDir, *server)
+		if err != nil {
+			return err
+		}
+		r = ServerRetriever{C: c}
+	case "local-bm25", "hybrid":
+		return exitError{2, "el motor " + *retriever + " llega con la copia local (entrega 2b); hoy: --retriever pgfts"}
+	default:
+		return exitError{2, "motor desconocido: " + *retriever}
+	}
+	rep := eval.Run(context.Background(), set, r, *k, 10)
+	if *asJSON {
+		return json.NewEncoder(stdout).Encode(rep)
+	}
+	fmt.Fprintln(stdout, rep.Summary())
+	for _, q := range rep.Results {
+		mark := "acierto"
+		switch {
+		case q.Error != "":
+			mark = "error: " + q.Error
+		case q.Rank == 0:
+			mark = "sin acierto"
+		case q.Rank > rep.K:
+			mark = fmt.Sprintf("fuera de @%d", rep.K)
+		}
+		fmt.Fprintf(stdout, "  %-28s rank=%-2d %s\n", q.ID, q.Rank, mark)
+	}
+	return nil
+}
+
+// ─── utilidades ──────────────────────────────────────────────────────────────
+
+// reorder permite opciones después de los argumentos posicionales (el paquete
+// flag se detiene en el primero). bools lista las opciones sin valor.
+func reorder(args []string, bools map[string]bool) []string {
+	var flags, pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(a, "-") && len(a) > 1 {
+			flags = append(flags, a)
+			name := strings.TrimLeft(a, "-")
+			if !strings.Contains(name, "=") && !bools[name] && i+1 < len(args) {
+				flags = append(flags, args[i+1])
+				i++
+			}
+			continue
+		}
+		pos = append(pos, a)
+	}
+	return append(flags, pos...)
+}
+
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		if s = strings.TrimSpace(s); s != "" {
+			return s
+		}
+	}
+	return ""
+}

@@ -192,4 +192,8 @@ Aprobadas por el usuario el 2026-10-12, tal como se proponen:
 
 - D-K9. Rol **responsable** por ámbito (D-1 de `docs/nexo/roles/requirements.md`).
 - D-K10. Los documentos cortos que nacen de propuestas viven en el servidor (no generan un PR al repositorio).
-- D-K11. No se guarda el archivo original binario en la primera etapa, solo su hash y su origen.
+- D-K11. No se guarda el archivo original binario en la primera etapa, solo su hash, tipo, tamaño y
+  origen. Ratificada el 2026-10-12 con la condición de que el diseño permita guardarlo más adelante
+  sin migrar contenido: columna `source_blob_ref` reservada e interfaz `BlobStore` con una
+  implementación que hoy no guarda nada, para poder activar el almacenamiento y reconvertir o
+  reindexar desde el original cuando mejore un conversor.

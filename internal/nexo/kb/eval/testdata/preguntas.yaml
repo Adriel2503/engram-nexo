@@ -1,0 +1,59 @@
+# Conjunto de evaluación de ejemplo (design §14.5) sobre los lineamientos de
+# prueba de internal/nexo/kb/ingest/testdata/lineamientos-frontend.
+version: 1
+spaces: [lineamientos-frontend]
+questions:
+  - id: validacion-capas
+    question: ¿En qué capas se validan los formularios?
+    expected:
+      - doc: frontend/formularios
+        anchor: formularios-en-aplicaciones-web.validacion
+  - id: libreria-formularios
+    question: qué librería usamos para formularios en React
+    expected:
+      - doc: frontend/formularios
+        anchor: formularios-en-aplicaciones-web.validacion.libreria
+  - id: mensajes-error
+    question: cómo mostrar mensajes de error de validación
+    expected:
+      - doc: frontend/formularios
+        anchor: formularios-en-aplicaciones-web.validacion.mensajes-de-error
+  - id: dni
+    question: validación del DNI
+    expected:
+      - doc: frontend/formularios
+  - id: campos-obligatorios
+    question: cómo marcar campos obligatorios
+    expected:
+      - doc: frontend/formularios
+        anchor: formularios-en-aplicaciones-web.campos-obligatorios
+  - id: aria
+    question: anunciar errores a lectores de pantalla
+    tags: [parafrasis]
+    expected:
+      - doc: frontend/formularios
+        anchor: formularios-en-aplicaciones-web.accesibilidad
+  - id: boton-primario
+    question: cuántos botones primarios puede tener una pantalla
+    expected:
+      - doc: frontend/componentes
+        anchor: componentes-del-sistema-de-diseno.botones
+  - id: paginacion
+    question: paginación de tablas
+    expected:
+      - doc: frontend/componentes
+        anchor: componentes-del-sistema-de-diseno.tablas-de-datos
+  - id: ssr
+    question: qué es SSR
+    expected:
+      - doc: glosario
+  - id: design-token
+    question: definición de design token
+    expected:
+      - doc: glosario
+  - id: popups
+    question: puedo usar ventanas emergentes para errores
+    tags: [parafrasis]
+    expected:
+      - doc: frontend/formularios
+        anchor: formularios-en-aplicaciones-web.validacion.mensajes-de-error

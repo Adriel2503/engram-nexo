@@ -339,6 +339,7 @@ func (s *CloudServer) routes() {
 	s.mux.HandleFunc("POST /admin/users/{principalID}/grants", s.withAuth(s.handleAdminCreateGrant))
 	s.mux.HandleFunc("POST /admin/users/{principalID}/grants/{project}/revoke", s.withAuth(s.handleAdminRevokeGrant))
 	s.registerNexoAdminRoutes(s.mux) // NX-03: API de trazabilidad /nexo/admin/*
+	s.registerNexoKBRoutes(s.mux)    // NX-10: espacios de conocimiento /nexo/kb/v1 (nexo_kb_bridge.go)
 }
 
 // dashboardStoreForRequest creates a fresh immutable view for managed

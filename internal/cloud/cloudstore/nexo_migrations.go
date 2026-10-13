@@ -1,6 +1,6 @@
 package cloudstore
 
-// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05, NX-07).
+// Nexo IA · migraciones propias del fork (NX-01, NX-02, NX-03, NX-05, NX-07, NX-10).
 //
 // Reglas: solo aditivas e idempotentes (ADD COLUMN IF NOT EXISTS,
 // CREATE ... IF NOT EXISTS, CREATE OR REPLACE). Nada se renombra ni se borra.
@@ -14,6 +14,7 @@ import (
 	"fmt"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
+	kbstore "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store" // NX-10
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -186,6 +187,9 @@ func (cs *CloudStore) nexoMigrate(ctx context.Context) error {
 	// NX-05: roles (nexo_scopes, nexo_role_bindings, nexo_authz_events,
 	// triggers y arranque del superadmin), en la misma transacción.
 	if err := authz.Migrate(ctx, tx); err != nil {
+		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
+	}
+	if err := kbstore.Migrate(ctx, tx); err != nil { // NX-10: tablas nexo_kb_* (después de authz: referencian nexo_scopes)
 		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 	}
 	// NX-07: función de depuración segura (SECURITY DEFINER de la cuenta que

@@ -156,10 +156,17 @@ servicio no es responsable, no se quita el último responsable) las aplica `inte
 | `id` | UUID PK | |
 | `document_id` | UUID FK | UNIQUE (`document_id`, `version`) |
 | `version` | INT | 1, 2, ... |
+| `space_id` | UUID FK | desnormalizado (entrega 2a) |
+| `title`, `category`, `tags`, `owner_label` | | metadatos de esa versión (el historial muestra cómo era) |
 | `content_md` | TEXT NOT NULL | Markdown normalizado (límite configurable, 2 MB por defecto) |
 | `content_sha256` | TEXT NOT NULL | idempotencia |
+| `meta_sha256` | TEXT NOT NULL | hash de los metadatos declarados; con `content_sha256` decide "sin cambios" |
 | `source_format` | TEXT | `md`, `txt`, luego `docx`, `xlsx`, `pdf`, `pptx` |
+| `source_mime` | TEXT | tipo MIME del original (`text/markdown`, `text/plain`, ...) |
 | `source_sha256` | TEXT | hash del archivo original |
+| `source_size_bytes` | BIGINT NOT NULL | tamaño del original |
+| `source_blob_ref` | TEXT NULL | referencia al original en un `BlobStore`; hoy siempre NULL (D-K11, ver "Ingesta y procedencia") |
+| `section_count` | INT | secciones de la versión |
 | `origin` | JSONB | git: `repo`, `branch`, `commit`, `path`, `author`, `approver`, `ci_run`; upload: `filename`; proposal: `proposal_id` |
 | `change_note` | TEXT | |
 | `valid_from`, `valid_until` | TIMESTAMPTZ | |
@@ -178,10 +185,14 @@ Trigger de inmutabilidad (bloquea UPDATE/DELETE), igual que `nexo_activity_log`.
 | `anchor` | TEXT | estable: slug de la ruta de títulos + sufijo si se repite |
 | `heading_path` | TEXT[] | p. ej. {Frontend, Formularios, Validación} |
 | `body` | TEXT | texto de la sección (con su título) |
-| `token_count` | INT | |
-| `is_current` | BOOLEAN NOT NULL | true solo para secciones de la versión actual de un documento activo |
-| `valid_from`, `valid_until` | TIMESTAMPTZ | copia de la versión (filtro de vigencia sin JOIN) |
-| `tsv` | TSVECTOR | `setweight(to_tsvector('spanish', títulos), 'A') || setweight(to_tsvector('spanish', body), 'B')`, calculado al insertar |
+| `token_count` | INT | aproximado (palabras) |
+| `source_location` | JSONB NOT NULL | procedencia para citar: md/txt `heading_path`, `line_start`, `line_end`; pdf `page_start`, `page_end`; xlsx `sheet`, `row_start`, `row_end`; pptx `slide_start`, `slide_end`. Una sección que cruza hojas o rutas lo registra como lista (`sheets`) |
+| `extraction` | TEXT NOT NULL | `text`, `table`, `code`, `mixed` (luego `ocr`) |
+| `category`, `tags` | | copia de la versión (filtros sin JOIN) |
+| `is_current` | BOOLEAN NOT NULL | atajo indexado: sección del registro vigente que rige hoy o regirá (ver bitemporalidad en "Desviaciones", D-I3) |
+| `valid_from`, `valid_until` | TIMESTAMPTZ | vigencia efectiva (reloj del mundo); `valid_until` se cierra cuando entra en vigor la versión siguiente o se retira el documento |
+| `recorded_from`, `recorded_until` | TIMESTAMPTZ | reloj del registro (§14.4) |
+| `tsv` | TSVECTOR | `setweight(nexo_es(títulos) || sin_tildes(títulos), 'A') || setweight(nexo_es(body) || sin_tildes(body), 'B')`, calculado al insertar (D-I2) |
 
 Índices: GIN (`tsv`) WHERE `is_current`; (`space_id`, `is_current`); (`document_id`, `version_id`,
 `ordinal`). Al publicar una versión nueva, las secciones anteriores pasan a `is_current = false`
@@ -190,7 +201,8 @@ Trigger de inmutabilidad (bloquea UPDATE/DELETE), igual que `nexo_activity_log`.
 Acentos: la configuración `spanish` aplica raíces pero no quita tildes. Se crea una configuración
 propia `nexo_es` sobre `unaccent` si la extensión está disponible (requiere permiso de creación de
 extensiones); si no, se usa `spanish` y el servicio normaliza tildes en Go antes de indexar y de
-consultar. La migración detecta y registra cuál se usa.
+consultar. La migración detecta y registra cuál se usa. (Implementado con un ajuste: ver
+"Desviaciones", D-I2.)
 
 ### 5.6 `nexo_kb_proposals`
 
@@ -491,5 +503,102 @@ de texto, híbrido o de grafo son índices derivados que respetan esa temporalid
 
 Decisión pendiente para la etapa 3: origen de los embeddings, API externa (los lineamientos salen de
 la empresa) o modelo propio en el servidor (por ejemplo, Ollama). Depende de la política de Real Plaza.
+
+## 15. Ingesta y procedencia (entrega 2a)
+
+Los archivos a indexar serán variados: Markdown y texto en K1; Word y Excel en K2; PDF y PowerPoint
+en K3. El modelo ya está preparado para todos; en la entrega 2a solo existen los conversores de
+Markdown y texto.
+
+### 15.1 Conversor con bloques y procedencia
+
+`ingest.Converter` no devuelve solo texto: devuelve el Markdown normalizado (lo que se guarda en
+`content_md` y lo que cubre `content_sha256`), los metadatos (front matter) y una lista de
+**bloques**. Cada bloque es una unidad que nunca se parte (párrafo o lista, título, tabla, bloque de
+código) y lleva:
+
+| Campo | Contenido |
+|---|---|
+| `Kind`, `Level`, `Text` | clase de bloque, nivel de título, Markdown del bloque |
+| `HeadingPath` | títulos que lo contienen |
+| `Location` (`source_location`) | md/txt: `heading_path`, `line_start`, `line_end` (líneas del archivo original, front matter incluido); pdf: `page_start`, `page_end`; xlsx: `sheet`, `row_start`, `row_end`; pptx: `slide_start`, `slide_end` |
+| `Extraction` | `text`, `table`, `code`; `ocr` reservado (un PDF escaneado se rechaza en K1..K3, RF-18) |
+
+El `Sectioner` corta por títulos con un tamaño objetivo (350 palabras por defecto) y conserva la
+procedencia: combina las ubicaciones de sus bloques (`*_start` mínimo, `*_end` máximo, así una sección
+de un PDF registra "páginas 3-5"), registra como lista lo que no coincide (`sheets: [A, B]`) y abre
+una sección nueva cuando cambia la hoja o la diapositiva (`SplitKeys`), para que una sección no
+mezcle hojas sin registrarlo. Las respuestas de búsqueda y lectura incluyen `source_location`,
+`extraction` y una cita legible ("frontend/formularios#...validacion, v2, vigente desde 2026-09-01,
+líneas 26-44"; "hoja Componentes, filas 40-60"; "página 12").
+
+### 15.2 Registro y límites
+
+`ingest.Registry` elige el conversor por formato explícito, por tipo MIME (con prioridad) o por
+extensión. Agregar Word es registrar un `Converter` con `.docx` y su MIME; nada más cambia.
+
+`Registry.Convert` aplica a todo conversor, también a Markdown, tres límites de seguridad:
+
+| Límite | Por defecto | Variable |
+|---|---|---|
+| Tamaño máximo de entrada | 2 MB | `NEXO_KB_MAX_DOC_BYTES` |
+| Tiempo máximo de conversión | 10 s (el conversor recibe un contexto con plazo; si no termina, se rechaza) | — |
+| Tope de salida | 2 MB de Markdown y 20 000 bloques | `NEXO_KB_MAX_DOC_BYTES` |
+
+Además: un pedido HTTP no supera `NEXO_KB_MAX_REQUEST_BYTES` (32 MB) y un lote no supera
+`NEXO_KB_MAX_BATCH` (200 documentos). Un conversor que entra en pánico se aísla (error del documento,
+el lote sigue).
+
+### 15.3 Originales: `BlobStore` (D-K11)
+
+Decisión ratificada: por ahora **no** se guardan los archivos originales, pero el diseño permite
+hacerlo después sin migrar contenido.
+
+- `nexo_kb_versions` guarda siempre `source_sha256`, `source_mime`, `source_size_bytes` y
+  `source_blob_ref` (hoy NULL).
+- `internal/nexo/kb` define `BlobStore` (`Put` por hash y tipo, `Get` y `Delete` por referencia; un
+  `Put` del mismo hash devuelve la misma referencia). La implementación por defecto,
+  `NoopBlobStore`, no guarda nada y devuelve una referencia vacía.
+- Publicar llama a `BlobStore.Put` dentro de la transacción del documento y guarda la referencia que
+  devuelva.
+
+Cómo se activaría: (1) implementar `BlobStore` sobre Postgres (tabla `nexo_kb_blobs (sha256 PK,
+mime, size, data BYTEA)`, solo inserción) o sobre almacenamiento de objetos (S3, Azure Blob,
+MinIO; la referencia es la clave del objeto, direccionada por hash); (2) pasarlo al servicio con
+`service.WithBlobStore(...)` en el adaptador (`cloudserver/nexo_kb_bridge.go`); (3) desde ese
+momento las versiones nuevas quedan con `source_blob_ref`. Reconvertir o reindexar desde el original
+(cuando mejore un conversor) es leer el original con `Get`, volver a convertir y publicar una versión
+nueva con origen "reconversión"; las versiones anteriores a la activación no tienen original
+(`source_blob_ref` NULL) y solo pueden reindexarse desde `content_md`. Retención y borrado del
+original serían una tarea explícita de administración, nunca de la API de contenido.
+
+## 16. Desviaciones de implementación (entrega 2a)
+
+Entrega 2a (rama `feat/conocimiento-nucleo`): A-03, C-01..C-06, C-08 (parcial), C-10 y la CLI mínima.
+Lo que difiere de las secciones anteriores, y por qué:
+
+| ID | Tema | Diseño | Implementado | Motivo |
+|---|---|---|---|---|
+| D-I1 | Paquetes | `domain, ingest, store, search, service, httpapi, client` | Se agregan `eval` (medición, C-10), `cli` (comando mínimo, cliente HTTP mínimo que pasa a `client` en 2b) y `kbtest` (entornos de prueba). `BlobStore` está en el paquete raíz `kb` | Separar la medición de cualquier motor; la copia local y MCP son de 2b |
+| D-I2 | Búsqueda en español | `nexo_es` = `unaccent` + `spanish_stem` | `nexo_es` = copia de `spanish` (sin `unaccent`); se indexa además la variante sin tildes del mismo texto: con la extensión, `nexo_es_unaccent` (`unaccent` + `spanish_stem`); sin ella, `nexo_es` sobre el texto plegado en Go. La consulta combina ambas con OR. `NEXO_KB_DISABLE_UNACCENT=1` fuerza el modo sin extensión. El modo queda en `nexo_kb_index_versions.config.accent_folding` | El lematizador Snowball reconoce sufijos acentuados ("-ación"); con `unaccent` antes, "validación" y "validaciones" dejaban de coincidir (medido: `valid` frente a `validacion`) |
+| D-I3 | Bitemporalidad | Al publicar, las secciones anteriores pasan a `is_current = false` y `recorded_until` = publicación | Regla: al entrar en vigor una versión en `F` (o retirarse el documento en `F` = ahora), cada sección vigente del documento que empezaba en `F` o después queda reemplazada en el registro (`recorded_until`); la que regía antes deja de regir en `F` (`valid_until = LEAST(valid_until, F)`) y sigue "actual" solo si todavía rige | Una versión con vigencia futura no debe dejar sin estándar a nadie hasta que empiece (prueba `TestFutureVersionKeepsCurrentUntilItStarts`); `at=` en el pasado encuentra lo que regía antes de un retiro (CA-K09). Limitación del modelo ligero: el cierre de `valid_until` se escribe en la fila, así `known_at` anterior al cambio ve el `valid_until` nuevo |
+| D-I4 | Consulta en lenguaje natural | `websearch_to_tsquery` (todas las palabras) | Primero todas las palabras; si faltan resultados, cualquiera de ellas (OR), marcado `match: some_terms`. No aplica si la consulta tiene exclusiones (`-palabra`) | Medición C-10: con AND, Recall@5 = 54,5 % (preguntas como "cómo mostrar mensajes de error" fallan por una palabra); con la segunda pasada, 100 % y MRR 0,955 en el conjunto de prueba. `no_results` sigue siendo explícito cuando ninguna palabra aparece |
+| D-I5 | Ranking | `ts_rank_cd` sobre todas las coincidencias | Dos etapas: `ts_rank` (pesos A/B) sobre los candidatos y `ts_rank_cd` + `ts_rank` sobre los 100 mejores; candidatos cortados en `NEXO_KB_RANK_CANDIDATES` (20 000) | `ts_rank_cd` cuesta unas 25 veces más que `ts_rank` (3,2 s frente a 0,13 s con 181 000 coincidencias). El corte acota el peor caso de términos casi universales (ver RNF-K1 abajo) |
+| D-I6 | Índices | GIN parcial `WHERE is_current` | GIN parcial (vigentes, el atajo sin parámetros de tiempo) y GIN completo (consultas con `at` o `known_at`) | Las consultas históricas también deben usar índice |
+| D-I7 | Crear espacio | Una operación | Dos transacciones: `authz.CreateScope` (ámbito, responsable, eventos de roles) y luego `nexo_kb_spaces` + `space.created`. Si la segunda falla, la fila se completa sola en el primer uso; también se completan los espacios creados por `/nexo/authz/v1/scopes` | `authz` no expone su transacción; así no se duplica su lógica (R-9, R-10, R-11) |
+| D-I8 | Miembros | `GET/PUT/DELETE /nexo/kb/v1/spaces/{slug}/members` | No se duplican: se usan `/nexo/authz/v1/scopes/space/{slug}/members` (NX-05) | Un solo lugar para roles (instrucción de la entrega) |
+| D-I9 | Lectura por ancla | `GET /sections/{anchor}` | `GET /spaces/{slug}/documents/{doc_key}/sections/{anchor}` y `GET /sections?space=&doc=&anchor=&version=` | El ancla es única dentro de una versión de un documento, no globalmente |
+| D-I10 | Errores | 422 validación | 422 validación de dominio, 400 JSON o parámetros mal formados, 413 tamaño | Igual que el resto de la API Nexo para lo mal formado |
+| D-I11 | Auditoría de la consulta de eventos | La consulta queda auditada (NX-03) | No se registra cada lectura de eventos del espacio | Evitar que la evidencia crezca con lecturas; se puede agregar a `cloud_auth_audit_log` como NX-03 en 2b |
+| D-I12 | Denegaciones | `authz.denied` en `nexo_kb_events` | En `nexo_kb_events` y también en `nexo_authz_events` (`Engine.RecordDenied`) | Coherencia con la auditoría de roles |
+| D-I13 | Auditor | `space.audit.read` | `ListEvents` acepta `space.audit.read` en el espacio o `platform.audit.read` (auditor, admin, superadmin), RF-51 | El auditor no tiene rol en los espacios |
+| D-I14 | Retiro repetido | — | Retirar un retirado sin cambio es idempotente (200, sin evento); indicar el reemplazo después es posible una vez; otro cambio, 409. Publicar de nuevo un documento retirado lo reactiva con una versión nueva | Reintentos seguros y reactivación por el CI |
+| D-I15 | Prueba de S1 | `TestNexoTwoAccountsGrantsAreIdempotentAndExtensible` creaba un `nexo_kb_events` ficticio | Usa `nexo_alerts` (S4) como tabla futura | Ahora la migración real crea `nexo_kb_events` |
+
+Rendimiento (RNF-K1) con datos sintéticos: ver la tabla de mediciones en `tasks.md` (C-06). Riesgos
+abiertos: el peor caso es un término presente en casi todas las secciones con todos los espacios
+visibles; se acota con el tope de candidatos, a costa de rankear un subconjunto en esos términos (que
+no discriminan). Si la medición con datos reales lo exige, el paso siguiente es una extensión de
+índice con ranking (RUM o BM25, §14.7) detrás del mismo `Retriever`.
 
 

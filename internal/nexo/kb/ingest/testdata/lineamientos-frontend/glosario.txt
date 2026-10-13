@@ -1,0 +1,7 @@
+Glosario de frontend
+
+SSR: renderizado en el servidor. Lo usamos en el portal de clientes por SEO.
+
+CSR: renderizado en el cliente. Lo usamos en la intranet de tiendas.
+
+Design token: valor con nombre (color, espaciado, tipografía) definido en el sistema de diseño.

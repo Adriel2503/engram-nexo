@@ -1,7 +1,7 @@
 # NEXO_CHANGES — Registro de cambios del fork engram-nexo
 
 **Proyecto:** Nexo IA · **Base:** Engram v3.3.2 (commit `35d1452`) · **Versión del fork:** `3.3.2-nexo.1`
-**Especificación:** `docs/nexo/trazabilidad/` (`requirements.md`, `design.md`, `tasks.md`, `manual-admin.md`) · roles: `docs/nexo/roles/` (NX-05) · seguridad: `docs/nexo/seguridad/` (NX-07)
+**Especificación:** `docs/nexo/trazabilidad/` (`requirements.md`, `design.md`, `tasks.md`, `manual-admin.md`) · roles: `docs/nexo/roles/` (NX-05) · seguridad: `docs/nexo/seguridad/` (NX-07) · conocimiento: `docs/nexo/conocimiento/` (NX-10)
 
 Este archivo es el inventario de todo lo que el fork cambia respecto de Engram. Sirve para revisar el fork y para integrar versiones nuevas de Engram con conflictos mínimos (RNF-04).
 
@@ -27,7 +27,7 @@ Lo que **no** cambia:
 | Regla | Detalle |
 |---|---|
 | Lógica nueva aislada | Toda la lógica va en archivos `nexo_*.go` (y sus `nexo_*_test.go`). Tipos y funciones con prefijo `nexo`/`Nexo` |
-| Ediciones mínimas y marcadas | En archivos originales de Engram solo se agregan llamadas de una línea (o un bloque muy corto), marcadas con `// NX-01` a `// NX-07`. Listado completo en §4; se verifica con `git grep -n "// NX-0"` |
+| Ediciones mínimas y marcadas | En archivos originales de Engram solo se agregan llamadas de una línea (o un bloque muy corto), marcadas con `// NX-01` a `// NX-10`. Listado completo en §4; se verifica con `git grep -n "// NX-"` |
 | Módulos Nexo con almacenamiento propio | Paquetes en `internal/nexo/...` (NX-05: `internal/nexo/authz`), sin dependencias de `cloudserver`; reciben la base por `CloudStore.NexoDB()` y la identidad por `authz.Identity` |
 | Migraciones | Aditivas e idempotentes (`ADD COLUMN IF NOT EXISTS`, `CREATE ... IF NOT EXISTS`, `CREATE OR REPLACE`), en `cloudstore/nexo_migrations.go`, al final de `migrate` |
 | Ramas | `main` sigue a Engram (upstream, sin cambios propios) · `develop` integra el fork · `feat/<tema>` para cada cambio (por ejemplo `feat/trazabilidad`), con PR hacia `develop` tras revisión |
@@ -124,9 +124,33 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `cloudstore/nexo_migrations.go` (trigger de inmutabilidad sin bypass; llama a `security.MigrateRetention`), `cloudstore/nexo_activity.go` (`PurgeActivityOlderThan` usa la función), `cloudserver/nexo_activity.go` (`NEXO_ACTIVITY_RETENTION_DAYS` mínimo 30), `internal/nexo/authz/events.go` (acción `retention.purged`).
 
+### NX-10 · Espacios de conocimiento, parte 2a (núcleo)
+
+**Especificación.** `docs/nexo/conocimiento/` (`requirements.md`, `design.md` con ingesta y procedencia en §15 y desviaciones D-I1..D-I15 en §16, `tasks.md`).
+
+**Motivo.** Lo oficial de la empresa (estándares, lineamientos, glosario) vivía como texto dentro de un proyecto de Engram (`nexo-transversal`), sin versiones, vigencia, secciones ni control de quién publica.
+
+**Qué hace.** Una capa de conocimiento separada de los proyectos, en el mismo servidor y la misma base, con tablas propias `nexo_kb_*` (ninguna referencia tablas de proyectos). Espacios sobre el motor de roles de NX-05 (crear con responsable, abiertos por defecto con rol implícito, configurar, archivar y restaurar; miembros por `/nexo/authz/v1`). Publicación por lotes idempotente por hash, con versiones inmutables, secciones citables con procedencia (`source_location`, `extraction`), vigencia y bitemporalidad (`at`, `known_at`), poda por origen git solo con el lote completo y `dry-run`; retiro y reemplazo; eventos de solo inserción con actor, token, IP y cliente; feed `nexo_kb_changes` (se consume en 2b). Búsqueda `pgfts` en español detrás de la interfaz `Retriever`, con filtros comunes obligatorios de tiempo y de permisos que ningún motor puede saltarse; `no_results` explícito. API `/nexo/kb/v1`. Medición de la búsqueda (Recall@5 y MRR). CLI `engram nexo kb publish|search|spaces|eval`. Pendiente para 2b: propuestas, copia local, herramientas MCP, feed `/sync`.
+
+**Archivos nuevos.**
+- `internal/nexo/kb/blobstore.go` — interfaz `BlobStore` y `NoopBlobStore` (los originales no se guardan todavía, D-K11).
+- `internal/nexo/kb/domain/` — tipos, constantes y errores de dominio.
+- `internal/nexo/kb/ingest/` — `Converter` con bloques y procedencia, `Registry` por extensión y MIME con límites (entrada, tiempo, salida), conversores Markdown (front matter YAML) y texto, `Sectioner`, detector de secretos (RN-K4).
+- `internal/nexo/kb/store/` — migraciones (`Migrate`) y SQL.
+- `internal/nexo/kb/search/` — `Retriever`, `Searcher` (filtros comunes), `PGFTS`, citas.
+- `internal/nexo/kb/service/` — casos de uso.
+- `internal/nexo/kb/httpapi/` — rutas `/nexo/kb/v1`.
+- `internal/nexo/kb/eval/` — formato `preguntas.yaml`, Recall@5, MRR.
+- `internal/nexo/kb/cli/` — comando `engram nexo kb`.
+- `internal/nexo/kb/kbtest/` — entornos de prueba (Postgres, una y dos cuentas).
+- `internal/cloud/cloudserver/nexo_kb_bridge.go` — registra `/nexo/kb/v1` con `withAuth` y la identidad de NX-05.
+- Tests: `ingest/ingest_test.go` (lineamientos de frontend reales en `ingest/testdata`), `search/search_test.go` (un `Retriever` no salta los filtros), `service/service_pg_test.go` (CA-K01..CA-K06, CA-K09, CA-K13, bitemporalidad, español con y sin `unaccent`, migración), `service/perf_test.go` (RNF-K1, `NEXO_KB_PERF_SECTIONS`), `store/store_pg_test.go` (inmutabilidad con dos cuentas), `eval/eval_test.go`, `cli/cli_test.go`, `cloudserver/nexo_kb_routes_test.go` (HTTP de punta a punta).
+
+**Archivos Nexo modificados.** `cloudstore/nexo_migrations.go` (llama a `kbstore.Migrate` después de `authz.Migrate`, en la misma transacción), `cloudstore/nexo_security_test.go` (la prueba de tabla de evidencia futura usa `nexo_alerts` en lugar de `nexo_kb_events`, que ahora existe).
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
-Verificado con `git grep -n "// NX-0"` (fuera de `docs/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
+Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
 
 | Archivo:línea | Marca | Propósito |
 |---|---|---|
@@ -161,6 +185,9 @@ Verificado con `git grep -n "// NX-0"` (fuera de `docs/`). Las líneas sin marca
 | `internal/cloud/cloudserver/dashboard_admin_users.go:192-194` | NX-05 | Panel, habilitar y deshabilitar: igual que la API |
 | `internal/cloud/cloudserver/dashboard_admin_users.go:288-290` | NX-05 | Panel, emitir token: igual que la API |
 | `internal/cloud/cloudserver/dashboard_admin_users.go:382-384` | NX-05 | Panel, revocar token: igual que la API |
+| `internal/cloud/cloudserver/cloudserver.go:342` | NX-10 | `routes()`: `s.registerNexoKBRoutes(s.mux)` registra `/nexo/kb/v1` (`nexo_kb_bridge.go`) |
+| `cmd/engram/main.go:39` | NX-10 | Import `nexokbcli` (`internal/nexo/kb/cli`) |
+| `cmd/engram/main.go:825-826` | NX-10 | `case "nexo"`: `engram nexo kb ...` (bloque de 2 líneas) |
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 
@@ -175,6 +202,12 @@ Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Doc
 | `NEXO_MIGRATION_DATABASE_URL` (NX-07) | vacío (una sola cuenta, aviso de seguridad degradada) | URL de la cuenta dueña del esquema. Con ella el servidor migra, aplica privilegios y crea la función de retención con esa cuenta, y opera con `ENGRAM_DATABASE_URL` (cuenta de aplicación) sin migrar; si la cuenta de aplicación es superusuario, dueña de objetos o puede crear objetos, no arranca |
 | `NEXO_DB_APP_ROLE` (NX-07) | usuario de `ENGRAM_DATABASE_URL` | Rol al que se otorgan los privilegios de aplicación (solo si difiere del usuario de la URL, por ejemplo detrás de un pooler) |
 | `NEXO_PERF_TEST` | — | Solo tests: `1` habilita la prueba de tiempos con 1 millón de filas |
+| `NEXO_KB_MAX_DOC_BYTES` (NX-10) | `2097152` (2 MB) | Tamaño máximo de un documento (entrada del conversor y Markdown resultante) |
+| `NEXO_KB_MAX_BATCH` (NX-10) | `200` | Documentos por pedido de publicación |
+| `NEXO_KB_MAX_REQUEST_BYTES` (NX-10) | `33554432` (32 MB) | Cuerpo máximo de una petición a `/nexo/kb/v1` (413 si se supera) |
+| `NEXO_KB_RANK_CANDIDATES` (NX-10) | `20000` | Tope de secciones candidatas por búsqueda antes de rankear (mínimo 100) |
+| `NEXO_KB_DISABLE_UNACCENT` (NX-10) | vacío | `1` al crear la configuración de búsqueda: no usar la extensión `unaccent` (las tildes se pliegan en la aplicación) |
+| `NEXO_KB_PERF_SECTIONS` | — | Solo tests: activa la prueba de rendimiento de búsqueda con esa cantidad de secciones |
 
 Las variables de Engram no cambian. Recomendación operativa (RN-A3): `ENGRAM_CLOUD_TOKEN` con un valor aleatorio largo que no se entrega a nadie; todo lo que llegue con él figura como `no-identificado`.
 
@@ -197,6 +230,15 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `nexo_authz_events` (NX-05) | Eventos de roles, solo inserción (triggers que rechazan `UPDATE`, `DELETE` y `TRUNCATE`). Índices por ámbito, actor, objetivo y acción (`id DESC`) |
 | Trigger `nexo_authz_guard_principal` (NX-05) | En `cloud_principals` (`UPDATE OF enabled, role` y `DELETE`): rechaza deshabilitar, degradar o borrar al último superadmin habilitado por cualquier vía |
 | Función `nexo_authz_bootstrap_candidate()` (NX-05) | Admin humano habilitado de menor id cuando no hay superadmin habilitado; la migración (y la primera petición si el admin se crea después) le asigna `superadmin` con evento de actor `sistema` |
+| `nexo_kb_spaces` (NX-10) | Espacio (`slug` = `nexo_scopes.scope_key`, FK a `nexo_scopes`), nombre, descripción, categorías, `settings` |
+| `nexo_kb_documents` (NX-10) | Documento (`UNIQUE (space_id, doc_key)`), estado, vigencia de la versión actual, reemplazo, origen (índice parcial por origen para la poda) |
+| `nexo_kb_versions` (NX-10) | Versiones de solo inserción (triggers `nexo_kb_versions_no_update_delete` y `_no_truncate`; tabla de evidencia de NX-07): contenido, hashes, `source_format`, `source_mime`, `source_sha256`, `source_size_bytes`, `source_blob_ref` (NULL), origen, autoría del token |
+| `nexo_kb_sections` (NX-10) | Secciones con `heading_path`, `source_location`, `extraction`, vigencia, `recorded_from/until`, `is_current`, `tsv`. GIN parcial (vigentes) y GIN completo; `(space_id, is_current)`, `(document_id, version_id, ordinal)` |
+| `nexo_kb_events` (NX-10) | Eventos de solo inserción (triggers; tabla de evidencia) |
+| `nexo_kb_changes` (NX-10) | Feed de cambios por `seq` (lo consume la copia local en 2b) |
+| `nexo_kb_proposals` (NX-10) | Tabla de propuestas (la lógica llega en 2b) |
+| `nexo_kb_index_versions` (NX-10) | Índices derivados y su configuración (`pgfts` v1, modo de tildes) |
+| Configuraciones de búsqueda (NX-10) | `nexo_es` (copia de `spanish`) y, si la extensión `unaccent` existe o se puede crear (en `public`), `nexo_es_unaccent`. Si no se puede crear, la migración sigue sin ella (aviso en el log) |
 
 Volver a la imagen oficial 3.3.2 con la misma base es posible: Engram ignora las columnas, tablas y la vista nuevas, y el trigger `nexo_stamp_actor` no modifica las filas cuando nadie publicó el actor en la transacción (quedan con `actor` NULL, como los datos anteriores al fork). Con NX-05, el trigger `nexo_authz_guard_principal` sigue activo en la base aunque se use la imagen oficial: impide deshabilitar al último superadmin habilitado (se puede quitar con `DROP TRIGGER nexo_authz_guard_principal ON cloud_principals` si se abandona el fork).
 
@@ -223,6 +265,7 @@ $env:CLOUDSTORE_TEST_DSN = '<DSN de un Postgres de pruebas>'   # p. ej. un postg
 go build ./... ; go vet ./internal/cloud/... ./internal/nexo/...
 go test -count=1 ./internal/cloud/... ./internal/nexo/...
 go test -count=1 -run TestCloudRuntime ./cmd/engram/
+$env:NEXO_KB_PERF_SECTIONS = "200000"; go test -count=1 -v -timeout 40m -run TestPerfSearch ./internal/nexo/kb/service/   # RNF-K1 (NX-10)
 go test -run '^$' -bench NexoOverhead -benchtime 200x ./internal/cloud/cloudserver/   # RNF-03
-git grep -n "// NX-0" -- ':!docs'
+git grep -n "// NX-" -- ':!docs' ':!internal/nexo'
 ```
