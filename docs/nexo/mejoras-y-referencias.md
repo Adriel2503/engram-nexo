@@ -221,3 +221,24 @@ plano por diseño (el README pide poner TLS por fuera). Ideas a evaluar:
 | RC-32 | Planificar la búsqueda antes de consultar: un modelo chico convierte la pregunta en palabras clave en español e inglés, alias, entidades y modo de búsqueda; un "ok" no busca nada | Recuperación planificada de `cortexdb-live` | Mejor recuperación y menos consultas inútiles | R4 | M | pendiente |
 | RC-33 | Ontología con acciones gobernadas (tipos de objeto, relaciones y acciones permitidas con validación) sobre el conocimiento publicado. Evaluar junto con el grafo de R5; no reemplaza el flujo propuesta, aprobación y publicación de Nexo | Ontología "estilo Palantir", SHACL | Consultas de varios saltos y reglas sobre relaciones | R5 | B | pendiente (evaluar) |
 | OP-07 | Transporte gRPC (HTTP/2 + protobuf) entre el cliente y el servidor en lugar de JSON sobre HTTP. Solo si la sincronización o la búsqueda muestran que la serialización es el cuello de botella; siempre con TLS | Servidor `cortexdb-grpc` | Menos latencia y bytes por llamada | Solo si se mide | B | decidido: no por ahora |
+
+## 11. Modelos de decisión "System One" y reordenadores (referencia, 2026-10-13)
+
+Apuntes tras R3 (design §21). Un modelo de decisión "System One" no genera texto: recibe un contexto
+y preguntas con tipo (elección, puntaje, sí/no) y devuelve valores con probabilidad en una pasada.
+Para reordenar se usaría "¿este pasaje responde la pregunta?" y la probabilidad como puntaje, como un
+adaptador más de `Reranker`. Todos tienen semanas de vida y sus comparaciones son propias, sin
+verificar; datos tomados de prensa, blogs y fichas de los proyectos, no de documentación oficial.
+
+| Referencia | Qué es | Licencia y forma de uso | Notas |
+|---|---|---|---|
+| Jev (TypeSafe AI) | Primer modelo "System One"; acceso anticipado desde 2026-09-15, también en Vercel AI Gateway (`jev-1.13.0`) | Propietario, API en la nube | Muy nuevo; enviar datos de Real Plaza a una startup exige revisar contrato y datos (RC-12) |
+| Decisions API (OpenAI) | Equivalente de OpenAI a Jev, anunciado en DevDay 2026 | API de OpenAI | Fuentes discrepan sobre el modelo base y si devuelve probabilidades; revisar la documentación oficial |
+| Laya (Convai Innovations) | Modelo de decisión no autorregresivo, 322 a 421 M parámetros (ModernBERT-large + cabeza de decisión), API compatible con Jev | Apache 2.0; pesos en Hugging Face (`convaiinnovations/laya`), `pip install laya` | Unos 33 ms por pregunta en una T4 según el autor; contexto 512 u 8192 según la fuente; requiere servidor propio |
+| open-alternative-jev, JevK5, OpenJev, Von | Capas o modelos abiertos que imitan a Jev (decisiones con tipo sobre LLM abiertos, servidor Docker, modelo de menos de 15 ms) | Apache 2.0 (open-alternative-jev, JevK5, OpenJev); Von sin verificar | Proyectos individuales de la comunidad; directorio en `VoltAgent/typesafe-jev-ecosystem` |
+| Reordenadores abiertos | `bge-reranker-v2-m3` (BAAI), `Qwen3-Reranker`; multilingües, hechos para ordenar pasajes | Apache 2.0; se sirven con TEI (adaptador `tei` ya existente) | Más maduros que los modelos de decisión para R3. Ojo: los pesos públicos de Jina reranker son CC-BY-NC (no comercial) |
+
+| ID | Idea | Origen | Valor | Fase | Prioridad | Estado |
+|---|---|---|---|---|---|---|
+| RC-34 | Adaptador `Reranker` para un modelo de decisión (Jev, Decisions API de OpenAI o Laya en servidor propio), medido con la misma prueba de la wiki que R3 contra Gemini flash-lite y un reordenador dedicado | Apuntes de esta sección; pregunta del usuario (2026-10-13) | Posible reordenamiento más rápido y barato | Cuando estén disponibles en general y con contrato o licencia claros | B | pendiente (evaluar) |
+| RC-35 | Medir los reordenadores dedicados con clave real (Cohere en Azure AI Foundry, Voyage `rerank-2.5`, Jina por API, Vertex AI Ranking API `semantic-ranker-default-004` / `-fast-004`, que pide proyecto de Google Cloud, cuenta de servicio y un adaptador `vertex` nuevo; el español no está confirmado) antes de elegir el proveedor de producción | Informe R3, decisión abierta 1 | Elegir por calidad, demora y costo | Antes de activar R3 | A | pendiente (falta clave) |
