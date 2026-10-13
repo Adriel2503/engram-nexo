@@ -133,20 +133,40 @@ func Connect(ctx context.Context, dataDir, server, token string) (ConnectResult,
 	return res, nil
 }
 
+// DisconnectResult es el resultado de Disconnect.
+type DisconnectResult struct {
+	RemovedCopy  string // copia local borrada ("" si se conservó)
+	ClearedCloud bool   // se borraron servidor y token de cloud.json
+	// KeptCloudServer: cloud.json no se tocó porque su servidor no es el de
+	// la conexión Nexo (o no hay nexo.json): es una configuración cloud ajena.
+	KeptCloudServer string
+}
+
 // Disconnect quita la conexión: borra nexo.json, el token y el servidor de
-// cloud.json si eran los de Nexo y, salvo keepCopy, la copia local.
-func Disconnect(dataDir string, keepCopy bool) (removedCopy string, err error) {
+// cloud.json solo si son los de la conexión Nexo (nexo.json con el mismo
+// servidor) y, salvo keepCopy, la copia local. Sin nexo.json o con otro
+// servidor en cloud.json, cloud.json queda igual (se informa en el resultado).
+func Disconnect(dataDir string, keepCopy bool) (DisconnectResult, error) {
+	var res DisconnectResult
 	c, _ := LoadConnection(dataDir)
-	if prev, _ := cloudconfig.Load(dataDir); prev != nil && (c == nil || strings.TrimRight(prev.ServerURL, "/") == strings.TrimRight(c.Server, "/")) {
-		if err := cloudconfig.Clear(dataDir); err != nil {
-			return "", err
+	if prev, _ := cloudconfig.Load(dataDir); prev != nil && (prev.ServerURL != "" || prev.Token != "") {
+		if c != nil && c.Server != "" && strings.TrimRight(prev.ServerURL, "/") == strings.TrimRight(c.Server, "/") {
+			if err := cloudconfig.Clear(dataDir); err != nil {
+				return res, err
+			}
+			res.ClearedCloud = true
+		} else {
+			res.KeptCloudServer = prev.ServerURL
+			if res.KeptCloudServer == "" {
+				res.KeptCloudServer = "(sin servidor)"
+			}
 		}
 	}
 	if err := os.Remove(filepath.Join(dataDir, ConnectionFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return res, err
 	}
 	if keepCopy {
-		return "", nil
+		return res, nil
 	}
 	path := DefaultLocalPath()
 	if c != nil && c.LocalCopy != "" {
@@ -154,8 +174,9 @@ func Disconnect(dataDir string, keepCopy bool) (removedCopy string, err error) {
 	}
 	for _, p := range []string{path, path + "-wal", path + "-shm"} {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", err
+			return res, err
 		}
 	}
-	return path, nil
+	res.RemovedCopy = path
+	return res, nil
 }
