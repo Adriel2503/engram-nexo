@@ -23,7 +23,7 @@ Conexión de esta PC:
 
 Áreas:
   kb      espacios de conocimiento (spaces, search, get, sync, upload, publish, changes, eval, reindex, import-transversal)
-  audit   evidencia de seguridad (verify, export, verify-export)
+  audit   evidencia de seguridad (verify, export, verify-export, verify-review)
   sa      cuentas de servicio para CI y bots (list, show, create, update, disable, enable, grant, ungrant, token)
 
 Instalación para un dev: engram nexo connect --server <url> --token-stdin  y luego  engram setup <agente>.

@@ -28,6 +28,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -374,4 +376,25 @@ func bindingCells(b ReviewBinding) []string {
 // y la huella completa para poder comprobarlo.
 func ReviewExportFilename(generatedAt time.Time, sha, ext string) string {
 	return "nexo-revision-accesos-" + generatedAt.UTC().Format("20060102T150405Z") + "-" + sha + "." + ext
+}
+
+var reviewCSVNameHash = regexp.MustCompile(`-([0-9a-fA-F]{64})\.csv$`)
+
+// VerifyReviewExportFile comprueba un archivo descargado de la revisión de
+// accesos. JSON: la huella de content_sha256 contra el contenido. CSV: la
+// huella que lleva el nombre del archivo contra el SHA-256 de sus bytes (si
+// el archivo se renombró, no hay huella que comparar y devuelve un error).
+func VerifyReviewExportFile(name string, raw []byte) (ReviewExportVerdict, error) {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".json":
+		return VerifyReviewExportJSON(raw)
+	case ".csv":
+		m := reviewCSVNameHash.FindStringSubmatch(filepath.Base(name))
+		if m == nil {
+			return ReviewExportVerdict{}, errors.New("evidence: el nombre del CSV no lleva la huella (nexo-revision-accesos-<fecha>-<huella>.csv)")
+		}
+		computed := sha256Hex(raw)
+		return ReviewExportVerdict{OK: strings.EqualFold(m[1], computed), Declared: strings.ToLower(m[1]), Computed: computed}, nil
+	}
+	return ReviewExportVerdict{}, errors.New("evidence: solo se verifican archivos .csv y .json de la revisión de accesos")
 }

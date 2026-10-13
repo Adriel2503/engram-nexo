@@ -35,6 +35,9 @@ Comandos:
                                              los días ya exportados se saltan.
   verify-export ARCHIVO.jsonl [--db]         verifica la firma, el contenido y la continuidad
                                              de un archivo exportado; con --db, también contra la base.
+  verify-review ARCHIVO.csv|ARCHIVO.json
+                                             comprueba la huella SHA-256 de un archivo descargado de la
+                                             revisión de accesos (no usa la base).
 
 Conexión: ENGRAM_DATABASE_URL. La salida es JSON.
 `
@@ -57,6 +60,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		out, ok, err = runVerify(ctx, rest)
 	case "export":
 		out, ok, err = runExport(ctx, rest)
+	case "verify-review":
+		out, ok, err = runVerifyReview(ctx, rest)
 	case "verify-export":
 		out, ok, err = runVerifyExport(ctx, rest)
 	default:

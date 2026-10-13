@@ -1156,11 +1156,16 @@ auditoría (`nexo.access_review.export`).
 **Cómo comprobar la huella.** Sirve para demostrar, meses después, que el archivo del expediente es el
 que descargó el servidor y no se editó.
 
-- CSV: calcule el SHA-256 del archivo y compárelo con el que lleva el nombre.
+- Con el binario de Nexo (sirve para CSV y JSON, no usa la base y no hace falta la sesión del panel):
+  `engram nexo audit verify-review nexo-revision-accesos-AAAAMMDDTHHMMSSZ-<huella>.csv` (o `.json`).
+  Responde `"ok": true` si coincide, o `"ok": false` con la huella declarada y la calculada, y sale con
+  código 1. En un CSV la huella declarada es la del nombre del archivo: si se renombró, comprúebelo a
+  mano como se explica abajo.
+- A mano, CSV: calcule el SHA-256 del archivo y compárelo con el que lleva el nombre.
   `sha256sum nexo-revision-accesos-*.csv` (Linux o macOS) o
   `Get-FileHash -Algorithm SHA256 .\nexo-revision-accesos-*.csv` (PowerShell). Si cambia una coma,
   la huella cambia.
-- JSON: quite `content_sha256`, escriba el resto en forma canónica (claves ordenadas en todos los
+- A mano, JSON: quite `content_sha256`, escriba el resto en forma canónica (claves ordenadas en todos los
   niveles, sin espacios ni salto de línea final, UTF-8 sin escapar `<`, `>` ni `&`) y calcule su
   SHA-256; debe ser igual a `content_sha256`. Con Node.js:
 
