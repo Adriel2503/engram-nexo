@@ -360,6 +360,29 @@ por token:
 
 Una petición de solo lectura (por ejemplo una búsqueda) actualiza `last_used_at` pero no deja IP.
 
+#### Cuentas sin uso
+
+Una cuenta de servicio **nunca se deshabilita por inactividad** (`NEXO_DISABLE_INACTIVE_DAYS` solo
+alcanza a personas, 9.4): un pipeline que publica cada pocos meses es un uso normal. Sus defensas son
+la caducidad de sus tokens, la rotación y la persona responsable.
+
+Lo que sí hace el servidor es avisar. Con `NEXO_SA_STALE_DAYS` (180 días por defecto; `0` lo
+desactiva; lo fija quien opera el servidor), una cuenta habilitada sin uso en ese plazo:
+
+- deja una alerta `service_account_stale` (9.2) con su nombre corto y su responsable, una sola vez
+  por período sin uso (si se vuelve a usar y otra vez queda quieta, avisa de nuevo);
+- aparece marcada en `engram nexo sa list` (estado `habilitada, SIN USO` y columna `ULTIMO USO`), en
+  `engram nexo sa show`, en el panel (marca "Sin uso" y "sin uso desde hace N días" o "nunca usada
+  (creada hace N días)") y en la API (`stale`, `idle_days`, `last_activity_at`, `stale_after_days`);
+- lleva la marca `stale` en la revisión de accesos (9.3).
+
+"Uso" es el último uso de cualquiera de sus tokens o la última acción registrada con la cuenta (lo
+mismo que muestra el detalle). Si nunca se usó, el plazo cuenta desde el alta; emitir o rotar un token
+no cuenta como uso.
+
+Qué hacer con el aviso: pregunte al responsable si la cuenta sigue en uso. Si sigue, reconozca la
+alerta con una nota. Si no, revoque sus tokens o deshabilítela (abajo).
+
 #### Deshabilitar y habilitar
 
 ```sh
@@ -956,6 +979,7 @@ Qué hacer con lo que aparece:
 | Marca | Acción |
 |---|---|
 | `inactive` | Confirme con el área si la persona sigue; si no, deshabilítela (3.7) |
+| `stale` | Cuenta de servicio sin uso en `NEXO_SA_STALE_DAYS` días (aparece con su nombre corto como usuario): confirme con su responsable; si sobra, revoque sus tokens o deshabilítela (3.8). Nunca se deshabilita sola |
 | `token_no_expiry` | Token anterior a esta versión: emita uno con caducidad y revoque el viejo |
 | `token_never_used` | Token entregado que nunca se usó: confirme y revoque si sobra |
 | Rol de plataforma o responsable que ya no corresponde | Ajuste el rol (2.4, 4.3) |
@@ -963,9 +987,17 @@ Qué hacer con lo que aparece:
 ### 9.4 Usuarios inactivos
 
 Si quien opera el servidor configura `NEXO_DISABLE_INACTIVE_DAYS` (mínimo 7; desactivado por
-defecto), el servidor deshabilita una vez por día las cuentas sin uso en ese plazo, nunca al último
-superadmin. Cada caso deja el evento `principal.disabled_inactive` y la alerta
+defecto), el servidor deshabilita una vez por día las **personas** sin uso en ese plazo, nunca al
+último superadmin. Cada caso deja el evento `principal.disabled_inactive` y la alerta
 `inactive_account_disabled`. Para devolver el acceso, habilite la cuenta (3.7).
+
+Las cuentas de servicio no se deshabilitan por inactividad: con `NEXO_SA_STALE_DAYS` (180 días por
+defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marca "sin uso" (3.8).
+
+| Variable (la fija quien opera el servidor) | Por defecto | Alcance |
+|---|---|---|
+| `NEXO_DISABLE_INACTIVE_DAYS` | vacía (desactivado) | Deshabilita personas sin uso (mínimo 7 días) |
+| `NEXO_SA_STALE_DAYS` | `180` | Avisa de cuentas de servicio sin uso; nunca las deshabilita (`0` = sin aviso) |
 
 ## 10. Tareas periódicas recomendadas
 

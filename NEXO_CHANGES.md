@@ -357,6 +357,24 @@ Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram
 
 **Archivos Nexo modificados.** `internal/nexo/authz/service.go` (slug en `resolvePrincipal`), `migrate.go` (tabla lateral), `events.go` (acciones), `pgstore.go` (slug en los listados de miembros); `cloudserver/nexo_tokens.go` (emisión extraída a `nexoCreateManagedToken`; evento al emitir para una cuenta de servicio), `cloudserver/nexo_authz_routes.go` (registro de las rutas); `dashboard/nexo_brand.templ` y `nexo_brand_templ.go` (pestaña, +12/-4 líneas generadas); `internal/nexo/nexocli/nexocli.go` (área `sa`); manual de administración y `docs/nexo/conocimiento/github-actions/LEEME.md`.
 
+### SG-10 · Cuentas de servicio sin uso: aviso, nunca deshabilitar
+
+**Especificación.** `docs/nexo/seguridad/cuentas-servicio.md` §"Inactividad", manual `docs/nexo/manuales/administracion.md` §3.8.
+
+**Motivo.** `NEXO_DISABLE_INACTIVE_DAYS` (S4-04) no miraba el tipo de cuenta: un pipeline de CI que publica cada pocos meses quedaba deshabilitado en silencio y el CI fallaba sin aviso.
+
+**Qué cambia.**
+- **`NEXO_DISABLE_INACTIVE_DAYS` solo deshabilita personas** (`kind = 'human'`). Las cuentas de servicio (y las `legacy`) nunca se deshabilitan por inactividad.
+- **`NEXO_SA_STALE_DAYS`** (por defecto 180, `0` = desactivado): una cuenta de servicio habilitada sin uso en ese plazo deja la alerta `service_account_stale` (capa plataforma, severidad `warning`) en `nexo_alerts`, con su nombre corto y su responsable. No se deshabilita. La regla se apaga o cambia de severidad con `NEXO_ALERT_RULES` como las demás. La corre la pasada diaria del monitor (`nexoDailyJobs`, una réplica a la vez).
+- **Último uso** = función SQL `nexo_principal_last_use(bigint)`: el último `last_used_at` de sus tokens o la última acción registrada con su identidad (`nexo_actor_presence`, `nexo_kb_events`, `nexo_authz_events`), lo mismo que muestra el detalle de la cuenta. Nunca usada: cuenta desde el alta. Emitir o rotar un token no cuenta como uso.
+- **Sin repetición**: la clave de deduplicación es `service_account_stale|<principal>|<último uso o alta>`; la pasada siguiente no repite y reconocer la alerta la cierra. Si la cuenta se vuelve a usar y otra vez queda sin uso, avisa de nuevo (otra clave).
+- **Revisión de accesos** (`GET /nexo/admin/access-review`): las cuentas de servicio usan el mismo último uso, muestran su slug como usuario, llevan la marca `stale` (no `inactive`) y el resumen suma `service_accounts_stale`; el reporte informa `sa_stale_days`.
+- **API, CLI y panel**: las cuentas de servicio informan `last_activity_at`, `idle_days`, `stale` y `stale_after_days`; `engram nexo sa list` agrega la columna `ULTIMO USO` y la marca `SIN USO`; `sa show` y el panel (columna "Último uso", marca "Sin uso" y aviso en el detalle) dicen "sin uso desde hace N días" o "nunca usada (creada hace N días)".
+
+**Archivos nuevos.** `internal/nexo/security/evidence/serviceaccounts.go` (+ `_test.go`, Postgres: `DisableInactive` salta cuentas de servicio y sigue deshabilitando personas; la alerta sale una vez para una cuenta vieja sin uso, no sale para una usada hace poco ni con `NEXO_SA_STALE_DAYS=0`; revisión de accesos; lectura de la variable), `internal/cloud/cloudserver/nexo_service_accounts_stale_test.go` (API y panel), `internal/nexo/nexocli/serviceaccounts_stale_test.go`.
+
+**Archivos Nexo modificados.** `internal/nexo/authz/serviceaccounts.go` (función SQL, campos y marca), `service.go` (`WithServiceAccountStaleDays`); `internal/nexo/security/evidence/review.go` (filtro `kind = 'human'`, marca `stale`), `alerts.go` (regla `service_account_stale`); `cloudserver/nexo_authz_bridge.go` (días del aviso), `nexo_evidence.go` (pasada diaria y log de arranque), `nexo_service_accounts.go` (campos del detalle), `nexo_service_accounts_dashboard.go`; `dashboard/nexo_service_accounts.go`, `.templ` y `_templ.go` (regenerado solo ese archivo con templ v0.3.1001); `internal/nexo/nexocli/serviceaccounts.go`. Ningún archivo de Engram cambia.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -509,12 +527,13 @@ SG-10 (cuentas de servicio) no agrega líneas en archivos de Engram: las rutas s
 | `NEXO_ALERT_WEBHOOK_URL` (NX-07 S4) | vacía (alertas solo en la base y la API) | Webhook de Slack o Teams (JSON `text`, `summary`, `nexo_alert`), 3 intentos |
 | `NEXO_AUDIT_EXPORT_DIR` (NX-07 S4) | vacía: exportación desactivada (aviso) | Carpeta de la exportación diaria firmada (`<tabla>/<día>.jsonl` y `.sig`) |
 | `NEXO_AUDIT_EXPORT_KEY` (NX-07 S4) | — (sin ella, exportación desactivada) | Clave HMAC-SHA256 de las firmas (32 caracteres o más) |
-| `NEXO_DISABLE_INACTIVE_DAYS` (NX-07 S4) | vacía (desactivado) | Deshabilita cuentas sin uso por esos días (mínimo 7; nunca el último superadmin) |
+| `NEXO_DISABLE_INACTIVE_DAYS` (NX-07 S4; solo personas desde SG-10) | vacía (desactivado) | Deshabilita **personas** (`kind = 'human'`) sin uso por esos días (mínimo 7; nunca el último superadmin). Las cuentas de servicio nunca se deshabilitan por inactividad: ver `NEXO_SA_STALE_DAYS` |
+| `NEXO_SA_STALE_DAYS` (SG-10) | `180` | Días sin uso tras los cuales una cuenta de servicio habilitada deja la alerta `service_account_stale` (una por período sin uso, con slug y responsable) y la marca "sin uso" en la API, la CLI, el panel y la revisión de accesos; no la deshabilita. `0` = desactivado; un valor inválido usa 180 con aviso en el log |
 | `NEXO_RETENTION_AUDIT_DAYS`, `NEXO_RETENTION_AUTHZ_EVENTS_DAYS`, `NEXO_RETENTION_KB_EVENTS_DAYS`, `NEXO_RETENTION_ALERTS_DAYS` (NX-07 S4) | vacías (no se depura) | Retención de `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events` y `nexo_alerts`; mínimo 365 (menos se eleva con aviso) |
 | `NEXO_CHAIN_PERF_EVENTS` | — | Solo tests: RNF-S3, carga y verifica esa cantidad de eventos encadenados (por ejemplo `1000000`) |
 | `NEXO_AUTHZ_PERF` | — | Solo tests: `1` activa `TestPGAuthorizationCostWith100kBindings` (prueba de tiempos de NX-05; correr sola) |
 
-SG-10 (cuentas de servicio) no agrega variables: usa `NEXO_TOKEN_MAX_DAYS` y, en el CI, `ENGRAM_CLOUD_SERVER` y `ENGRAM_CLOUD_TOKEN` como cualquier cliente.
+SG-10 (cuentas de servicio) agrega solo `NEXO_SA_STALE_DAYS` (aviso de cuentas sin uso); por lo demás usa `NEXO_TOKEN_MAX_DAYS` y, en el CI, `ENGRAM_CLOUD_SERVER` y `ENGRAM_CLOUD_TOKEN` como cualquier cliente.
 
 Las variables de Engram no cambian. Recomendación operativa (RN-A3): `ENGRAM_CLOUD_TOKEN` con un valor aleatorio largo que no se entrega a nadie; todo lo que llegue con él figura como `no-identificado`.
 
@@ -564,6 +583,7 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | Guardas (NX-07 S4) | Función `nexo_evidence_guard()` y triggers `nexo_guard_<tabla>` / `nexo_guard_trunc_<tabla>` en `cloud_auth_audit_log` y las tablas anteriores; `nexo_evidence_purge_allowed(tabla, oid, hora)`; los triggers de NX-05 y NX-10 en `nexo_authz_events` y `nexo_kb_events` la usan para el `DELETE` de la depuración |
 | Función `nexo_purge_evidence(text, integer)` (NX-07 S4) | `SECURITY DEFINER` de la dueña, `search_path` fijo, mínimos de 365 días; depura el prefijo de la cadena con ancla, eventos `retention.purged`; `EXECUTE` solo para la cuenta de aplicación |
 | `nexo_service_accounts` (SG-10, desde `authz.Migrate`) | Tabla lateral de las cuentas de servicio: `principal_id` (PK, FK `cloud_principals` ON DELETE CASCADE), `slug` único (`^[a-z0-9][a-z0-9-]{1,62}$`), `description` (hasta 500), `owner_principal_id` (FK, obligatorio), `created_by_principal_id`, `created_at`, `updated_at`; índice por responsable; función y trigger `nexo_service_accounts_validate` (la fila es de una cuenta de servicio y el responsable es una persona). Sin cambios en `cloud_principals` ni en `cloud_principal_tokens` |
+| Función `nexo_principal_last_use(bigint)` (SG-10, desde `authz.Migrate`) | `CREATE OR REPLACE`, PL/pgSQL `STABLE`, sin `SECURITY DEFINER`: último uso de un principal (máximo `last_used_at` de sus tokens y última acción en `nexo_actor_presence`, `nexo_kb_events` si existe y `nexo_authz_events`; NULL = nunca usado). La usan el listado de cuentas de servicio, la revisión de accesos y la alerta `service_account_stale`. Sin tablas ni columnas nuevas |
 
 **Volver a la imagen oficial de Engram.** Con la base del fork sobre Engram 3.3.2 (NX-01 a NX-05), volver a la imagen oficial 3.3.2 era posible. Con la base actual (Engram 3.4.0, que puede traer migraciones propias que 3.3.2 no conoce, más las guardas de evidencia de NX-07 y las tablas de NX-10) **no está verificado**: volver a 3.3.2 no es una opción soportada, y volver a la imagen oficial 3.4.0 queda pendiente de probar en una copia de la base. Lo que sigue describe el comportamiento con 3.3.2: Engram ignora las columnas, tablas y la vista nuevas, y el trigger `nexo_stamp_actor` no modifica las filas cuando nadie publicó el actor en la transacción (quedan con `actor` NULL, como los datos anteriores al fork). Con NX-05, el trigger `nexo_authz_guard_principal` sigue activo en la base aunque se use la imagen oficial: impide deshabilitar al último superadmin habilitado (se puede quitar con `DROP TRIGGER nexo_authz_guard_principal ON cloud_principals` si se abandona el fork).
 
