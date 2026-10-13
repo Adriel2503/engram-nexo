@@ -62,6 +62,18 @@ anteriores a NX-07 siguen funcionando sin ella, RS-23).
 | S4-04 | Revisión de accesos, registro de revisiones, deshabilitar inactivos (opcional) | CA-S12 |
 | S4-05 | Retención por tabla con funciones seguras | RS-34 |
 
+Estado S4 (2026-10-12): S4-01..S4-05 implementadas en `feat/seguridad` (sobre `develop` db1739e),
+pendientes de revisión y commit, junto con los arreglos previos de la revisión: **A1** (un token
+revocado o de una persona deshabilitada ya no bloquea a la persona; queda auditado y alerta
+`revoked_token_used`) y **A2** (rechazos repetidos: una fila completa y un resumen con el conteo por
+ventana, `NEXO_AUDIT_DEDUP_SECONDS`). La cadena cubre también `nexo_kb_events` (NX-10).
+Desviaciones en `design.md` §8.4 (A1, A2, D-S4-1..D-S4-14), variables en `guia-despliegue.md` §7,
+pruebas: `internal/nexo/security/dedup_test.go`, `internal/nexo/security/evidence/*_test.go`
+(CA-S09..CA-S12, RNF-S2, RNF-S3 con `NEXO_CHAIN_PERF_EVENTS`), `auditcli/auditcli_test.go`,
+`cloudserver/nexo_evidence_test.go` (HTTP, A1, A2, monitor) y E2E `06-pruebas/seguridad`
+(S4-PRIV, A1, A2, CA-S09..CA-S12). `TestPGAuthorizationCostWith100kBindings` (NX-05) pasa a activarse
+con `NEXO_AUTHZ_PERF=1`.
+
 ## Fase S5. Respuestas y pruebas (1,5 días)
 
 | ID | Tarea | Criterios |

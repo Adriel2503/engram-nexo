@@ -988,6 +988,10 @@ func insertAuthAuditEvent(ctx context.Context, exec authAuditEventExecutor, even
 	if outcome == "" {
 		return fmt.Errorf("cloudstore: outcome is required")
 	}
+	event, write, err := nexoAuditPrepare(ctx, exec, event) // NX-07 (A2): rechazos repetidos se cuentan y se resumen
+	if err != nil || !write {                               // NX-07
+		return err
+	}
 	metadata, err := nullableJSON(nexoAuditMetadata(ctx, event.Metadata)) // NX-04: agrega client_ip y user_agent
 	if err != nil {
 		return err

@@ -53,6 +53,10 @@ const (
 type nexoState struct {
 	once sync.Once
 	sec  *nexoSecurity
+	// Fase S4: monitor de evidencia (alertas, cadena, exportación,
+	// inactivos, retención), nexo_evidence.go.
+	monitorOnce sync.Once
+	monitor     *nexoMonitor
 }
 
 type nexoSecurity struct {
@@ -60,6 +64,7 @@ type nexoSecurity struct {
 	limiter *security.Limiter
 	lockout *security.Lockout
 	rejects *security.RejectionLog
+	dedup   *security.AuditDedup // A2: rechazos repetidos (S4)
 
 	flushMu    sync.Mutex
 	flushing   bool
@@ -90,11 +95,18 @@ func newNexoSecurityFromEnv() *nexoSecurity {
 		log.Printf("[nexo] seguridad: administracion de plataforma solo desde: %s", al)
 	}
 	log.Printf("[nexo] seguridad: tokens nuevos vencen a los %d dias (maximo %d, %s)", security.DefaultIssueDays(), security.TokenMaxDays(), security.TokenMaxDaysEnv)
+	dedupWindow := security.AuditDedupWindow()
+	if dedupWindow > 0 {
+		log.Printf("[nexo] seguridad: rechazos repetidos (misma huella, IP y motivo) se resumen cada %s (%s)", dedupWindow, security.AuditDedupEnv)
+	} else {
+		log.Printf("[nexo] seguridad: %s=0: cada rechazo de autenticacion deja una fila de auditoria", security.AuditDedupEnv)
+	}
 	return &nexoSecurity{
 		limits:     limits,
 		limiter:    security.NewLimiter(nil),
 		lockout:    security.NewLockout(lock, nil),
 		rejects:    security.NewRejectionLog(nil),
+		dedup:      security.NewAuditDedup(dedupWindow, nil),
 		flushEvery: time.Minute,
 	}
 }
@@ -122,7 +134,9 @@ func (s *CloudServer) nexoSecurityMiddleware(next http.Handler) http.Handler {
 				}
 			}
 		}
-		r = r.WithContext(security.WithTokenFactsHolder(r.Context()))
+		// Datos del token resuelto, huella de la credencial rechazada y
+		// agrupador de rechazos repetidos (A2) para la auditoría.
+		r = r.WithContext(cloudstore.WithNexoAuditDedup(security.WithTokenFactsHolder(r.Context()), sec.dedup))
 		if !s.nexoDashboardScopeGuard(w, r) { // D-S3-9: sesión del panel con token read
 			return
 		}
@@ -243,7 +257,11 @@ func (s *CloudServer) nexoAuthPrecheck(w http.ResponseWriter, r *http.Request) b
 // nexoNoteAuthFailure es el enganche en recordRequestAuthDeniedAudit: suma el
 // fallo al contador que corresponda según el motivo.
 func (s *CloudServer) nexoNoteAuthFailure(r *http.Request, reason string) {
-	s.nexoCountAuthFailure(r.Context(), nexoRequestIP(r), reason, nexoPresentedCredential(r))
+	presented := nexoPresentedCredential(r)
+	// A2: la huella (nunca el token) acompaña al evento de rechazo que Engram
+	// escribe a continuación; el agrupador la usa como clave.
+	security.RecordCredentialFingerprint(r.Context(), security.CredentialFingerprint(presented))
+	s.nexoCountAuthFailure(r.Context(), nexoRequestIP(r), reason, presented)
 }
 
 // nexoPresentedCredential es lo que la petición presentó como credencial: el
@@ -486,6 +504,8 @@ func (s *CloudServer) nexoValidateDashboardLogin(r *http.Request, token string) 
 	if locked, _ := sec.lockout.Locked(security.LockoutIPKey(ip)); locked {
 		return errNexoAuthLocked
 	}
+	// A2: la validación audita el rechazo por dentro; la huella va antes.
+	security.RecordCredentialFingerprint(ctx, security.CredentialFingerprint(token))
 	if err := s.validateDashboardLoginTokenContext(ctx, token); err != nil {
 		s.nexoCountAuthFailure(ctx, ip, requestAuthDenyReason(err), strings.TrimSpace(token)) // por IP: tokens distintos
 		return err

@@ -80,6 +80,7 @@ func (s *CloudServer) registerNexoAdminRoutes(mux *http.ServeMux) {
 	// NX-05: eventos de roles (también en /nexo/authz/v1/events) y API de roles.
 	mux.HandleFunc("GET /nexo/admin/authz-events", s.withAuth(s.handleNexoAuthzEvents))
 	s.registerNexoAuthzRoutes(mux)
+	s.registerNexoEvidenceRoutes(mux) // NX-07 S4: verificación de la cadena, alertas y revisión de accesos
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────

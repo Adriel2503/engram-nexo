@@ -387,15 +387,21 @@ func TestNexoTwoAccountsGrantsAreIdempotentAndExtensible(t *testing.T) {
 	_ = e.open(t)
 	ctx := context.Background()
 
-	// Una migración futura (con la cuenta dueña) crea nexo_alerts (fase S4).
-	// NX-10: antes era nexo_kb_events, que ahora crea la migración real.
+	// Una migración futura (con la cuenta dueña) crea una tabla de evidencia
+	// nueva. NX-10 y NX-07 S4 ya crean todas las de la lista real
+	// (nexo_kb_events y luego nexo_alerts se usaron aquí antes): la prueba
+	// agrega un nombre ficticio a la lista mientras dura.
+	const future = "nexo_future_evidence"
+	prevList := security.EvidenceTables
+	security.EvidenceTables = append(append([]string(nil), prevList...), future)
+	t.Cleanup(func() { security.EvidenceTables = prevList })
 	tx, err := e.admin.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
 	for _, q := range []string{
 		`SET LOCAL ROLE ` + e.owner,
-		`CREATE TABLE ` + e.q("nexo_alerts") + ` (id BIGSERIAL PRIMARY KEY, action TEXT NOT NULL)`,
+		`CREATE TABLE ` + e.q(future) + ` (id BIGSERIAL PRIMARY KEY, action TEXT NOT NULL)`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			_ = tx.Rollback()
@@ -407,12 +413,12 @@ func TestNexoTwoAccountsGrantsAreIdempotentAndExtensible(t *testing.T) {
 	}
 
 	cs := e.open(t) // segundo arranque
-	if _, err := cs.db.ExecContext(ctx, `INSERT INTO nexo_alerts (action) VALUES ('alert.raised')`); err != nil {
+	if _, err := cs.db.ExecContext(ctx, `INSERT INTO `+future+` (action) VALUES ('alert.raised')`); err != nil {
 		t.Fatalf("INSERT en evidencia nueva debe estar permitido: %v", err)
 	}
-	nexoExpectDenied(t, cs.db, `UPDATE nexo_alerts SET action = 'x'`)
-	nexoExpectDenied(t, cs.db, `DELETE FROM nexo_alerts`)
-	nexoExpectDenied(t, cs.db, `TRUNCATE nexo_alerts`)
+	nexoExpectDenied(t, cs.db, `UPDATE `+future+` SET action = 'x'`)
+	nexoExpectDenied(t, cs.db, `DELETE FROM `+future)
+	nexoExpectDenied(t, cs.db, `TRUNCATE `+future)
 }
 
 // CA-S03: con una sola cuenta el servidor arranca y avisa.

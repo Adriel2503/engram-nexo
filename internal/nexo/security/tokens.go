@@ -89,9 +89,10 @@ type TokenFacts struct {
 }
 
 type tokenFactsHolder struct {
-	mu    sync.Mutex
-	facts TokenFacts
-	set   bool
+	mu     sync.Mutex
+	facts  TokenFacts
+	set    bool
+	credFP string // huella de la credencial rechazada (A2, dedup.go)
 }
 
 type tokenFactsKey struct{}

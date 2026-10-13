@@ -56,14 +56,31 @@ var EvidenceTables = []string{
 	// NX-02 y NX-05
 	"nexo_activity_log",
 	"nexo_authz_events",
-	// NX-07 fase S4 (futuras)
+	// NX-07 fase S4 (internal/nexo/security/evidence)
 	"nexo_alerts",
 	"nexo_alert_acks",
 	"nexo_audit_exports",
 	"nexo_access_reviews",
-	// NX-10 conocimiento (futuras)
+	"nexo_audit_chain_checkpoints",
+	// NX-10 conocimiento
 	"nexo_kb_events",
 	"nexo_kb_versions",
+}
+
+// OwnerManagedTables son tablas que solo escribe la cuenta dueña (migración y
+// funciones SECURITY DEFINER): la aplicación solo las lee (S4-01: anclas de
+// la cadena de hashes). Si la aplicación pudiera escribirlas, podría
+// "justificar" un hueco con un ancla falsa.
+var OwnerManagedTables = []string{
+	"nexo_audit_chain_anchors",
+}
+
+// DefinerFunctions son las funciones SECURITY DEFINER que la aplicación puede
+// ejecutar (depuraciones con mínimo, S1 y S4-05). Las que no existen se
+// omiten.
+var DefinerFunctions = []string{
+	"nexo_purge_activity(integer)",
+	"nexo_purge_evidence(text, integer)",
 }
 
 // RetentionMinimumDays es el plazo mínimo de retención (RS-03). La función de
@@ -133,6 +150,7 @@ type GrantReport struct {
 	AppRole           string
 	EvidenceProtected []string // tablas de evidencia existentes, solo SELECT/INSERT
 	EvidenceMissing   []string // tablas de la lista que todavía no existen
+	OwnerManaged      []string // tablas solo de lectura para la aplicación (S4-01)
 	DatabaseHardened  bool     // se revocó CREATE y TEMPORARY a PUBLIC en la base
 }
 
@@ -233,13 +251,31 @@ func ApplyGrants(ctx context.Context, tx *sql.Tx, appRole string) (GrantReport, 
 		rep.EvidenceProtected = append(rep.EvidenceProtected, table)
 	}
 
-	// Depuración: solo por la función de la cuenta dueña.
-	var hasPurge bool
-	if err := tx.QueryRowContext(ctx, `SELECT to_regprocedure(quote_ident($1) || '.' || $2) IS NOT NULL`, rep.Schema, PurgeFunction+"(integer)").Scan(&hasPurge); err != nil {
-		return rep, fmt.Errorf("security: privilegios: función de depuración: %w", err)
+	// Tablas que solo escribe la dueña (S4-01): la aplicación solo lee.
+	for _, table := range OwnerManagedTables {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT to_regclass(quote_ident($1) || '.' || quote_ident($2)) IS NOT NULL`, rep.Schema, table).Scan(&exists); err != nil {
+			return rep, fmt.Errorf("security: privilegios: %s: %w", table, err)
+		}
+		if !exists {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON `+s+`.`+quoteIdent(table)+` FROM `+app); err != nil {
+			return rep, fmt.Errorf("security: privilegios: %s: %w", table, err)
+		}
+		rep.OwnerManaged = append(rep.OwnerManaged, table)
 	}
-	if hasPurge {
-		fn := s + `.` + PurgeFunction + `(integer)`
+
+	// Depuración: solo por las funciones de la cuenta dueña (S1 y S4-05).
+	for _, sig := range DefinerFunctions {
+		var hasFn bool
+		if err := tx.QueryRowContext(ctx, `SELECT to_regprocedure(quote_ident($1) || '.' || $2) IS NOT NULL`, rep.Schema, sig).Scan(&hasFn); err != nil {
+			return rep, fmt.Errorf("security: privilegios: función %s: %w", sig, err)
+		}
+		if !hasFn {
+			continue
+		}
+		fn := s + `.` + sig
 		for _, q := range []string{`REVOKE ALL ON FUNCTION ` + fn + ` FROM PUBLIC`, `GRANT EXECUTE ON FUNCTION ` + fn + ` TO ` + app} {
 			if _, err := tx.ExecContext(ctx, q); err != nil {
 				return rep, fmt.Errorf("security: privilegios: %s: %w", firstWords(q), err)

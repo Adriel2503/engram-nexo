@@ -17,10 +17,18 @@ package security
 //                guarda, solo vive en memoria y el conjunto por clave está
 //                acotado por el umbral.
 //   - user:<id>  fallos atribuibles a una persona: token revocado o persona
-//                deshabilitada. Un token vencido NO cuenta: es el ciclo de vida
-//                normal (el autosync de una PC con el token vencido reintenta
-//                cada ~30 s y bloquearía a toda una oficina detrás de un NAT);
-//                queda auditado como token_expired.
+//                deshabilitada. DESACTIVADO POR DEFECTO desde el arreglo A1
+//                (design §8.4): user_max_failures = 0. Un token revocado o de
+//                una persona deshabilitada ya no da acceso; contar sus
+//                intentos solo servía para bloquear el token NUEVO de la
+//                persona (las PCs viejas con autosync reintentan cada ~30 s) y
+//                además era un vector de denegación de servicio: quien tenga
+//                un token viejo de alguien podía dejarla sin acceso
+//                indefinidamente. Esos intentos quedan auditados y disparan la
+//                alerta revoked_token_used (S4-03). Se puede volver a activar
+//                con user_max_failures > 0 (no recomendado).
+//                Un token vencido nunca cuenta: es el ciclo de vida normal;
+//                queda auditado como token_expired (alerta expired_token_used).
 // Mientras una clave está bloqueada, la petición se rechaza con 429 sin
 // resolver el token.
 
@@ -49,10 +57,10 @@ type LockoutConfig struct {
 	Duration        time.Duration // duración del bloqueo
 }
 
-// DefaultLockout: 20 tokens distintos por IP (o 20 fallos de una persona) en
-// 5 minutos bloquean 15 minutos (design §3.2 y §8, D-S2-8).
+// DefaultLockout: 20 tokens distintos por IP en 5 minutos bloquean 15 minutos
+// (design §3.2 y §8, D-S2-8). Sin bloqueo por persona (A1, design §8.4).
 func DefaultLockout() LockoutConfig {
-	return LockoutConfig{Enabled: true, MaxFailures: 20, UserMaxFailures: 20, Window: 5 * time.Minute, Duration: 15 * time.Minute}
+	return LockoutConfig{Enabled: true, MaxFailures: 20, UserMaxFailures: 0, Window: 5 * time.Minute, Duration: 15 * time.Minute}
 }
 
 // MaxLockoutFailures acota max_failures: es también el tamaño máximo del
@@ -63,7 +71,10 @@ func (c LockoutConfig) String() string {
 	if !c.Enabled {
 		return "desactivado"
 	}
-	return fmt.Sprintf("ip %d tokens distintos y usuario %d fallos en %s bloquean %s", c.MaxFailures, c.UserMaxFailures, c.Window, c.Duration)
+	if c.UserMaxFailures <= 0 {
+		return fmt.Sprintf("ip %d tokens distintos en %s bloquean %s; sin bloqueo por persona (tokens revocados: alerta)", c.MaxFailures, c.Window, c.Duration)
+	}
+	return fmt.Sprintf("ip %d tokens distintos y usuario %d fallos en %s bloquean %s (bloqueo por persona activado: un token viejo de alguien puede dejarla sin acceso)", c.MaxFailures, c.UserMaxFailures, c.Window, c.Duration)
 }
 
 type lockoutJSON struct {

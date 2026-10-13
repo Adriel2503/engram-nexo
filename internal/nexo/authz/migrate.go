@@ -153,8 +153,17 @@ var migrationQueries = []string{
 	`CREATE INDEX IF NOT EXISTS idx_nexo_authz_events_actor ON nexo_authz_events (actor_principal_id, id DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_nexo_authz_events_target ON nexo_authz_events (target_principal_id, id DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_nexo_authz_events_action ON nexo_authz_events (action, id DESC)`,
+	// NX-07 (S4-05): el único DELETE admitido es el de la depuración por
+	// retención (nexo_purge_evidence, de la cuenta dueña, filas de más de 365
+	// días); la comprobación nexo_evidence_purge_allowed la crea
+	// internal/nexo/security/evidence en la misma transacción de migración.
 	`CREATE OR REPLACE FUNCTION nexo_authz_events_immutable() RETURNS trigger AS $$
 	BEGIN
+		IF TG_OP = 'DELETE' AND current_setting('nexo.purge_in_progress', true) = TG_TABLE_NAME THEN
+			IF nexo_evidence_purge_allowed(TG_TABLE_NAME, TG_RELID, OLD.occurred_at) THEN
+				RETURN OLD;
+			END IF;
+		END IF;
 		RAISE EXCEPTION 'nexo_authz_events es de solo inserción (% no permitido)', TG_OP
 			USING ERRCODE = 'insufficient_privilege';
 	END

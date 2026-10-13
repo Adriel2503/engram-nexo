@@ -153,9 +153,13 @@ func TestLockoutFailTokenCountsDistinct(t *testing.T) {
 	if _, failures, _ := l.FailToken(k2, fixed); failures != 1 {
 		t.Fatalf("nueva ventana: %d", failures)
 	}
-	// Fail (por persona) sigue contando intentos.
+	// Fail (por persona) cuenta intentos solo si se activa user_max_failures
+	// (desactivado por defecto desde A1).
+	cfgUser := DefaultLockout()
+	cfgUser.UserMaxFailures = 20
+	lu := NewLockout(cfgUser, clk.Now)
 	for i := 1; i <= 20; i++ {
-		if lockedNow, _, _ := l.Fail(LockoutUserKey("9")); lockedNow != (i == 20) {
+		if lockedNow, _, _ := lu.Fail(LockoutUserKey("9")); lockedNow != (i == 20) {
 			t.Fatalf("intentos por persona: %d", i)
 		}
 	}

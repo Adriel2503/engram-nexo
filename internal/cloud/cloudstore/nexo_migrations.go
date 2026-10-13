@@ -17,6 +17,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	kbstore "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store" // NX-10
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security/evidence" // NX-07 S4
 )
 
 // NexoDB expone la conexión a los módulos Nexo que tienen su propio
@@ -200,6 +201,12 @@ func (cs *CloudStore) nexoMigrate(ctx context.Context) error {
 	}
 	// NX-07 fase S3 (NX-06): caducidad y alcance de los tokens.
 	if err := security.MigrateTokens(ctx, tx); err != nil {
+		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
+	}
+	// NX-07 fase S4: alertas, revisiones, exportaciones, cadena de hashes en
+	// cloud_auth_audit_log, nexo_authz_events y nexo_kb_events, guardas y
+	// depuración por tabla (al final: las tablas encadenadas ya existen).
+	if err := evidence.Migrate(ctx, tx); err != nil {
 		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

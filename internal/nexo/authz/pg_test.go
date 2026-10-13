@@ -677,9 +677,16 @@ func TestPGEventsCarryActorTargetBeforeAfter(t *testing.T) {
 
 // TestPGAuthorizationCostWith100kBindings siembra la escala de diseño (2 000
 // personas, 5 000 ámbitos, 100 000 asignaciones) y mide Can y VisibleScopes.
+// Es una prueba de tiempos: corriendo en paralelo con el resto de los
+// paquetes daba falsos fallos (2,3 ms contra 2 ms). Desde NX-07 S4 se activa
+// con NEXO_AUTHZ_PERF=1 (como NEXO_KB_PERF_SECTIONS) y se corre sola:
+// NEXO_AUTHZ_PERF=1 go test -count=1 -run TestPGAuthorizationCostWith100kBindings ./internal/nexo/authz/
 func TestPGAuthorizationCostWith100kBindings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short")
+	}
+	if os.Getenv("NEXO_AUTHZ_PERF") != "1" {
+		t.Skip("NEXO_AUTHZ_PERF no definido (prueba de tiempos RNF-R1/RNF-R2; correr sola)")
 	}
 	env := newPGEnv(t)
 	start := time.Now()

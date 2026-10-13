@@ -93,7 +93,7 @@ func newNexoSecEnv(t *testing.T, envs map[string]string) *nexoSecEnv {
 	if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
 		t.Skip("test requires URL-style CLOUDSTORE_TEST_DSN")
 	}
-	for _, k := range []string{security.RateLimitsEnv, security.AuthLockoutEnv, security.SuperadminAllowedCIDRsEnv, security.TokenMaxDaysEnv} {
+	for _, k := range []string{security.RateLimitsEnv, security.AuthLockoutEnv, security.SuperadminAllowedCIDRsEnv, security.TokenMaxDaysEnv, security.AuditDedupEnv} {
 		t.Setenv(k, envs[k])
 	}
 	ctx := context.Background()
@@ -395,9 +395,16 @@ func TestNexoAuthLockoutCountsDistinctTokensPerIP(t *testing.T) {
 	if rec := env.req(http.MethodGet, "/sync/mutations/pull?since_seq=0", "ana", "", ip); rec.Code != http.StatusOK {
 		t.Fatalf("D-S2-8: un token inválido fijo bloqueó la IP: %d %s", rec.Code, rec.Body.String())
 	}
-	// Cada rechazo sigue auditado (evento de Engram por rechazo).
-	if n := env.count(`SELECT count(*) FROM cloud_auth_audit_log WHERE action = 'sync.auth' AND reason_code = 'unknown_token'`); n != 100 {
-		t.Fatalf("rechazos auditados = %d, want 100", n)
+	// Cada rechazo sigue auditado: desde el arreglo A2 (S4) el primero de cada
+	// huella e IP es una fila completa y los repetidos se cuentan en un
+	// resumen por ventana; el total no se pierde.
+	if n := env.count(`SELECT count(*) FROM cloud_auth_audit_log WHERE action = 'sync.auth' AND reason_code = 'unknown_token'`); n != 1 {
+		t.Fatalf("filas completas del token fijo = %d, want 1 (A2)", n)
+	}
+	env.srv.nexoFlushAuditDedup(context.Background(), true)
+	if n := env.count(`SELECT COALESCE(sum(COALESCE((metadata->>'nexo_repeated')::int, 0) + CASE WHEN metadata ? 'nexo_repeated' THEN 0 ELSE 1 END), 0)
+		FROM cloud_auth_audit_log WHERE action = 'sync.auth' AND reason_code = 'unknown_token'`); n != 100 {
+		t.Fatalf("rechazos auditados (filas + conteos) = %d, want 100", n)
 	}
 	// 2) Van 2 tokens distintos (el fijo y la cabecera mal formada); 17 más
 	// suman 19: sin bloqueo. El 20.º distinto bloquea.

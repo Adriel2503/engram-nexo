@@ -36,7 +36,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/cloudconfig"
 	"github.com/Gentleman-Programming/engram/v3/internal/diagnostic"
 	"github.com/Gentleman-Programming/engram/v3/internal/mcp"
-	nexokbcli "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/cli" // NX-10
+	nexocli "github.com/Gentleman-Programming/engram/v3/internal/nexo/nexocli" // NX-10 / NX-07
 	"github.com/Gentleman-Programming/engram/v3/internal/obsidian"
 	"github.com/Gentleman-Programming/engram/v3/internal/project"
 	"github.com/Gentleman-Programming/engram/v3/internal/server"
@@ -822,8 +822,8 @@ func main() {
 		cmdSetup(cfg)
 	case "protocol-mode":
 		cmdProtocolMode(cfg)
-	case "nexo": // NX-10: engram nexo kb publish|search|spaces|eval
-		os.Exit(nexokbcli.Run(os.Args[2:], cfg.DataDir, os.Stdout, os.Stderr))
+	case "nexo": // NX-10 / NX-07: engram nexo kb publish|search|spaces|eval y engram nexo audit verify|export|verify-export
+		os.Exit(nexocli.Run(os.Args[2:], cfg.DataDir, os.Stdout, os.Stderr))
 	case "version", "--version", "-v":
 		fmt.Printf("engram %s\n", version)
 	case "help", "--help", "-h":

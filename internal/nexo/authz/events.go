@@ -16,13 +16,16 @@ const (
 	// NX-07: depuración de nexo_activity_log por la función segura
 	// nexo_purge_activity (internal/nexo/security).
 	ActionRetentionPurged = "retention.purged"
+	// NX-07 S4-04: cuenta deshabilitada por inactividad
+	// (NEXO_DISABLE_INACTIVE_DAYS, internal/nexo/security/evidence).
+	ActionPrincipalDisabledInactive = "principal.disabled_inactive"
 )
 
 // EventActions lista las acciones válidas (filtro de la API).
 var EventActions = []string{
 	ActionBindingGranted, ActionBindingChanged, ActionBindingRevoked,
 	ActionScopeCreated, ActionScopeUpdated, ActionScopeArchived, ActionScopeRestored, ActionScopeRecovered,
-	ActionDenied, ActionRetentionPurged,
+	ActionDenied, ActionRetentionPurged, ActionPrincipalDisabledInactive,
 }
 
 // SystemActorLabel es la etiqueta del actor en eventos que genera el propio

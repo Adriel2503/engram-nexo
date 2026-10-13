@@ -175,6 +175,38 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `internal/nexo/authz/engine.go` y `identity.go` (política de red, `ReasonNetwork`), `cloudserver/nexo_authz_bridge.go` (política de red y `TokenScope`), `cloudserver/nexo_authz_routes.go` (`/me` con token y rutas de tokens), `cloudserver/nexo_clientctx.go` (comentario), `cloudstore/nexo_migrations.go` (llama a `security.MigrateTokens`).
 
+### NX-07 · Endurecimiento de seguridad, fase S4 (evidencia y monitoreo) y arreglos A1/A2
+
+**Especificación.** `docs/nexo/seguridad/` (`requirements.md` RS-30..RS-34, CA-S09..CA-S12, `design.md` §5 con desviaciones en §8.4, `tasks.md` S4-01..S4-05, `guia-despliegue.md` §7).
+
+**Motivo.** La auditoría se podía alterar o borrar sin que se notara (la cuenta dueña, o cualquiera con una sola cuenta), no salía de la base, nadie se enteraba de una ráfaga de denegaciones o de un token revocado en uso, no había revisión de accesos registrada ni retención por tabla. Además (revisión del 2026-10-12): un token revocado en PCs viejas bloqueaba el token nuevo de la persona (A1) y un token mal pegado dejaba ~2 880 filas de auditoría por día (A2).
+
+**Qué hace.**
+- **A1**: sin bloqueo por persona por defecto (`user_max_failures: 0`); los intentos con un token revocado o de una persona deshabilitada quedan auditados con `nexo_principal_id` y `credential_id` y disparan la alerta `revoked_token_used`.
+- **A2**: en `insertAuthAuditEvent` los rechazos `sync.auth`/`dashboard.login` repetidos (misma huella HMAC del token, IP y motivo) dejan una fila completa y un resumen por ventana con el conteo (`NEXO_AUDIT_DEDUP_SECONDS`, 600).
+- **Cadena de hashes** (S4-01): `nexo_chain_seq`, `nexo_prev_hash`, `nexo_hash` en `cloud_auth_audit_log`, `nexo_authz_events` y `nexo_kb_events`; trigger con advisory lock por tabla y representación canónica estable; ancla inicial para las filas previas; puntos de control; guardas de solo inserción. Verificación `GET /nexo/admin/audit/verify` y `engram nexo audit verify`.
+- **Exportación firmada** (S4-02): JSONL diario por tabla con `.sig` HMAC-SHA256 (`NEXO_AUDIT_EXPORT_DIR`, `NEXO_AUDIT_EXPORT_KEY`), registro en `nexo_audit_exports`, `engram nexo audit export --since` y `verify-export`.
+- **Alertas** (S4-03): `nexo_alerts` y `nexo_alert_acks` (solo inserción), evaluador por minuto en una réplica, reglas del diseño más `revoked_token_used`, `invalid_token_repeated`, `inactive_account_disabled` y `audit_export_failed`, capa de cada alerta, webhook opcional, `GET /nexo/admin/alerts` y `POST /nexo/admin/alerts/{id}:ack`.
+- **Revisión de accesos** (S4-04): `GET /nexo/admin/access-review`, `POST /nexo/admin/access-review:complete` (`nexo_access_reviews`), `NEXO_DISABLE_INACTIVE_DAYS`.
+- **Retención** (S4-05): `nexo_purge_evidence(tabla, días)` `SECURITY DEFINER` con mínimos de 365 días, variables `NEXO_RETENTION_*` (vacías = no depurar), depuración del prefijo de la cadena con ancla.
+
+**Archivos nuevos.**
+- `internal/nexo/security/dedup.go` — `AuditDedup`, `CredentialFingerprint`, huella en el contexto (A2).
+- `internal/nexo/security/evidence/chain.go` — tablas encadenadas, migración de la cadena, `Checkpoint`, `VerifyChain`, `VerifyAll`.
+- `internal/nexo/security/evidence/retention.go` — guardas, `nexo_purge_evidence`, `Purge`, `RetentionFromEnv`.
+- `internal/nexo/security/evidence/alerts.go` — tablas, reglas (`NEXO_ALERT_RULES`), `EvaluateOnce`, `ChainAlerts`, `InsertAlert`, `ListAlerts`, `AckAlert`.
+- `internal/nexo/security/evidence/webhook.go` — `NEXO_ALERT_WEBHOOK_URL`, cuerpo Slack/Teams, reintentos.
+- `internal/nexo/security/evidence/export.go` — `ExportDay`, `ExportRange`, `VerifyExport`.
+- `internal/nexo/security/evidence/review.go` — `BuildAccessReview`, `CompleteReview`, `DisableInactive`.
+- `internal/nexo/security/evidence/migrate.go` — `Migrate` (al final de las migraciones Nexo).
+- `internal/nexo/security/auditcli/auditcli.go` — `engram nexo audit verify|export|verify-export`.
+- `internal/nexo/nexocli/nexocli.go` — despachador de `engram nexo kb|audit`.
+- `internal/cloud/cloudstore/nexo_audit_dedup.go` — `nexoAuditPrepare` (enganche A2), `NexoAuditSummaryEvent`, `NexoFlushAuditDedup`.
+- `internal/cloud/cloudserver/nexo_evidence.go` — rutas de S4 y monitor.
+- Tests: `internal/nexo/security/dedup_test.go`, `internal/nexo/security/evidence/{chain,alerts,export,review}_test.go` (Postgres: CA-S09..CA-S12, retención, dos cuentas, RNF-S2 y RNF-S3 con `NEXO_CHAIN_PERF_EVENTS`), `auditcli/auditcli_test.go`, `cloudserver/nexo_evidence_test.go` (HTTP: A1, A2, rutas, monitor con webhook y exportación).
+
+**Archivos Nexo modificados.** `internal/nexo/security/lockout.go` (A1), `tokens.go` (huella en el contenedor del contexto), `dbaccounts.go` (`nexo_audit_chain_checkpoints` en `EvidenceTables`, `OwnerManagedTables`, `DefinerFunctions`), `internal/nexo/authz/migrate.go` y `internal/nexo/kb/store/migrate.go` (los triggers de solo inserción de `nexo_authz_events` y `nexo_kb_events` admiten el `DELETE` de la depuración segura), `internal/nexo/authz/events.go` (acción `principal.disabled_inactive`), `cloudstore/nexo_migrations.go` (llama a `evidence.Migrate`), `cloudserver/nexo_security.go` (agrupador en el contexto, huella del rechazo, estado del monitor), `cloudserver/nexo_admin_routes.go` (registra las rutas de S4), `cloudserver/nexo_activity.go` (arranca el monitor). Tests ajustados: `cloudserver/nexo_security_test.go` (D-S2-8 cuenta filas y resúmenes), `cloudstore/nexo_security_test.go` (tabla de evidencia ficticia), `internal/nexo/security/lockout_test.go`, `internal/nexo/authz/pg_test.go` (`TestPGAuthorizationCostWith100kBindings` con `NEXO_AUTHZ_PERF=1`).
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -210,7 +242,8 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudstore/identity.go:497-499` | NX-07 | `CreatePrincipalTokenWithAudit`: `nexoApplyTokenIssue` (caducidad y alcance en la misma transacción; `expires_at` y `scope` en la auditoría) |
 | `internal/cloud/cloudstore/identity.go:739` | NX-07 | `ListPrincipalTokens`: el retorno pasa por `nexoFillTokenFacts` (una consulta) |
 | `internal/cloud/cloudstore/identity.go:772-793` | NX-07 | `FindPrincipalTokenByHash`: la consulta trae `nexo_expires_at`, `nexo_scope` y si venció (línea SQL marcada `-- NX-07`), escaneo marcado y `nexoCheckResolvedToken` (token vencido = `security.ErrTokenExpired`; datos del token en el contexto) |
-| `internal/cloud/cloudstore/identity.go:991` | NX-04 | `insertAuthAuditEvent`: `nexoAuditMetadata(ctx, ...)` agrega `client_ip` y `user_agent` a `metadata` (punto común de toda la auditoría de Engram) |
+| `internal/cloud/cloudstore/identity.go:991-994` | NX-07 | `insertAuthAuditEvent`: `nexoAuditPrepare` (A2, bloque de 4 líneas): agrupa rechazos de autenticación repetidos (escribe antes el resumen pendiente; si es un repetido, no escribe la fila) y agrega `credential_fp` y, con un token revocado o vencido, `nexo_principal_id` y `credential_id` (`cloudstore/nexo_audit_dedup.go`) |
+| `internal/cloud/cloudstore/identity.go:995` | NX-04 | `insertAuthAuditEvent`: `nexoAuditMetadata(ctx, ...)` agrega `client_ip` y `user_agent` a `metadata` (punto común de toda la auditoría de Engram) |
 | `internal/cloud/dashboard/dashboard.go:57-58` | NX-04 | Campo opcional `NexoValidateLoginTokenRequest` en `MountConfig` |
 | `internal/cloud/dashboard/dashboard.go:314` | NX-04 | `handleLoginSubmit` usa `nexoValidateLoginToken(h.cfg, r, token)` (cae en `ValidateLoginToken` si el campo no está) |
 | `cmd/engram/cloud_runtime_e2e_test.go:332-336` | NX-01 | Test de Engram ajustado: `/sync/push` con token asignado guarda el dueño del token, no el `created_by` del cliente (RF-04) |
@@ -232,8 +265,8 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudserver/dashboard_admin_users.go:427-429` | NX-07 | Panel, permiso de proyecto: `nexoAllowProjectGrant` (igual que la API) |
 | `internal/cloud/dashboard/components.templ:1030, 1067, 1072, 1162` | NX-07 | Panel (sin marca: es HTML de templ): campos de caducidad y alcance en el formulario de token, columna "Last Used / Expires / Scope", estado "Expired" (`nexoTokenStatus`) y caducidad y alcance en la página del token creado. Se reutilizan expresiones existentes sin agregar nodos ni líneas; `components_templ.go` regenerado con `go tool templ generate -path ./internal/cloud/dashboard` (templ v0.3.1001 de `go.mod`): 7 líneas cambiadas, mismos finales de línea |
 | `internal/cloud/cloudserver/cloudserver.go:344` | NX-10 | `routes()`: `s.registerNexoKBRoutes(s.mux)` registra `/nexo/kb/v1` (`nexo_kb_bridge.go`) |
-| `cmd/engram/main.go:39` | NX-10 | Import `nexokbcli` (`internal/nexo/kb/cli`) |
-| `cmd/engram/main.go:825-826` | NX-10 | `case "nexo"`: `engram nexo kb ...` (bloque de 2 líneas) |
+| `cmd/engram/main.go:39` | NX-10 / NX-07 | Import `nexocli` (`internal/nexo/nexocli`, despachador de `engram nexo`; antes `nexokbcli`) |
+| `cmd/engram/main.go:825-826` | NX-10 / NX-07 | `case "nexo"`: `engram nexo kb ...` y `engram nexo audit verify|export|verify-export` (bloque de 2 líneas; misma forma que en NX-10) |
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 
@@ -248,7 +281,7 @@ Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Doc
 | `NEXO_MIGRATION_DATABASE_URL` (NX-07) | vacío (una sola cuenta, aviso de seguridad degradada) | URL de la cuenta dueña del esquema. Con ella el servidor migra, aplica privilegios y crea la función de retención con esa cuenta, y opera con `ENGRAM_DATABASE_URL` (cuenta de aplicación) sin migrar; si la cuenta de aplicación es superusuario, dueña de objetos o puede crear objetos, no arranca |
 | `NEXO_DB_APP_ROLE` (NX-07) | usuario de `ENGRAM_DATABASE_URL` | Rol al que se otorgan los privilegios de aplicación (solo si difiere del usuario de la URL, por ejemplo detrás de un pooler) |
 | `NEXO_RATE_LIMITS` (NX-07) | vacía: sync 600/600, admin 120/120, login 20/-, nexo 300/300, other 600/- (IP/token por minuto) | JSON por grupo (`{"sync":{"ip":1200}}`, `0` = sin límite) u `off`. JSON inválido: valores por defecto con aviso |
-| `NEXO_AUTH_LOCKOUT` (NX-07) | vacía: 20 tokens distintos por IP o 20 fallos de una persona en 300 s bloquean 900 s | JSON `{"max_failures","user_max_failures","window_seconds","lockout_seconds"}` u `off`. `max_failures` (1 a 10 000) = tokens inválidos **distintos** por IP en la ventana (el mismo token repetido suma una vez); `user_max_failures` = intentos por persona |
+| `NEXO_AUTH_LOCKOUT` (NX-07) | vacía: 20 tokens distintos por IP en 300 s bloquean 900 s; sin bloqueo por persona (A1, S4) | JSON `{"max_failures","user_max_failures","window_seconds","lockout_seconds"}` u `off`. `max_failures` (1 a 10 000) = tokens inválidos **distintos** por IP en la ventana (el mismo token repetido suma una vez); `user_max_failures` (por defecto `0`) = intentos por persona con token revocado o persona deshabilitada (no recomendado) |
 | `NEXO_SUPERADMIN_ALLOWED_CIDRS` (NX-07) | vacía (sin restricción, aviso al iniciar) | CIDR o IP separados por comas desde los que se usan `platform.admins.manage` y `platform.settings`; con valor y sin redes válidas, se niega todo |
 | `NEXO_TOKEN_MAX_DAYS` (NX-07) | `365` | Caducidad máxima al emitir; por defecto 90 días (o el máximo si es menor) |
 | `NEXO_PERF_TEST` | — | Solo tests: `1` habilita la prueba de tiempos con 1 millón de filas |
@@ -258,6 +291,16 @@ Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Doc
 | `NEXO_KB_RANK_CANDIDATES` (NX-10) | `20000` | Tope de secciones candidatas por búsqueda antes de rankear (mínimo 100) |
 | `NEXO_KB_DISABLE_UNACCENT` (NX-10) | vacío | `1` al crear la configuración de búsqueda: no usar la extensión `unaccent` (las tildes se pliegan en la aplicación) |
 | `NEXO_KB_PERF_SECTIONS` | — | Solo tests: activa la prueba de rendimiento de búsqueda con esa cantidad de secciones |
+| `NEXO_AUDIT_DEDUP_SECONDS` (NX-07 S4, A2) | `600` | Ventana del resumen de rechazos de autenticación repetidos (misma huella, IP y motivo); `0` = una fila por rechazo |
+| `NEXO_AUDIT_VERIFY_MINUTES` (NX-07 S4) | `60` | Verificación periódica de la cadena de hashes (alerta `audit_chain_broken`); `0` = solo a pedido |
+| `NEXO_ALERT_RULES` (NX-07 S4) | vacía: reglas por defecto | JSON por regla (`enabled`, `threshold`, `window_seconds`, `cooldown_seconds`, `severity`) u `off` |
+| `NEXO_ALERT_WEBHOOK_URL` (NX-07 S4) | vacía (alertas solo en la base y la API) | Webhook de Slack o Teams (JSON `text`, `summary`, `nexo_alert`), 3 intentos |
+| `NEXO_AUDIT_EXPORT_DIR` (NX-07 S4) | vacía: exportación desactivada (aviso) | Carpeta de la exportación diaria firmada (`<tabla>/<día>.jsonl` y `.sig`) |
+| `NEXO_AUDIT_EXPORT_KEY` (NX-07 S4) | — (sin ella, exportación desactivada) | Clave HMAC-SHA256 de las firmas (32 caracteres o más) |
+| `NEXO_DISABLE_INACTIVE_DAYS` (NX-07 S4) | vacía (desactivado) | Deshabilita cuentas sin uso por esos días (mínimo 7; nunca el último superadmin) |
+| `NEXO_RETENTION_AUDIT_DAYS`, `NEXO_RETENTION_AUTHZ_EVENTS_DAYS`, `NEXO_RETENTION_KB_EVENTS_DAYS`, `NEXO_RETENTION_ALERTS_DAYS` (NX-07 S4) | vacías (no se depura) | Retención de `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events` y `nexo_alerts`; mínimo 365 (menos se eleva con aviso) |
+| `NEXO_CHAIN_PERF_EVENTS` | — | Solo tests: RNF-S3, carga y verifica esa cantidad de eventos encadenados (por ejemplo `1000000`) |
+| `NEXO_AUTHZ_PERF` | — | Solo tests: `1` activa `TestPGAuthorizationCostWith100kBindings` (prueba de tiempos de NX-05; correr sola) |
 
 Las variables de Engram no cambian. Recomendación operativa (RN-A3): `ENGRAM_CLOUD_TOKEN` con un valor aleatorio largo que no se entrega a nadie; todo lo que llegue con él figura como `no-identificado`.
 
@@ -290,6 +333,13 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `nexo_kb_proposals` (NX-10) | Tabla de propuestas (la lógica llega en 2b) |
 | `nexo_kb_index_versions` (NX-10) | Índices derivados y su configuración (`pgfts` v1, modo de tildes) |
 | Configuraciones de búsqueda (NX-10) | `nexo_es` (copia de `spanish`) y, si la extensión `unaccent` existe o se puede crear (en `public`), `nexo_es_unaccent`. Si no se puede crear, la migración sigue sin ella (aviso en el log) |
+| `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events` (NX-07 S4) | Columnas `nexo_chain_seq BIGINT`, `nexo_prev_hash BYTEA`, `nexo_hash BYTEA` (filas previas: NULL); índice único parcial `uq_<tabla>_nexo_chain_seq`; funciones `nexo_chain_canon_<tabla>` y `nexo_chain_link_<tabla>`; trigger `zz_nexo_chain_<tabla>` (`BEFORE INSERT`); función `nexo_chain_ts` |
+| `nexo_audit_chain_anchors` (NX-07 S4) | Anclas de la cadena (`genesis` al migrar, `purge` en cada depuración); solo de la dueña (la aplicación lee) |
+| `nexo_audit_chain_checkpoints` (NX-07 S4) | Puntos de control de la cadena (posición y hash); solo inserción |
+| `nexo_alerts`, `nexo_alert_acks` (NX-07 S4) | Alertas (`rule`, `severity`, `layer`, `subject`, `dedup_key` único, `summary`, `details`) y su reconocimiento (uno por alerta); solo inserción |
+| `nexo_audit_exports`, `nexo_access_reviews` (NX-07 S4) | Registro de exportaciones firmadas (`UNIQUE (table_name, day)`) y de revisiones de acceso; solo inserción |
+| Guardas (NX-07 S4) | Función `nexo_evidence_guard()` y triggers `nexo_guard_<tabla>` / `nexo_guard_trunc_<tabla>` en `cloud_auth_audit_log` y las tablas anteriores; `nexo_evidence_purge_allowed(tabla, oid, hora)`; los triggers de NX-05 y NX-10 en `nexo_authz_events` y `nexo_kb_events` la usan para el `DELETE` de la depuración |
+| Función `nexo_purge_evidence(text, integer)` (NX-07 S4) | `SECURITY DEFINER` de la dueña, `search_path` fijo, mínimos de 365 días; depura el prefijo de la cadena con ancla, eventos `retention.purged`; `EXECUTE` solo para la cuenta de aplicación |
 
 Volver a la imagen oficial 3.3.2 con la misma base es posible: Engram ignora las columnas, tablas y la vista nuevas, y el trigger `nexo_stamp_actor` no modifica las filas cuando nadie publicó el actor en la transacción (quedan con `actor` NULL, como los datos anteriores al fork). Con NX-05, el trigger `nexo_authz_guard_principal` sigue activo en la base aunque se use la imagen oficial: impide deshabilitar al último superadmin habilitado (se puede quitar con `DROP TRIGGER nexo_authz_guard_principal ON cloud_principals` si se abandona el fork).
 
@@ -319,10 +369,13 @@ go test -count=1 -run TestCloudRuntime ./cmd/engram/
 $env:NEXO_KB_PERF_SECTIONS = "200000"; go test -count=1 -v -timeout 40m -run TestPerfSearch ./internal/nexo/kb/service/   # RNF-K1 (NX-10)
 go test -run '^$' -bench NexoOverhead -benchtime 200x ./internal/cloud/cloudserver/   # RNF-03
 git grep -n "// NX-" -- ':!docs' ':!internal/nexo'
-# NX-07: concurrencia del limitador (requiere cgo; en Windows sin gcc, en un contenedor golang:1.25)
+# NX-07: concurrencia del limitador y del agrupador A2 (requiere cgo; en Windows sin gcc, en un contenedor golang:1.25)
 go test -race -count=1 ./internal/nexo/security/
+# NX-07 S4: RNF-S3 (1 millón de eventos encadenados) y prueba de tiempos de NX-05, cada una sola
+$env:NEXO_CHAIN_PERF_EVENTS = "1000000"; go test -count=1 -v -timeout 20m -run TestChainVerifyPerf ./internal/nexo/security/evidence/
+$env:NEXO_AUTHZ_PERF = "1"; go test -count=1 -v -run TestPGAuthorizationCostWith100kBindings ./internal/nexo/authz/
 # Panel: regenerar las plantillas siempre con la versión fijada en go.mod (templ v0.3.1001)
 go tool templ generate -path ./internal/cloud/dashboard
 ```
 
-E2E de seguridad (repositorio de Nexo): `pwsh -NoProfile -File 06-pruebas/seguridad/Run-Seguridad.ps1` con la imagen `nexo-engram-cloud:3.3.2-nexo.2-dev` construida desde la rama. Para su prueba de volumen CA-35 (1 000 consultas de administración en paralelo) sube el límite del grupo `admin` con `NEXO_RATE_LIMITS={"admin":{"ip":3000,"token":3000}}`; el resto de los grupos queda con los valores por defecto. Desde el parche del 2026-10-12 incluye D-S2-8 (servicio `pc-malpegado`, que comparte la red de `pc-ana`), D-S3-8 y D-S3-9: 44 casos.
+E2E de seguridad (repositorio de Nexo): `pwsh -NoProfile -File 06-pruebas/seguridad/Run-Seguridad.ps1` con la imagen `nexo-engram-cloud:3.3.2-nexo.2-dev` construida desde la rama. Para su prueba de volumen CA-35 (1 000 consultas de administración en paralelo) sube el límite del grupo `admin` con `NEXO_RATE_LIMITS={"admin":{"ip":3000,"token":3000}}`; el resto de los grupos queda con los valores por defecto. Desde el parche del 2026-10-12 incluye D-S2-8 (servicio `pc-malpegado`, que comparte la red de `pc-ana`), D-S3-8 y D-S3-9: 44 casos. Desde S4 (servicio `webhook` de prueba, exportación en un tmpfs `/export`, `NEXO_AUDIT_DEDUP_SECONDS=60` y `NEXO_AUDIT_VERIFY_MINUTES=1` para no esperar 10 y 60 minutos) agrega S4-PRIV, A1, A2 y CA-S09..CA-S12: 51 casos.

@@ -64,6 +64,17 @@ services:
       ENGRAM_PORT: "18080"
       NEXO_TRUSTED_PROXIES: 192.168.240.10/32     # solo Caddy
       NEXO_ACTIVITY_RETENTION_DAYS: "180"         # mínimo 30 (RS-03)
+      # NX-07 S4 (evidencia y monitoreo, docs/nexo/seguridad/guia-despliegue.md §7):
+      # exportación diaria firmada fuera de la base (clave en .env, fuera de la base).
+      NEXO_AUDIT_EXPORT_DIR: /export
+      NEXO_AUDIT_EXPORT_KEY: ${NEXO_AUDIT_EXPORT_KEY:-}            # openssl rand -hex 32; vacía = desactivada
+      NEXO_ALERT_WEBHOOK_URL: ${NEXO_ALERT_WEBHOOK_URL:-}          # Slack o Teams; vacía = solo base y API
+      # NEXO_DISABLE_INACTIVE_DAYS: "90"                           # desactivado por defecto (DS-4)
+      # NEXO_RETENTION_AUDIT_DAYS: "365"                           # vacías = no se depura (mínimo 365)
+    volumes:
+      # Carpeta del usuario del contenedor (uid 10001): mkdir audit-export && sudo chown 10001:10001 audit-export
+      # Copiarla fuera del host (respaldo, almacenamiento con retención o WORM).
+      - ./audit-export:/export
     networks:
       default: { ipv4_address: 192.168.240.5 }
 

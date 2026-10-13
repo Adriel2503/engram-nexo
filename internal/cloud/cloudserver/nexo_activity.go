@@ -180,8 +180,10 @@ func (s *CloudServer) nexoPurgeActivityOnce(ctx context.Context, days int) int64
 }
 
 // nexoStartActivityRetention depura al iniciar y luego cada 24 h, en segundo
-// plano, mientras viva el proceso.
+// plano, mientras viva el proceso. Desde NX-07 S4 arranca también el monitor
+// de evidencia (nexo_evidence.go), sin un enganche nuevo en Start().
 func (s *CloudServer) nexoStartActivityRetention() {
+	s.nexoStartMonitor()
 	days := nexoActivityRetentionDays()
 	if days <= 0 {
 		return

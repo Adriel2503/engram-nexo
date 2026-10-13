@@ -453,3 +453,93 @@ Riesgos y límites:
 - `nexoAuthzIdentity` (rutas `/nexo/*` y `/admin/*`) sigue leyendo el alcance solo del contexto; en
   producción siempre está (lo pone el middleware), pero sin él quedaría `write` (D-S3-2).
 
+Nota (2026-10-12, S4): los riesgos "bloqueo por persona sigue contando intentos" y "auditoría por
+rechazo" quedan resueltos por los arreglos A1 y A2 (§8.4).
+
+### 8.4 Fase S4 (evidencia y monitoreo) y arreglos A1/A2
+
+Fecha: 2026-10-12. Sobre `develop` db1739e (incluye NX-10 2a), rama `feat/seguridad` (sin commit).
+Código: `internal/nexo/security/dedup.go` (A2), `internal/nexo/security/evidence/` (cadena, retención,
+alertas, webhook, exportación, revisión), `internal/nexo/security/auditcli/` y `internal/nexo/nexocli/`
+(CLI), `cloudstore/nexo_audit_dedup.go`, `cloudserver/nexo_evidence.go`. En archivos de Engram solo se
+tocaron `cloudstore/identity.go` (enganche de 2 líneas en `insertAuthAuditEvent`) y `cmd/engram/main.go`
+(las 2 líneas NX-10 existentes pasan a un despachador de `engram nexo`). Detalle en `NEXO_CHANGES.md`.
+
+#### 8.4.1 Arreglos previos
+
+| ID | Antes | Ahora | Motivo |
+|---|---|---|---|
+| A1 (revisa D-S2-3 y D-S2-8) | Los intentos con un token revocado o de una persona deshabilitada sumaban al contador por persona (20 en 5 min bloqueaban 15 min **también el token nuevo** de esa persona) | **Bloqueo por persona desactivado por defecto** (`user_max_failures: 0` en `NEXO_AUTH_LOCKOUT`). Esos intentos se tratan como el token vencido: no suman, quedan auditados (el evento de Engram lleva además `nexo_principal_id` y `credential_id`, el id del token, nunca el token) y disparan la alerta `revoked_token_used` (una por persona e IP cada 24 h). El bloqueo por IP con tokens distintos (D-S2-8) no cambia. Se puede reactivar con `user_max_failures > 0` (el log de arranque lo advierte) | Revisado el caso útil: un token revocado o de una persona deshabilitada ya no da acceso, así que contar sus intentos no protege nada; en cambio bloqueaba el token nuevo de la persona por las PCs viejas con autosync y era un **vector de denegación de servicio**: quien conserve un token viejo de alguien puede dejarlo sin acceso de forma indefinida. Adivinar tokens no es atribuible a una persona (lo corta el bloqueo por IP). Por eso el retiro, con la opción de volver a activarlo documentada como no recomendada |
+| A2 (resuelve el riesgo "auditoría por rechazo" de §8.3) | Un token mal pegado dejaba ~2 880 filas por día en `cloud_auth_audit_log` (una por rechazo de Engram) | En el punto común de auditoría (`insertAuthAuditEvent`, junto al enganche NX-04) los rechazos `sync.auth` y `dashboard.login` (`outcome = denied`) se agrupan por **(acción, motivo, IP, huella del token)**. El primero se escribe completo (con `credential_fp`); los repetidos dentro de la ventana (`NEXO_AUDIT_DEDUP_SECONDS`, 600 por defecto, `0` = sin agrupar) solo se cuentan; al cerrar la ventana queda **una fila resumen** con la misma acción y motivo y `nexo_repeated` (conteo), `nexo_first_at`, `nexo_last_at`, `nexo_window_start`, `nexo_window_seconds` y `nexo_user_agents` (hasta 5 clientes distintos). Mientras el token siga llegando, cada ventana deja su resumen sin otra fila completa; tras una ventana sin rechazos la clave se olvida. El resumen lo escribe el monitor cada minuto (en cada réplica) o, antes, el siguiente rechazo de la misma clave | Un token mal pegado pasa de ~2 880 a ~145 filas por día sin perder el conteo. La huella es HMAC-SHA256 truncado a 64 bits con una clave aleatoria del proceso (`security.CredentialFingerprint`): relaciona los rechazos de una PC dentro de la vida del proceso y no sirve para recuperar ni comparar tokens fuera de él. El agrupador viaja en el contexto (lo pone el middleware de Nexo, uno por servidor): sin él (almacenes falsos de pruebas de Engram, CLI) todo se escribe como antes |
+
+Límites de A2: el conteo de la ventana en curso vive en memoria; si el proceso se cae, se pierden a
+lo sumo los repetidos de una ventana (la fila completa ya está). El agrupador acota 50 000 claves; con
+el tope, una clave nueva se escribe completa (nunca se descarta un evento). Las reglas de alertas
+pesan los resúmenes (`nexo_repeated`), y `auth_failures_burst` cuenta filas completas, que con el
+agrupador equivalen a tokens distintos.
+
+#### 8.4.2 Desviaciones de S4
+
+| ID | Diseño | Implementado | Motivo |
+|---|---|---|---|
+| D-S4-1 | Columnas `nexo_prev_hash`, `nexo_hash`; huecos de `id` | Además `nexo_chain_seq` (posición en la cadena) asignada por el trigger bajo el advisory lock, con índice único parcial; los huecos se informan por posición | `id` (BIGSERIAL) se asigna antes del trigger: con inserciones concurrentes el orden de `id` no es el de la cadena, y los huecos de `id` son normales (rollbacks). Un hueco de posición sí es una fila borrada |
+| D-S4-2 | `sha256(prev_hash || canónica)` | `nexo_hash = sha256(prev_hash || sha256(canónica))`; canónica = `jsonb_build_array(tabla, posición, id, hora UTC con µs, columnas en orden fijo)::text` (función `nexo_chain_canon_<tabla>`); `nexo_chain_ts` fija UTC sin depender de `TimeZone` ni `DateStyle` | JSONB normaliza `metadata`/`details`; una columna nueva de Engram no cambia el hash de filas viejas (la lista de columnas es fija, formato v1). La verificación recibe el sha256 del contenido calculado por la base y rehace el enlace en Go (1 millón de filas en 4,5 s) |
+| D-S4-3 | El trigger lee "el último `nexo_hash`" | Lo lee de la última fila encadenada (recorrido hacia atrás del índice único) o, con la tabla vacía, de la última ancla. No hay una fila "cabeza" que se actualice en cada inserción. Para detectar el borrado de las **últimas** filas: puntos de control `nexo_audit_chain_checkpoints` (posición y hash; el monitor los registra cada 10 min si la cadena avanzó; solo inserción para la aplicación) y las exportaciones registradas (`nexo_audit_exports.last_seq/last_hash`) | Actualizar una misma fila en cada inserción hace cuadrática una inserción masiva dentro de una transacción (cadena de versiones de esa fila) y no protege más frente a la cuenta dueña. Límite: un borrado de las últimas filas posterior al último punto de control (a lo sumo 10 min) no se ve en la verificación; lo cubre la exportación firmada fuera de la base |
+| D-S4-4 | Trigger de la cadena | `BEFORE INSERT` `zz_nexo_chain_<tabla>` (último por orden alfabético, sobre la fila completa), `SECURITY INVOKER` con `search_path` fijo: no escribe otras tablas, la aplicación sigue con `SELECT`/`INSERT`. Lo que la aplicación pone en las columnas de la cadena se ignora. Ancla inicial `genesis` (posición 1, hash que resume la última fila previa y la cantidad de filas previas); anclas solo de la dueña (`security.OwnerManagedTables`) | Si la aplicación pudiera escribir anclas, podría "justificar" un hueco |
+| D-S4-5 | — | Guarda `nexo_guard_<tabla>` (rechaza `UPDATE`, `DELETE`, `TRUNCATE` salvo la depuración) en `cloud_auth_audit_log` y en las tablas nuevas (alertas, reconocimientos, exportaciones, revisiones, puntos de control, anclas). `nexo_authz_events` y `nexo_kb_events` conservan sus triggers de NX-05 y NX-10, que llaman a la misma comprobación (`nexo_evidence_purge_allowed`) solo si la marca de depuración es de esa tabla. `nexo_kb_versions` nunca se depura | Con una sola cuenta (o para la dueña) alterar evidencia exige `ALTER TABLE ... DISABLE TRIGGER`, que la cadena detecta. Engram no actualiza ni borra `cloud_auth_audit_log` (inventario §2.2.1) |
+| D-S4-6 | Verificación para auditor y superadmin | `GET /nexo/admin/audit/verify[?table=]` con `platform.audit.read` (auditor, admin y superadmin: el admin hereda del auditor en NX-05) y `engram nexo audit verify [--table]` (sale con 1 si falla). Informa la primera fila alterada (`content`, `link` o `checkpoint`), huecos (`start`, `middle`, `end`), filas sin cadena posteriores a la migración (trigger desactivado) y filas previas. La lectura queda auditada (`nexo.audit_verify.read`). El monitor verifica cada `NEXO_AUDIT_VERIFY_MINUTES` (60) y deja la alerta `audit_chain_broken` | Coherente con las demás lecturas `/nexo/admin/*` |
+| D-S4-7 | Exportación diaria | Archivo por tabla y día UTC (`<dir>/<tabla>/<AAAA-MM-DD>.jsonl` y `.sig`); en las tablas encadenadas cada archivo toma las posiciones siguientes al último exportado (continuidad aunque una fila tenga hora explícita anterior); un día sin eventos también deja su archivo firmado; un día anterior a otro ya exportado no se exporta. `.sig`: JSON con filas, posiciones, `first_prev_hash`, `last_hash`, sha256 del archivo, `key_id` y `hmac_sha256` sobre esos campos. Tablas: las 3 encadenadas, `nexo_alerts`, `nexo_alert_acks`, `nexo_access_reviews`. El monitor exporta una vez por día (una réplica, bajo el candado del evaluador) desde el día siguiente al último exportado (hasta 31 atrás); `engram nexo audit export --since --until [--include-today]` (el día en curso queda parcial y el día siguiente sigue la cadena desde ahí). `verify-export ARCHIVO [--db]`: firma, sha256, enlaces internos, continuidad con el archivo del día anterior y, con `--db`, que cada fila coincida con la base | La carpeta es local a la réplica que exporta: usar un volumen compartido o una sola réplica, y copiarla fuera del host de la base |
+| D-S4-8 | Reglas iniciales | Las del §5.3 más `revoked_token_used` (A1), `invalid_token_repeated` (una PC mal configurada: mismo token e IP, 10 en 30 min, una vez por día), `inactive_account_disabled` y `audit_export_failed`. Ventana deslizante con funciones de ventana sobre `ventana + 3 min`; espera por regla, capa y sujeto (`cooldown`) y clave única `dedup_key`; `NEXO_ALERT_RULES` (JSON por regla u `off`). Cada alerta lleva `layer`: `plataforma`, `proyectos` (sincronización de Engram) o `conocimiento` (espacios `nexo_kb_*`) | Una ráfaga sostenida no genera una alerta por minuto; la capa permite derivar la alerta a quien corresponde |
+| D-S4-9 | Webhook compatible con Teams y Slack | JSON `{text, summary, nexo_alert{id, rule, severity, layer, subject, occurred_at}}`: lo aceptan el webhook entrante de Slack y el conector clásico de Teams (MessageCard). Reintentos a los 0, 2 y 10 s; 10 s por intento; sin redirecciones. El log solo muestra el host; el cuerpo no lleva detalles, huellas ni tokens | Los flujos de Teams basados en Power Automate esperan una tarjeta adaptativa: requieren adaptar el cuerpo (fuera de alcance) |
+| D-S4-10 | `POST .../alerts/{id}:ack` y `access-review:complete` | Exigen `platform.audit.read` y un token `write` (denegación auditada con `token_scope_read`). Un reconocimiento por alerta (409 si ya está); quién, cuándo, nota, IP y cliente en `nexo_alert_acks` | No cambian accesos: el auditor puede registrar que revisó; el token `read` no deja rastro a su nombre |
+| D-S4-11 | Revisión de accesos | Incluye además los permisos de proyecto de Engram (`cloud_project_grants`, publicador por compatibilidad). Actividad = máximo de alta de la persona, alta y último uso de sus tokens y última presencia. Marcas `inactive` (umbral 90 días, `?inactive_days=`), `disabled`, `token_no_expiry`, `token_never_used`. La revisión guarda `report_sha256` (hash de personas, roles y tokens, sin la hora ni los días de inactividad) | Prueba qué se revisó (ISO 27002 5.18) sin guardar una copia del reporte |
+| D-S4-12 | `NEXO_DISABLE_INACTIVE_DAYS` | Mínimo 7 días (menos = desactivado con aviso); todas las cuentas (personas y servicio); nunca el último superadmin habilitado (se salta con aviso; además lo impide el trigger de NX-05); una vez por día; evento `principal.disabled_inactive` en `nexo_authz_events`, `user.disable` (`reason_code = inactive`) en `cloud_auth_audit_log` y alerta | AC-2(3); un plazo absurdo por error no deshabilita a toda la empresa |
+| D-S4-13 | Retención por tabla, mínimos 365 | `nexo_purge_evidence(tabla, días)` `SECURITY DEFINER` de la dueña; tablas `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events` y `nexo_alerts` (con sus reconocimientos) con mínimo 365; variables `NEXO_RETENTION_AUDIT_DAYS`, `NEXO_RETENTION_AUTHZ_EVENTS_DAYS`, `NEXO_RETENTION_KB_EVENTS_DAYS`, `NEXO_RETENTION_ALERTS_DAYS`: **vacías = no se depura** (menos que el mínimo se eleva con aviso). En las encadenadas borra solo el **prefijo** de la cadena anterior a la primera fila dentro del plazo y deja un ancla `purge` con la posición y el `prev_hash` de la primera fila conservada: la verificación arranca desde ahí sin informar un hueco. Evento `retention.purged` con `chained_deleted`, `legacy_deleted` y `anchor_seq`. La actividad sigue con `nexo_purge_activity` (S1, mínimo 30, por defecto 180) | Nada se borra sin configurarlo ni antes del plazo; la cadena sigue verificable. Una fila vieja con posición posterior a una reciente espera a la siguiente depuración (nunca se abre un hueco en el medio) |
+| D-S4-14 | Monitor | Una goroutine por servidor, cada minuto, arrancada desde `nexoStartActivityRetention` (sin enganche nuevo en `Start()`): resúmenes de A2 en cada réplica; en una réplica a la vez (`pg_try_advisory_xact_lock`): evaluador, puntos de control, verificación periódica y, una vez por día (UTC), exportación, inactivos y retención. Webhook fuera del monitor | Varias réplicas no duplican alertas ni archivos |
+
+#### 8.4.3 Verificación
+
+- Go: `go build ./...` y `go vet` OK; `go test -count=1 ./internal/cloud/... ./internal/nexo/...`
+  1346 OK, 0 fallos, 4 omitidas (línea base del día: 1319 OK, 2 fallos y 2 omitidas; los 2 fallos
+  eran `TestTokenIssuanceAndLastAdminGuardLockTargetBeforeAdvisoryGuard` de Engram, de tiempos, que
+  pasa sola). `-run TestCloudRuntime ./cmd/engram/` OK. `go test -race` del paquete `security` OK
+  (contenedor `golang:1.25`).
+- `TestPGAuthorizationCostWith100kBindings` (NX-05) pasa a activarse con `NEXO_AUTHZ_PERF=1` (como
+  `NEXO_KB_PERF_SECTIONS`): es de tiempos y daba falsos fallos en paralelo.
+- RNF-S2 (`TestChainInsertOverhead`): inserción suelta 0,94 ms con cadena frente a 0,74 ms sin ella
+  (sobrecosto 0,2 ms, casi todo ida y vuelta); en lote, 28 µs por fila. En autocommit domina el
+  commit en disco (~4,5 ms, igual con o sin cadena).
+- RNF-S3 (`NEXO_CHAIN_PERF_EVENTS=1000000`, `TestChainVerifyPerf`): carga de 1 millón de eventos
+  encadenados en 44 s (0,044 ms por evento) y verificación en 4,5 s.
+- E2E `06-pruebas/seguridad/Run-Seguridad.ps1` con la imagen reconstruida
+  `nexo-engram-cloud:3.3.2-nexo.2-dev` y clientes oficiales 3.3.2: **51 OK, 0 fallos** (727 s): los 44
+  casos anteriores más S4-PRIV, A1, A2, CA-S09, CA-S10, CA-S11 y CA-S12. Con
+  `NEXO_AUDIT_DEDUP_SECONDS=60` y `NEXO_AUDIT_VERIFY_MINUTES=1` (para no esperar 10 y 60 minutos),
+  webhook de prueba (servicio `webhook`, Python) y exportación en un tmpfs `/export`. Ajustes del
+  script: D-S2-8 cuenta filas más conteos de los resúmenes (62 rechazos en 2 filas) y busca el cliente
+  del autosync también en `nexo_user_agents`; CA-S01 no cuenta las filas resumen que el monitor puede
+  escribir durante la medición. Resultados: A1, 35 intentos con un token revocado desde 2 IP, 0
+  bloqueos y 2 alertas `revoked_token_used`; A2, 40 rechazos en 2 filas (completa + resumen de 39);
+  CA-S10, 6 archivos diarios del servidor y 6 de la CLI (1 113 filas de auditoría) verificados contra la
+  base, alteración detectada (`file_hash_ok=false`); CA-S09, la fila alterada por la dueña se informa
+  por API y CLI (salida 1) y llega la alerta crítica al webhook.
+
+#### 8.4.4 Riesgos y límites
+
+- **La cuenta dueña sigue siendo de confianza.** Puede desactivar la guarda y el trigger, alterar
+  filas y recalcular toda la cadena; la cadena detecta lo que no recalcula. La defensa frente a ella
+  es la **exportación firmada fuera de la base** (con la clave fuera del alcance de la dueña) y
+  `verify-export --db`.
+- **Ventana sin punto de control.** Borrar las últimas filas después del último punto de control
+  (≤ 10 min) no se ve en la verificación; la exportación diaria lo cubre hacia atrás.
+- **Aislamiento `READ COMMITTED`.** El trigger depende de leer la última fila confirmada después de
+  tomar el candado (el aislamiento por defecto de Engram y de Nexo). Bajo `REPEATABLE READ` una
+  inserción concurrente fallaría por el índice único (no se corrompe la cadena).
+- **Serialización por tabla.** Las inserciones encadenadas de una tabla se serializan hasta el commit
+  de cada transacción: una publicación grande de conocimiento retiene el candado de `nexo_kb_events`
+  hasta terminar (otras publicaciones esperan).
+- **Réplicas.** Resúmenes de A2 y huellas son por réplica; las alertas, exportaciones y depuraciones
+  corren en una sola a la vez. La carpeta de exportación es local a la réplica que exporta.
+- **Webhook.** Sin confirmación de entrega en la base (solo el log); la alerta queda siempre en
+  `nexo_alerts` y en la API.
+

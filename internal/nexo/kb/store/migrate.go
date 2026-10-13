@@ -208,8 +208,17 @@ var migrationQueries = []string{
 	)`,
 
 	// ─── Inmutabilidad de versiones y eventos (como nexo_authz_events) ───────
+	// NX-07 (S4-05): en nexo_kb_events el único DELETE admitido es el de la
+	// depuración por retención (nexo_purge_evidence, cuenta dueña, filas de más
+	// de 365 días; ver internal/nexo/security/evidence). nexo_kb_versions no se
+	// depura nunca.
 	`CREATE OR REPLACE FUNCTION nexo_kb_immutable() RETURNS trigger AS $$
 	BEGIN
+		IF TG_OP = 'DELETE' AND TG_TABLE_NAME = 'nexo_kb_events' AND current_setting('nexo.purge_in_progress', true) = TG_TABLE_NAME THEN
+			IF nexo_evidence_purge_allowed(TG_TABLE_NAME, TG_RELID, OLD.occurred_at) THEN
+				RETURN OLD;
+			END IF;
+		END IF;
 		RAISE EXCEPTION '% es de solo inserción (% no permitido)', TG_TABLE_NAME, TG_OP
 			USING ERRCODE = 'insufficient_privilege';
 	END

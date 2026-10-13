@@ -595,6 +595,16 @@ Lo que difiere de las secciones anteriores, y por qué:
 | D-I14 | Retiro repetido | — | Retirar un retirado sin cambio es idempotente (200, sin evento); indicar el reemplazo después es posible una vez; otro cambio, 409. Publicar de nuevo un documento retirado lo reactiva con una versión nueva | Reintentos seguros y reactivación por el CI |
 | D-I15 | Prueba de S1 | `TestNexoTwoAccountsGrantsAreIdempotentAndExtensible` creaba un `nexo_kb_events` ficticio | Usa `nexo_alerts` (S4) como tabla futura | Ahora la migración real crea `nexo_kb_events` |
 
+Nota NX-07 S4 (2026-10-12, `docs/nexo/seguridad/design.md` §8.4): `nexo_kb_events` entra en la cadena
+de hashes (columnas `nexo_chain_seq`, `nexo_prev_hash`, `nexo_hash`; trigger `zz_nexo_chain_nexo_kb_events`;
+verificación en `GET /nexo/admin/audit/verify`), en la exportación firmada y en la retención por tabla
+(`NEXO_RETENTION_KB_EVENTS_DAYS`, mínimo 365, vacía = no se depura). `nexo_kb_immutable()` admite el
+único `DELETE` de la depuración segura y solo en `nexo_kb_events`; `nexo_kb_versions` no se depura
+nunca. Las denegaciones de espacios alimentan la alerta `authz_denied_burst` con capa `conocimiento`
+(vía `nexo_authz_events`, D-I12). La prueba D-I15 usa ahora una tabla ficticia agregada a la lista
+mientras dura (`nexo_alerts` ya la crea S4). Una publicación grande retiene el candado de la cadena de
+`nexo_kb_events` hasta su commit (las publicaciones concurrentes esperan).
+
 Rendimiento (RNF-K1) con datos sintéticos: ver la tabla de mediciones en `tasks.md` (C-06). Riesgos
 abiertos: el peor caso es un término presente en casi todas las secciones con todos los espacios
 visibles; se acota con el tope de candidatos, a costa de rankear un subconjunto en esos términos (que
