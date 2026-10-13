@@ -494,10 +494,17 @@ func (a *api) indexState(w http.ResponseWriter, r *http.Request, svc *service.Se
 		writeErr(w, err)
 		return
 	}
+	// NX-10 R3: estado del reordenamiento.
+	rs, err := svc.RerankState(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct {
 		store.IndexState
 		Vector service.VectorIndexState `json:"vector"`
-	}{st, vs})
+		Rerank service.RerankState      `json:"rerank"`
+	}{st, vs, rs})
 }
 
 func (a *api) reindex(w http.ResponseWriter, r *http.Request, svc *service.Service, id authz.Identity) {

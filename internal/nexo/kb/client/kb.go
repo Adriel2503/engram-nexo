@@ -236,6 +236,9 @@ type SearchParams struct {
 	Mode      string
 	Limit     int
 	LocalOnly bool
+	// Rerank (NX-10 R3): "on" u "off"; vacío = lo decide el servidor. La copia
+	// local no reordena.
+	Rerank string
 	// LocalReason reemplaza, con LocalOnly, el motivo del aviso de la copia
 	// local (por ejemplo, la CLI cuando el servidor no respondió).
 	LocalReason string
@@ -278,6 +281,8 @@ type SearchResult struct {
 	// la búsqueda por significado.
 	Mode   string             `json:"mode,omitempty"`
 	Vector *search.VectorInfo `json:"vector,omitempty"`
+	// NX-10 R3: cómo participó el reordenamiento (si el servidor lo informa).
+	Rerank *search.RerankInfo `json:"rerank,omitempty"`
 }
 
 const searchGuidance = "Cita cada resultado usado con su 'citation' y su 'link' (y 'source_url' si existe) e indica su 'status'. " +
@@ -315,6 +320,7 @@ type serverSearch struct {
 	Mode   string             `json:"mode"`
 	Notice string             `json:"notice"`
 	Vector *search.VectorInfo `json:"vector"`
+	Rerank *search.RerankInfo `json:"rerank"`
 }
 
 // hitStatus describe el estado de un resultado hoy y, con at, en la fecha.
@@ -386,7 +392,7 @@ func (k *KB) searchServer(ctx context.Context, p SearchParams) (SearchResult, er
 	if len(p.Spaces) > 0 {
 		v.Set("spaces", strings.Join(p.Spaces, ","))
 	}
-	for name, val := range map[string]string{"category": p.Category, "tag": p.Tag, "mode": p.Mode} {
+	for name, val := range map[string]string{"category": p.Category, "tag": p.Tag, "mode": p.Mode, "rerank": p.Rerank} {
 		if val != "" {
 			v.Set(name, val)
 		}
@@ -404,7 +410,7 @@ func (k *KB) searchServer(ctx context.Context, p SearchParams) (SearchResult, er
 	}
 	now := k.now()
 	res := SearchResult{Source: SourceServer, At: p.At, KnownAt: p.KnownAt, NoResults: sr.NoResults, Relevance: sr.Relevance, Results: []Hit{}, Guidance: searchGuidance,
-		Mode: sr.Mode, Notice: sr.Notice, Vector: sr.Vector}
+		Mode: sr.Mode, Notice: sr.Notice, Vector: sr.Vector, Rerank: sr.Rerank}
 	for _, h := range sr.Results {
 		res.Results = append(res.Results, Hit{Status: hitStatus(h.DocStatus, h.SupersededBy, h.ValidFrom, h.ValidUntil, p.At, now), Citation: h.Citation,
 			Link: h.Link, SourceURL: h.SourceURL, Space: h.Space, DocKey: h.DocKey, Title: h.Title, HeadingPath: h.HeadingPath, Anchor: h.Anchor,

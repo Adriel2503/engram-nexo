@@ -21,6 +21,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/embed"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/rerank"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
 )
@@ -73,6 +74,12 @@ type Service struct {
 	r2Set  bool
 	hybrid *search.Hybrid
 	vec    *vectorState
+	// NX-10 R3 (r3.go)
+	rr    rerank.Reranker
+	rrCfg rerank.Config
+	rrSet bool
+	r3    search.RerankOptions
+	r3Set bool
 }
 
 // WithUploadLimits fija los límites de subida (NX-10 2b).
@@ -119,6 +126,7 @@ func New(db *sql.DB, roles *authz.Service, opts ...Option) *Service {
 		o(s)
 	}
 	s.setupR2()         // NX-10 R2: motor híbrido si hay proveedor de embeddings (r2.go)
+	s.setupR3()         // NX-10 R3: reordenamiento si hay proveedor (r3.go)
 	if s.r1Set != nil { // NX-10 2b: opciones de R1 (r1.go)
 		s.ApplyR1(*s.r1Set)
 	} else {

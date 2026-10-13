@@ -279,6 +279,8 @@ type SearchRequest struct {
 	// regular, RC-22) y secciones vecinas como contexto (RC-10).
 	Mode      string
 	Neighbors bool
+	// NX-10 R3: reordenamiento ("" = lo decide el servidor, "on" u "off").
+	Rerank string
 }
 
 // Search busca en los espacios visibles (o en los pedidos que sean visibles).
@@ -290,7 +292,7 @@ func (s *Service) Search(ctx context.Context, id authz.Identity, req SearchReque
 		return search.Result{}, err
 	}
 	res, err := s.searcher.Search(ctx, search.Query{Text: req.Q, Category: strings.ToLower(strings.TrimSpace(req.Category)),
-		Tag: strings.ToLower(strings.TrimSpace(req.Tag)), Limit: req.Limit, Mode: req.Mode, Neighbors: req.Neighbors}, ids, req.At, req.KnownAt)
+		Tag: strings.ToLower(strings.TrimSpace(req.Tag)), Limit: req.Limit, Mode: req.Mode, Neighbors: req.Neighbors, Rerank: req.Rerank}, ids, req.At, req.KnownAt)
 	if err != nil || !req.Neighbors {
 		return res, err
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/client"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 )
 
 // ServerRetriever evalúa la búsqueda del servidor (pgfts) y la consulta de
@@ -25,14 +26,21 @@ type ServerRetriever struct {
 	C *Client
 	// Mode es el modo de las preguntas que no fijan uno (NX-10 R2: hybrid).
 	Mode string
+	// Rerank (NX-10 R3): on u off para medir con o sin reordenamiento; vacío =
+	// el del servidor.
+	Rerank string
 }
 
 // Name implementa eval.Retriever.
 func (s ServerRetriever) Name() string {
+	name := "pgfts"
 	if s.Mode == "hybrid" {
-		return "hybrid"
+		name = "hybrid"
 	}
-	return "pgfts"
+	if s.Rerank == "on" {
+		name += "+rerank"
+	}
+	return name
 }
 
 // Search implementa eval.Retriever.
@@ -52,13 +60,20 @@ func (s ServerRetriever) Search(ctx context.Context, q eval.Question, spaces []s
 	if mode != "" {
 		path += "&mode=" + url.QueryEscape(mode)
 	}
+	if s.Rerank != "" {
+		path += "&rerank=" + url.QueryEscape(s.Rerank)
+	}
 	var res SearchResponse
 	if err := s.C.Do(ctx, "GET", path, nil, &res); err != nil {
 		return eval.Outcome{}, err
 	}
 	out := eval.Outcome{NoResults: res.NoResults}
 	for _, h := range res.Results {
-		out.Hits = append(out.Hits, eval.Hit{Space: h.Space, DocKey: h.DocKey, Anchor: h.Anchor, Version: h.Version})
+		out.Hits = append(out.Hits, eval.Hit{Space: h.Space, DocKey: h.DocKey, Anchor: h.Anchor, Version: h.Version, PrePos: h.PreRerankPosition})
+	}
+	if ri := res.Rerank; ri != nil {
+		out.Rerank = &eval.RerankTrace{Status: ri.Status, Reason: ri.Reason, LatencyMS: ri.LatencyMS, Candidates: ri.Candidates, Reordered: ri.Reordered,
+			TopChanged: ri.TopChanged, Dropped: ri.Dropped}
 	}
 	return out, nil
 }
@@ -113,6 +128,7 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 	minHit := fsx.Float64("min-hit", 0, "salir con 1 si Hit@5 total queda por debajo (0-1)")
 	waitIndex := fsx.Bool("wait-index", false, "con hybrid: esperar a que el índice vectorial esté activo y sin secciones pendientes (requiere superadmin)")
 	baseTime := fsx.String("base-time", "", "momento de la marca @base de las preguntas (RFC 3339): entre la carga base y las versiones nuevas")
+	rerankSel := fsx.String("rerank", "off", "R3: on (reordenar los mejores resultados con el modelo del servidor, motor hybrid+rerank), off (por defecto: sin reordenar, para comparar) o auto (lo decide el servidor)")
 	if err := fsx.Parse(reorder(args, map[string]bool{"json": true, "validated-only": true, "record": true, "accept": true, "wait-index": true})); err != nil {
 		return exitError{2, err.Error()}
 	}
@@ -130,6 +146,16 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	rr, okRerank := search.NormalizeRerank(*rerankSel)
+	if !okRerank {
+		return exitError{2, "--rerank debe ser on, off o auto"}
+	}
+	if *rerankSel == "off" || *rerankSel == "" {
+		rr = search.RerankOff // la comparación es explícita: sin reordenar aunque el servidor lo active por defecto
+	}
+	if rr == search.RerankOn && (*retriever == "local-bm25" || *retriever == "local") {
+		return exitError{2, "la copia local no reordena: --rerank on exige --retriever pgfts o hybrid"}
+	}
 	var r eval.Retriever
 	var c *Client
 	switch *retriever {
@@ -137,7 +163,7 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 		if c, err = newClient(dataDir, *server); err != nil {
 			return err
 		}
-		r = ServerRetriever{C: c, Mode: "fts"} // NX-10 R2: texto aunque el servidor tenga índice vectorial
+		r = ServerRetriever{C: c, Mode: "fts", Rerank: rr} // NX-10 R2: texto aunque el servidor tenga índice vectorial
 	case "local-bm25", "local":
 		// Tanda 2 (C-10): la copia local con BM25 (FTS5), sin servidor.
 		l, err := client.OpenLocal(client.DefaultLocalPath())
@@ -155,7 +181,7 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 				return err
 			}
 		}
-		r = ServerRetriever{C: c, Mode: "hybrid"}
+		r = ServerRetriever{C: c, Mode: "hybrid", Rerank: rr}
 	default:
 		return exitError{2, "motor desconocido: " + *retriever}
 	}
@@ -178,7 +204,7 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 				}
 			}
 		}
-		body := map[string]any{"report": rep, "accepted": *accept, "commit": *commit, "note": *note, "spaces": spaces, "mode": evalMode(*retriever)}
+		body := map[string]any{"report": rep, "accepted": *accept, "commit": *commit, "note": *note, "spaces": spaces, "mode": evalMode(*retriever, rr)}
 		var run struct {
 			ID string `json:"id"`
 		}
@@ -194,6 +220,9 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 	} else {
 		fmt.Fprintln(stdout, rep.Summary())
 		fmt.Fprint(stdout, rep.Table())
+		if line := rep.RerankLine(); line != "" {
+			fmt.Fprintln(stdout, line)
+		}
 		for _, q := range rep.Results {
 			mark := "acierto"
 			switch {

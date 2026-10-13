@@ -13,6 +13,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/rerank"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
 )
@@ -28,6 +29,9 @@ type EvalRetriever struct {
 	// Mode es el modo de las preguntas que no fijan uno (NX-10 R2: hybrid
 	// para medir el modo híbrido; vacío = el del servidor).
 	Mode string
+	// Rerank (NX-10 R3): "on" u "off" para medir con o sin reordenamiento;
+	// vacío = el del servidor.
+	Rerank string
 }
 
 // NewEvalRetriever crea el evaluador en proceso.
@@ -37,10 +41,14 @@ func NewEvalRetriever(svc *Service, id authz.Identity) *EvalRetriever {
 
 // Name implementa eval.Retriever.
 func (r *EvalRetriever) Name() string {
+	name := r.svc.searcher.Retriever().Name()
 	if r.Mode == search.ModeFTS {
-		return store.IndexKindPGFTS
+		name = store.IndexKindPGFTS
 	}
-	return r.svc.searcher.Retriever().Name()
+	if v, _ := search.NormalizeRerank(r.Rerank); v == search.RerankOn {
+		name += "+rerank"
+	}
+	return name
 }
 
 // Search implementa eval.Retriever.
@@ -49,13 +57,17 @@ func (r *EvalRetriever) Search(ctx context.Context, q eval.Question, spaces []st
 	if mode == "" {
 		mode = r.Mode
 	}
-	res, err := r.svc.Search(authz.WithRequestCache(ctx), r.id, SearchRequest{Q: q.Question, Spaces: spaces, At: at, KnownAt: knownAt, Limit: limit, Mode: mode})
+	res, err := r.svc.Search(authz.WithRequestCache(ctx), r.id, SearchRequest{Q: q.Question, Spaces: spaces, At: at, KnownAt: knownAt, Limit: limit, Mode: mode, Rerank: r.Rerank})
 	if err != nil {
 		return eval.Outcome{}, err
 	}
 	out := eval.Outcome{NoResults: res.NoResults}
 	for _, h := range res.Hits {
-		out.Hits = append(out.Hits, eval.Hit{Space: h.Space, DocKey: h.DocKey, Anchor: h.Anchor, Version: h.Version})
+		out.Hits = append(out.Hits, eval.Hit{Space: h.Space, DocKey: h.DocKey, Anchor: h.Anchor, Version: h.Version, PrePos: h.PreRerankPosition})
+	}
+	if ri := res.Rerank; ri != nil { // NX-10 R3: qué hizo el reordenador y cuánto tardó
+		out.Rerank = &eval.RerankTrace{Status: ri.Status, Reason: ri.Reason, LatencyMS: ri.LatencyMS, Candidates: ri.Candidates, Reordered: ri.Reordered,
+			TopChanged: ri.TopChanged, Dropped: ri.Dropped}
 	}
 	return out, nil
 }
@@ -93,6 +105,11 @@ func (s *Service) EvalConfig() map[string]any {
 		if vi, ok, err := s.st.ActiveVectorIndex(context.Background()); err == nil && ok {
 			cfg["vector_index"] = map[string]any{"version": vi.Version, "signature": vi.Signature}
 		}
+	}
+	if s.rr != nil { // NX-10 R3
+		cfg["r3"] = s.r3
+		cfg["reranker"] = s.rrCfg.Describe()
+		cfg["rerank_prompt"] = rerank.PromptVersion
 	}
 	return cfg
 }

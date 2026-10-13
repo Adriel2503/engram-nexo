@@ -210,12 +210,16 @@ func (r LocalRetriever) Search(ctx context.Context, q eval.Question, spaces []st
 	return out, nil
 }
 
-func evalMode(retriever string) string {
+func evalMode(retriever, rerank string) string {
 	if retriever == "local-bm25" || retriever == "local" {
 		return "local-bm25"
 	}
+	mode := "fts"
 	if retriever == "hybrid" { // NX-10 R2
-		return "hybrid"
+		mode = "hybrid"
 	}
-	return "fts"
+	if rerank == "on" { // NX-10 R3
+		mode += "+rerank"
+	}
+	return mode
 }
