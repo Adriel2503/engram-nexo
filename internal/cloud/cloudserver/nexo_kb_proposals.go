@@ -237,12 +237,12 @@ func kbProposalErrText(err error) (status int, msg string, force bool) {
 		nexoLogInternal("dashboard kb proposals", err)
 		return http.StatusInternalServerError, "Ocurrió un error interno. Vuelve a intentarlo; si se repite, avisa al administrador.", false
 	}
-	switch {
-	case de.Code == domain.CodeProposalState:
+	switch de.Code {
+	case domain.CodeProposalState:
 		return http.StatusConflict, "La propuesta ya no está abierta: otra persona la revisó mientras tanto. Recarga la página para ver cómo quedó.", false
-	case de.Code == domain.CodeVersionConflict:
+	case domain.CodeVersionConflict:
 		return http.StatusConflict, "El documento cambió desde que se hizo la propuesta. Revisa la versión vigente; si el cambio sigue siendo válido, marca \"Aprobar aunque el documento cambió\" y vuelve a aprobar.", true
-	case de.Code == domain.CodeSecret:
+	case domain.CodeSecret:
 		return http.StatusUnprocessableEntity, "El texto contiene secretos evidentes (claves o contraseñas) y no se puede publicar. Pide al autor que los quite. Detalle: " + de.Message, false
 	}
 	switch de.Kind {
