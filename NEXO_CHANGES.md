@@ -217,7 +217,7 @@ Lo que **no** cambia:
 - **Respuestas** (S5-01): revisión estática de los tipos de respuesta de `/admin/*`, `/nexo/*` y `/nexo/kb/v1` (etiqueta `json` explícita, sin nombres de secreto ni tipos de `database/sql`), contrato de campos de `/admin/*` de Engram y revisión de todas las respuestas reales de una corrida en el proceso. Corrige: los 500 de las rutas Nexo ya no devuelven el detalle del error (SQL, tablas; queda en el log) y `source_blob_ref` deja de salir en la API de conocimiento.
 - **Registro de rutas** (S5-02): `internal/nexo/routes` y `s.nexoRoute(mux, método, ruta, capacidad, handler)`; todas las rutas `/nexo/*` y `/dashboard/kb*` declaran su capacidad (validada al registrar). `TestNexoRouteRegistryCoversMux` recorre el mux y falla con una ruta Nexo fuera del registro o una ruta de Engram fuera de `cloudserver/testdata/nexo_engram_routes.txt`.
 - **Secretos en registros** (S5-03): corrida en el proceso (panel, emisión de tokens, sync, conocimiento, tokens inválidos, revocados y compartido, monitor) que revisa logs (`log`, `log/slog`), todas las filas del esquema, el webhook y las exportaciones.
-- **CI** (S5-04): `.github/workflows/nexo-security.yml` con Postgres de servicio (`pgvector/pgvector:pg16`) corre las pruebas de autorización y seguridad como puerta (solo en `Adriel2503/engram-nexo`).
+- **CI** (S5-04): `.github/workflows/nexo-security.yml` con Postgres de servicio (`pgvector/pgvector:pg16`, desde OP-09 `pg18`) corre las pruebas de autorización y seguridad como puerta (solo en `Adriel2503/engram-nexo`).
 
 **Archivos nuevos.**
 - `internal/nexo/routes/routes.go` — `Registry`, `Validate`, `Func`, marcadores `public`, `identity`, `token.write`.
@@ -308,7 +308,7 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `kb/store/{migrate,store}.go` (llama a `migrateR2`; estado de pgvector), `kb/search/{search,pgfts}.go` (modo `hybrid`, similitud, umbral combinado, aviso; consulta de texto partida para armar los resultados que solo encontró el vector), `kb/service/{service,r1,evalrun}.go` (motor híbrido si hay proveedor; umbral; modo y configuración en las corridas), `kb/httpapi/routes2b.go` (estado y reconstrucción del índice vectorial), `kb/cli/{cli,eval,upload,local}.go`, `kb/client/{kb,mcp}.go`, `kb/eval/quality_test.go` (prueba de calidad del modo hybrid con el embedder simulado), `kb/service/wiki_eval_test.go` (medición con proveedor real y caché de vectores), `cloudserver/nexo_kb_bridge.go` (arranca el indexador), `cloudserver/nexo_activity.go` (llamada al arranque, sin enganche nuevo en `Start()`), `cloudserver/nexo_kb_dashboard{,_view}.go` (selector de modo y aviso). **Sin enganches nuevos en archivos de Engram.**
 
-**Paso de actualización.** Postgres con la extensión `vector` (imagen `pgvector/pgvector:pg16` o `CREATE EXTENSION vector` hecho por un DBA, pgvector 0.8 o superior para `iterative_scan`), `NEXO_KB_EMBEDDER` y su clave en el entorno del servidor. Al arrancar se crea la versión de índice y el indexador vectoriza todo en segundo plano; mientras tanto la búsqueda sigue por texto. Las secciones y las preguntas se envían al proveedor: informar a Real Plaza antes de producción.
+**Paso de actualización.** Postgres con la extensión `vector` (imagen `pgvector/pgvector:pg16`, desde OP-09 `pg18`, o `CREATE EXTENSION vector` hecho por un DBA, pgvector 0.8 o superior para `iterative_scan`), `NEXO_KB_EMBEDDER` y su clave en el entorno del servidor. Al arrancar se crea la versión de índice y el indexador vectoriza todo en segundo plano; mientras tanto la búsqueda sigue por texto. Las secciones y las preguntas se envían al proveedor: informar a Real Plaza antes de producción.
 
 ### NX-10 · R3: reordenamiento de los mejores resultados
 
@@ -462,6 +462,33 @@ Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram
 **Archivos de Engram.** Líneas marcadas `// NX-10 (panel, OP-06)` en `helpers.go` y `dashboard.go`, y dos expresiones en `components.templ` (ver §4).
 
 **Verificación.** Pruebas contra Postgres: la pantalla con y sin proveedor, con la clave por variable y por archivo (el buscador de secretos de S5 más la clave de la prueba no encuentra nada), con una configuración inválida, 403 para el administrador y los miembros y sin sesión a login; armado del veredicto, el avance y los parámetros sin base; cada `http.Error` y cada cadena de Go de los archivos de Engram tiene traducción.
+
+### OP-09 · Postgres 18 (feat/postgres-18)
+
+**Especificación.** `docs/nexo/manuales/servidor-produccion.md` (requisitos, 9.3 y sobre todo 9.5 "Migrar de Postgres 16 a Postgres 18"), `docs/nexo/manuales/servidor-local.md` (compose y R2), backlog `docs/nexo/mejoras-y-referencias.md` (OP-09, OP-05).
+
+**Motivo.** El compose de ejemplo, el manual local y la puerta de seguridad de CI usaban Postgres 16. Decisión del usuario (2026-10-13): pasar el servidor Nexo a Postgres 18, siempre con Postgres oficial más pgvector (sin otras extensiones).
+
+**Qué cambia.**
+- **Imagen**: `pgvector/pgvector:pg18` (Postgres 18.6 con pgvector 0.8.7) en `deploy/nexo/compose.example.yaml`, en el compose del manual local (antes `postgres:16-alpine`, sin vectores) y en `.github/workflows/nexo-security.yml`. Se eligió `pgvector/pgvector` también para el manual local porque `01-cuentas.sh` ya crea la extensión solo si está disponible: queda lista la búsqueda por significado (R2) sin cambiar de imagen, y sin proveedor de embeddings se comporta como un Postgres normal. Los composes originales de Engram (`docker-compose.beta.yml`, `docker-compose.cloud.yml`, `docs/engram-cloud/*`, que siguen en `postgres:16-alpine`) y `ci.yml` (no usa Postgres de servicio) no se tocan.
+- **Volumen**: la imagen de Postgres 18 guarda los datos en `/var/lib/postgresql/18/docker` y declara como volumen `/var/lib/postgresql`. Los composes montan `pg18-data:/var/lib/postgresql` (nombre nuevo, para no tocar el volumen `pg-data` de la 16, que sirve para volver atrás). Montar el volumen en `/var/lib/postgresql/data`, o reutilizar un volumen de la 16 en la ruta nueva, hace que el contenedor se niegue a iniciar con un mensaje explicativo (comprobado; no inicializa una base vacía en silencio).
+- **Sin cambios necesarios**: `postgres-init/01-cuentas.sh` (solo cambió un comentario: las contraseñas se guardan con `scram-sha-256`, el valor por defecto; `md5` está en desuso en la 18), el healthcheck por TCP (`pg_isready -h 127.0.0.1`), los permisos del esquema `public` (el script ya lo deja a nombre de `nexo_owner` y sin `PUBLIC`), las migraciones del servidor y el código Go. Las bases nuevas de la 18 se crean con sumas de verificación de páginas.
+- **Corrección de la restauración (9.3)**: restaurar un respaldo con `pg_restore --exit-on-error` como `nexo_owner` fallaba con `must be owner of extension vector` (el `COMMENT ON EXTENSION` de la extensión creada por el superusuario en `01-cuentas.sh`). El manual ahora filtra la extensión `vector` de la lista del respaldo (`pg_restore -l ... | grep -v`, `-L`). Ocurría con la 16 también si la imagen traía pgvector.
+- **Manual 9.5**: migración de la 16 a la 18 con `pg_dump` y `pg_restore` (probada), alternativa `pg_upgrade` (no probada, con sus condiciones: pgvector en las dos versiones, sumas de verificación, carpeta de datos), vuelta atrás, Postgres administrado y verificación posterior (conteos de todas las tablas, extensión, índices HNSW, cadena de auditoría, tokens, búsqueda).
+
+**Archivos nuevos.** Ninguno.
+
+**Archivos Nexo modificados.** `deploy/nexo/compose.example.yaml`, `deploy/nexo/postgres-init/01-cuentas.sh` (comentario), `.github/workflows/nexo-security.yml`, `docs/nexo/manuales/servidor-produccion.md`, `docs/nexo/manuales/servidor-local.md`, `docs/nexo/seguridad/design.md` (D-S5-10), `docs/nexo/mejoras-y-referencias.md` (OP-09), este archivo.
+
+**Archivos de Engram.** Ninguno.
+
+**Paso de actualización.**
+- **Instalación nueva**: nada que hacer; el compose de ejemplo ya trae la 18.
+- **Instalación con datos en Postgres 16**: no cambie solo la imagen. Siga `servidor-produccion.md` 9.5 (respaldo, volumen nuevo `pg18-data`, restauración, `vacuumdb --analyze-in-stages`, comparación de conteos, arranque). Requiere una ventana sin servicio de minutos. El volumen `pg-data` se conserva hasta confirmar.
+- **Postgres administrado**: se mantiene (16 o posterior sirve); la migración de versión mayor es la del proveedor.
+- **Desarrollo**: para las pruebas con `CLOUDSTORE_TEST_DSN`, y en particular las de pgvector (R2), use `pgvector/pgvector:pg18`.
+
+**Verificación (2026-10-13), contra `pgvector/pgvector:pg18` (Postgres 18.6, pgvector 0.8.7).** `go build ./...` y `go vet ./internal/nexo/... ./internal/cloud/...` sin avisos; `go test -count=1 -p 1 ./internal/nexo/... ./internal/cloud/... ./internal/setup/... ./cmd/engram/` con `CLOUDSTORE_TEST_DSN` en verde salvo la falla conocida de Windows `TestCompatibilityPublicBinary/database_alias` (sin privilegio para symlinks); las pruebas de R2 (`TestR2HybridLifecycle`, `TestR2HNSWRecallSmallSpace`, `TestR2Halfvec` con 3072 dimensiones, `TestR2TwoAccounts`) pasan. De punta a punta con Docker Compose (imagen construida de la rama): dos cuentas de base de datos, `/health`, `/nexo/health/ready`, administrador inicial con token, usuario, espacio, documentos Markdown y búsqueda por texto. Migración 16.15 a 18.6 probada con datos, índice vectorial de 768 dimensiones, tokens y memorias: conteos de 43 líneas idénticos, tokens vigentes, búsqueda híbrida y por texto, `engram nexo audit verify` con `"ok":true` y escritura posterior.
 
 ## 4. Líneas marcadas en archivos originales de Engram
 
@@ -719,7 +746,7 @@ Misma plataforma, usuario, puerto (18080), `ENTRYPOINT` y `CMD` que la imagen of
 ## 9. Verificación
 
 ```powershell
-$env:CLOUDSTORE_TEST_DSN = '<DSN de un Postgres de pruebas>'   # p. ej. un postgres:16-alpine local desechable
+$env:CLOUDSTORE_TEST_DSN = '<DSN de un Postgres de pruebas>'   # p. ej. un pgvector/pgvector:pg18 local desechable
 go build ./... ; go vet ./internal/cloud/... ./internal/nexo/...
 go test -count=1 ./internal/cloud/... ./internal/nexo/...
 go test -count=1 -run TestCloudRuntime ./cmd/engram/
@@ -737,7 +764,7 @@ $env:NEXO_AUTHZ_PERF = "1"; go test -count=1 -v -run TestPGAuthorizationCostWith
 # NX-10 2b: medición R0/R1 sobre la wiki real (fuera del fork; el corpus no se versiona)
 $env:NEXO_KB_WIKI_DIR = '<carpeta de la wiki>'; $env:NEXO_KB_EVAL_SET = '<preguntas-wiki.yaml>'; $env:NEXO_KB_EVAL_OVERLAY = '<eval/overlay>'
 go test -count=1 -v -run TestEvalWikiCorpus ./internal/nexo/kb/service/   # NEXO_KB_EVAL_BASELINE=1 y NEXO_KB_R1=off: línea base
-# NX-10 R2: las pruebas de pgvector necesitan un CLOUDSTORE_TEST_DSN con la extensión (imagen pgvector/pgvector:pg16); sin ella se saltan
+# NX-10 R2: las pruebas de pgvector necesitan un CLOUDSTORE_TEST_DSN con la extensión (imagen pgvector/pgvector:pg18); sin ella se saltan
 # Prueba de humo con la API real del proveedor (Gemini por defecto; OpenAI o Azure con sus variables NEXO_KB_EMBED_*):
 NEXO_KB_EMBED_LIVE=1 go test -count=1 -v -run TestEmbedderLive ./internal/nexo/kb/embed/
 # Medición R2 sobre la wiki: además NEXO_KB_EMBEDDER, la clave, NEXO_KB_EMBED_CACHE (vectoriza una sola vez), NEXO_KB_EVAL_CONFIGS y NEXO_KB_EVAL_DEBUG=1 (design.md §20.6)

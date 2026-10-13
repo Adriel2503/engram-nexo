@@ -37,7 +37,7 @@ Dos contenedores con Docker Compose:
 
 | Servicio | Imagen | Qué hace | Dónde escucha en tu PC |
 |---|---|---|---|
-| `postgres` | `postgres:16-alpine` | Base de datos `engram_cloud` con dos cuentas: `nexo_owner` (dueña, solo migra al arrancar) y `nexo_app` (la que usa el servidor) | `127.0.0.1:54330` (para DBeaver) |
+| `postgres` | `pgvector/pgvector:pg18` | Base de datos `engram_cloud` con dos cuentas: `nexo_owner` (dueña, solo migra al arrancar) y `nexo_app` (la que usa el servidor) | `127.0.0.1:54330` (para DBeaver) |
 | `cloud` | `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2` | Servidor Nexo (`engram cloud serve`): API, panel web y espacios de conocimiento | `127.0.0.1:18095` |
 
 Es el mismo esquema con el que se probó el modo local (06-pruebas/conocimiento del repositorio de
@@ -178,7 +178,7 @@ name: nexo-local
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -191,7 +191,7 @@ services:
     ports:
       - "127.0.0.1:54330:5432"      # solo esta PC, para DBeaver
     volumes:
-      - pg-data:/var/lib/postgresql/data
+      - pg18-data:/var/lib/postgresql   # Postgres 18: el volumen va aquí, no en .../data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d engram_cloud"]
@@ -218,8 +218,20 @@ services:
       - "127.0.0.1:18095:18080"     # solo esta PC
 
 volumes:
-  pg-data:
+  pg18-data:
 ```
+
+Sobre Postgres 18:
+
+- La imagen `pgvector/pgvector:pg18` es el Postgres 18 oficial más la extensión pgvector (la que usa
+  la búsqueda por significado de la sección 16). Sin proveedor de embeddings se comporta como un
+  Postgres normal.
+- En Postgres 18 el volumen se monta en `/var/lib/postgresql` (no en `/var/lib/postgresql/data`).
+  Si lo montas en `.../data`, el contenedor se niega a iniciar con un mensaje que lo explica.
+- Si ya tenías este servidor local con Postgres 16 (`pg-data`), no cambies solo la imagen: usa un
+  volumen nuevo y migra los datos con `pg_dump` y `pg_restore`
+  ([`servidor-produccion.md`](servidor-produccion.md), sección 9.5, que se probó de la 16 a la 18), o
+  empieza de cero ([sección 15](#15-detener-borrar-y-empezar-de-cero)) si los datos son de prueba.
 
 Qué hace cada parte:
 
@@ -622,7 +634,7 @@ Desde la carpeta `nexo-local`:
 | Quieres | Comando | Qué pasa con los datos |
 |---|---|---|
 | Pausar | `docker compose stop` | Se conservan. `docker compose start` vuelve a levantar |
-| Apagar y quitar los contenedores | `docker compose down` | Se conservan (quedan en el volumen `pg-data`). `docker compose up -d` vuelve a levantar |
+| Apagar y quitar los contenedores | `docker compose down` | Se conservan (quedan en el volumen `pg18-data`). `docker compose up -d` vuelve a levantar |
 | Empezar de cero | `docker compose down -v` | **Se borra todo**: usuarios, tokens, espacios y documentos. No se puede deshacer |
 | Ver el registro del servidor | `docker compose logs -f cloud` | |
 | Actualizar la imagen | `docker compose pull` y `docker compose up -d` | Se conservan; el servidor migra solo al arrancar |
@@ -670,9 +682,9 @@ recrea el contenedor). Los valores por defecto están leídos del código.
 Para probar la búsqueda híbrida, que combina palabras y significado y encuentra un estándar aunque
 la pregunta use otras palabras:
 
-1. En el compose de la sección 5, cambia la imagen de `postgres` por `pgvector/pgvector:pg16`. Es
-   el Postgres oficial con la extensión pgvector; `01-cuentas.sh` la crea al iniciar el volumen.
-   - Si ya tenías un volumen creado, pide a la cuenta `postgres` que la cree:
+1. Usa la imagen `pgvector/pgvector:pg18` del compose de la sección 5 (ya trae la extensión pgvector;
+   `01-cuentas.sh` la crea al iniciar el volumen).
+   - Si tu volumen es anterior y se creó sin la extensión, pide a la cuenta `postgres` que la cree:
      `docker compose exec postgres psql -U postgres -d engram_cloud -c "CREATE EXTENSION IF NOT EXISTS vector SCHEMA public"`.
 2. Agrega al servicio `cloud` lo siguiente, con la clave en el `.env`, nunca en el compose:
 
