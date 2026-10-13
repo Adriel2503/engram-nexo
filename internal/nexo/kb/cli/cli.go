@@ -41,10 +41,12 @@ Comandos:
                                           Publica archivos .md y .txt (directorios recursivos)
   search [--space S]... [--category C] [--tag T] [--at FECHA] [--known-at FECHA]
          [--limit N] [--mode fts|exact] [--local] [--json] <consulta>
-                                          Busca en los espacios visibles (--local: solo la copia local)
+                                          Busca en los espacios visibles (--local: solo la copia local;
+                                          si el servidor no responde, también la usa, con aviso)
   get --space S [--version N] [--anchor A] [--local] [--json] <doc_key>[#ancla]
                                           Lee un documento o una sección (sin conexión: la copia local)
-  sync [--status] [--json]                Actualiza la copia local de solo lectura (~/.nexo/kb.db)
+  sync [--status] [--json]                Actualiza la copia local de solo lectura: NEXO_KB_LOCAL_DB o,
+                                          si no está, $NEXO_HOME/kb.db (por defecto ~/.nexo/kb.db)
   import-transversal --space general [--dry-run] [--from export.json] [--project nexo-transversal]
                                           Migra la memoria nexo-transversal: Oficial -> documentos,
                                           Propuesta -> propuestas (idempotente)
@@ -519,7 +521,7 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 		return exitError{2, "falta la consulta"}
 	}
 	if *local { // tanda 2: copia local (D-01)
-		return runSearchLocal(q, spaces, *category, *tag, *at, *mode, *limit, *asJSON, stdout)
+		return runSearchLocal(q, spaces, *category, *tag, *at, *mode, *limit, *asJSON, "", stdout)
 	}
 	c, err := newClient(dataDir, *server)
 	if err != nil {
@@ -531,6 +533,11 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 		path += "&mode=" + url.QueryEscape(*mode)
 	}
 	if err := c.Do(context.Background(), "GET", path, nil, &raw); err != nil {
+		// Sin respuesta del servidor: la copia local, avisando (como get y
+		// nexo_search). --known-at necesita el historial del servidor.
+		if client.Unreachable(err) && *knownAt == "" {
+			return runSearchLocal(q, spaces, *category, *tag, *at, *mode, *limit, *asJSON, "El servidor de Nexo no respondió ("+client.FriendlyError(err)+").", stdout)
+		}
 		return err
 	}
 	if *asJSON {

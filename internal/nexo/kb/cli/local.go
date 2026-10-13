@@ -154,7 +154,9 @@ func runGet(args []string, dataDir string, stdout io.Writer) error {
 
 // ─── search --local ──────────────────────────────────────────────────────────
 
-func runSearchLocal(q string, spaces []string, category, tag, at, mode string, limit int, asJSON bool, stdout io.Writer) error {
+// runSearchLocal busca en la copia local. why es el motivo del aviso ("" =
+// consulta pedida con --local).
+func runSearchLocal(q string, spaces []string, category, tag, at, mode string, limit int, asJSON bool, why string, stdout io.Writer) error {
 	atT, err := client.ParseWhen(at)
 	if err != nil {
 		return exitError{2, err.Error()}
@@ -165,7 +167,7 @@ func runSearchLocal(q string, spaces []string, category, tag, at, mode string, l
 	}
 	defer l.Close()
 	kb := client.NewKB(nil, l)
-	res, err := kb.Search(context.Background(), client.SearchParams{Query: q, Spaces: spaces, Category: category, Tag: tag, At: atT, Mode: mode, Limit: limit, LocalOnly: true})
+	res, err := kb.Search(context.Background(), client.SearchParams{Query: q, Spaces: spaces, Category: category, Tag: tag, At: atT, Mode: mode, Limit: limit, LocalOnly: true, LocalReason: why})
 	if err != nil {
 		return err
 	}
