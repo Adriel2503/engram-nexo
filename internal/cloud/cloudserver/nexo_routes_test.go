@@ -68,7 +68,8 @@ func nexoIsNexoPath(pattern string) bool {
 		path = pattern[i+1:]
 	}
 	return strings.HasPrefix(path, "/nexo/") || path == "/dashboard/kb" || strings.HasPrefix(path, "/dashboard/kb/") ||
-		path == "/dashboard/admin/service-accounts" || strings.HasPrefix(path, "/dashboard/admin/service-accounts/")
+		path == "/dashboard/admin/service-accounts" || strings.HasPrefix(path, "/dashboard/admin/service-accounts/") ||
+		path == "/dashboard/admin/audit" || strings.HasPrefix(path, "/dashboard/admin/audit/")
 }
 
 func nexoReadEngramRoutes(t *testing.T) map[string]bool {

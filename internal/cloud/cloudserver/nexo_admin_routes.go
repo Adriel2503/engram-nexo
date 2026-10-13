@@ -81,6 +81,7 @@ func (s *CloudServer) registerNexoAdminRoutes(mux *http.ServeMux) {
 	s.nexoRoute(mux, "GET", "/nexo/admin/authz-events", "platform.audit.read", s.withAuth(s.handleNexoAuthzEvents))
 	s.registerNexoAuthzRoutes(mux)
 	s.registerNexoEvidenceRoutes(mux) // NX-07 S4: verificación de la cadena, alertas y revisión de accesos
+	s.registerNexoAuditDashboard(mux) // SG-07: pantallas del panel para el auditor (nexo_audit_dashboard.go)
 	s.registerNexoHealthRoutes(mux)   // NX-10: /nexo/health/ready (disponibilidad con la base; sin autenticación)
 }
 
