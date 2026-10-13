@@ -278,6 +278,10 @@ Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram
 - **Paquete npm de Pi** (`publish-pi.yml`): solo corre en el repositorio de Engram.
 - Cómo publicar una versión: pasar a `main`, esperar el CI verde, `git tag v3.4.0-nexo.1 && git push origin v3.4.0-nexo.1`.
 
+### Documentación · Manuales de usuario
+
+- `docs/nexo/manuales/` (2026-10-13): índice `README.md` y manuales `instalacion-dev.md` (dev en Windows, macOS y Linux), `servidor-local.md` (servidor en la propia PC con Docker), `servidor-produccion.md` y `administracion.md`. Solo documentación; no cambia código.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.

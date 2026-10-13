@@ -1,5 +1,12 @@
 # Manual de administración — Trazabilidad en Engram Cloud
 
+> **Documento reemplazado (2026-10-13).** Este manual describe la base Engram 3.3.2 y solo la
+> trazabilidad (NX-01 a NX-04). Para la versión `3.4.0-nexo.1` use
+> [`docs/nexo/manuales/administracion.md`](../manuales/administracion.md) (roles, tokens con
+> caducidad y alcance, espacios de conocimiento, auditoría y revisión de accesos) y
+> [`docs/nexo/manuales/servidor-produccion.md`](../manuales/servidor-produccion.md) (variables del
+> servidor). Se conserva como referencia histórica de la API NX-03.
+
 **Proyecto:** Nexo IA (fork `engram-nexo`, base Engram v3.3.2) · **Cambios:** NX-01 a NX-04
 **Referencias:** `requirements.md`, `design.md`, `tasks.md` · **Fecha:** 2026-10-12
 
