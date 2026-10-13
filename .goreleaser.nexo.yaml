@@ -1,0 +1,61 @@
+# Nexo IA · OP-01: publicación de versiones del fork engram-nexo.
+#
+# La usa .github/workflows/release.yml con etiquetas v<engram>-nexo.<n>
+# (por ejemplo v3.4.0-nexo.1). Es la de Engram (.goreleaser.yaml) sin la
+# fórmula de Homebrew de Gentleman Programming ni nada que publique fuera de
+# este repositorio. El archivo de Engram queda sin cambios para las
+# integraciones de versiones nuevas.
+
+version: 2
+
+project_name: engram
+
+release:
+  # Las versiones del fork siempre llevan sufijo -nexo.N, que semver lee como
+  # prerelease; se publican como versiones normales.
+  prerelease: false
+  name_template: "Nexo IA {{ .Tag }}"
+  footer: |
+    Binario `engram` del fork Nexo IA. Instalación para devs: `engram nexo connect`
+    y `engram setup <asistente>` (ver docs/nexo y NEXO_CHANGES.md).
+
+builds:
+  - main: ./cmd/engram
+    binary: engram
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    hooks:
+      post:
+        - cmd: sh -c 'if [ "{{ .Os }}" = "darwin" ] && command -v codesign >/dev/null 2>&1; then codesign --force --sign - "{{ .Path }}"; fi'
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - tools/cloud-sync-projects.sh
+      - tools/cloud-sync-projects.ps1
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test:"
+      - "^ci:"

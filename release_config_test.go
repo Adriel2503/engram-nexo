@@ -8,13 +8,28 @@ import (
 	"testing"
 )
 
+// NX-OP01 (Nexo IA): el job del fork publica solo en Adriel2503/engram-nexo,
+// exige que la etiqueta esté en main, usa .goreleaser.nexo.yaml (sin Homebrew)
+// y en ejecución manual solo compila (--snapshot). Antes era el de Engram.
 const expectedGoreleaserJob = `  goreleaser:
+    if: github.repository == 'Adriel2503/engram-nexo' # NX-OP01
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+
+      # NX-OP01: solo se publica lo que ya está en main (la rama estable).
+      - name: Check that the tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "La etiqueta ${GITHUB_REF_NAME} no está en main; pasa el commit a main antes de etiquetar." >&2
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
@@ -28,10 +43,10 @@ const expectedGoreleaserJob = `  goreleaser:
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           version: "~> v2"
-          args: release --clean
+          # NX-OP01: configuración Nexo; sin etiqueta (ejecución manual) solo compila.
+          args: release --clean --config .goreleaser.nexo.yaml ${{ startsWith(github.ref, 'refs/tags/') && ' ' || '--snapshot' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 `
 
 func TestReleaseChecksModuleMetadataWithoutMutatingTaggedSources(t *testing.T) {
@@ -40,6 +55,10 @@ func TestReleaseChecksModuleMetadataWithoutMutatingTaggedSources(t *testing.T) {
 	if strings.Contains(goreleaser, "go mod tidy") {
 		t.Fatal(".goreleaser.yaml must not run go mod tidy during a release")
 	}
+	nexo := releaseConfigFile(t, filepath.Join(root, ".goreleaser.nexo.yaml")) // NX-OP01
+	if strings.Contains(nexo, "go mod tidy") || strings.Contains(nexo, "brews:") || strings.Contains(nexo, "homebrew") { // NX-OP01
+		t.Fatal(".goreleaser.nexo.yaml must not run go mod tidy nor publish a Homebrew formula") // NX-OP01
+	} // NX-OP01
 
 	workflow := releaseConfigFile(t, filepath.Join(root, ".github", "workflows", "release.yml"))
 	job, ok := releaseWorkflowGoreleaserJob(workflow)

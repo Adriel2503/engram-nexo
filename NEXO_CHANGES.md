@@ -269,6 +269,15 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `cloudserver/nexo_kb_dashboard.go` (páginas rediseñadas, activa la marca), `cloudserver/nexo_kb_dashboard_test.go` (texto "Resultado de la subida").
 
+### OP-01 · Publicación de versiones del fork (workflows)
+
+Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram crearon un release con los binarios originales e intentaron actualizar el Homebrew de Gentleman Programming (falló por credenciales). Desde el 2026-10-13:
+- **Etiquetas.** Solo las propias `v<engram>-nexo.<n>` (por ejemplo `v3.4.0-nexo.1`) publican, y solo en `Adriel2503/engram-nexo`. Las etiquetas de Engram ya no disparan nada; aun así, no se suben etiquetas de Engram al fork.
+- **Binarios** (`release.yml`): exige que la etiqueta esté en `main`, usa `.goreleaser.nexo.yaml` (la de Engram sin `brews`, título "Nexo IA <etiqueta>", no se marca como prerelease aunque lleve `-nexo.N`). La ejecución manual (`gh workflow run release.yml`) compila con `--snapshot` sin publicar.
+- **Imagen del servidor** (`cloud-image.yml`): construye `deploy/nexo/Dockerfile` para amd64 y arm64 y la sube como `ghcr.io/adriel2503/nexo-engram-cloud:<versión>` (y `latest` si la etiqueta está en `main`). La ejecución manual solo construye.
+- **Paquete npm de Pi** (`publish-pi.yml`): solo corre en el repositorio de Engram.
+- Cómo publicar una versión: pasar a `main`, esperar el CI verde, `git tag v3.4.0-nexo.1 && git push origin v3.4.0-nexo.1`.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -339,6 +348,12 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/dashboard/login.templ:6-67` | NX-10 (panel) | Comentario marcado en la línea 6; con la marca, columna `nexoLoginPanel` y textos por `nx()`; sin la marca, el HTML de Engram; `data-error-code` con el código del error. `login_templ.go` regenerado (+233/-15 líneas) |
 | `internal/cloud/dashboard/dashboard.go:341` | NX-10 (panel) | `handleDashboardHome`: `nexoHome(...)` en lugar de `DashboardHome(...)` (delega en `DashboardHome` sin la marca) |
 | `internal/setup/setup_test.go:599, 698, 2088` | NX-10 | Pruebas de Engram ajustadas al marketplace del fork (`codexMarketplaceRef` y lista de plugins de Claude con `Adriel2503/engram-nexo`) |
+| `.github/workflows/release.yml` | NX-OP01 | Disparo `v*-nexo.*` + ejecución manual, guarda de repositorio, paso "la etiqueta está en main", `--config .goreleaser.nexo.yaml` y `--snapshot` sin etiqueta, sin `HOMEBREW_TAP_TOKEN` |
+| `.github/workflows/cloud-image.yml` | NX-OP01 | Disparo `v*-nexo.*`, guarda de repositorio, imagen `ghcr.io/adriel2503/nexo-engram-cloud` desde `deploy/nexo/Dockerfile`, etiquetas `latest` y versión exacta, sin subir en la ejecución manual |
+| `.github/workflows/publish-pi.yml` | NX-OP01 | Guarda: solo en `Gentleman-Programming/engram` |
+| `release_config_test.go:11-44` | NX-OP01 | El job esperado de goreleaser es el de Nexo; además verifica que `.goreleaser.nexo.yaml` no ejecute `go mod tidy` ni publique en Homebrew |
+
+Archivo nuevo de configuración: `.goreleaser.nexo.yaml` (OP-01). `.goreleaser.yaml` de Engram queda sin cambios.
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 

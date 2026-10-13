@@ -1,9 +1,12 @@
 name: Publish Engram Cloud Image
 
+# NX-OP01 (Nexo IA): en el fork publica la imagen del servidor Nexo
+# (deploy/nexo/Dockerfile) como ghcr.io/adriel2503/nexo-engram-cloud, solo con
+# etiquetas v<engram>-nexo.<n>. La ejecución manual construye sin subir.
 on:
   push:
     tags:
-      - "v*"
+      - "v*-nexo.*" # NX-OP01 (antes "v*")
   workflow_dispatch:
 
 permissions:
@@ -12,6 +15,7 @@ permissions:
 
 jobs:
   publish-ghcr:
+    if: github.repository == 'Adriel2503/engram-nexo' # NX-OP01
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,27 +55,26 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: ghcr.io/gentleman-programming/engram
+          images: ghcr.io/adriel2503/nexo-engram-cloud # NX-OP01
+          # NX-OP01: latest solo si la etiqueta está en main; versión exacta
+          # (3.4.0-nexo.1); sha- en la ejecución manual (que no sube nada).
           tags: |
             type=raw,value=latest,enable=${{ steps.refcheck.outputs.is_default_branch_tag == 'true' }}
-            type=ref,event=tag
             type=semver,pattern={{version}},value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}},value=${{ github.ref_name }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=sha-,enable=${{ github.event_name == 'workflow_dispatch' }}
           labels: |
-            org.opencontainers.image.title=Engram Cloud
-            org.opencontainers.image.description=Project-scoped sync and dashboard runtime for Engram Cloud.
-            org.opencontainers.image.source=https://github.com/gentleman-programming/engram
+            org.opencontainers.image.title=Nexo IA cloud
+            org.opencontainers.image.description=Servidor Nexo IA (fork engram-nexo): memoria compartida y espacios de conocimiento.
+            org.opencontainers.image.source=https://github.com/Adriel2503/engram-nexo
             org.opencontainers.image.licenses=MIT
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
-          file: docker/cloud/Dockerfile
+          file: deploy/nexo/Dockerfile # NX-OP01
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ startsWith(github.ref, 'refs/tags/') }} # NX-OP01: la ejecución manual solo construye
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

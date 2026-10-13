@@ -8,6 +8,8 @@ on:
 
 jobs:
   publish:
+    # NX-OP01 (Nexo IA): el paquete npm gentle-engram es de Engram; no se publica desde el fork.
+    if: github.repository == 'Gentleman-Programming/engram'
     runs-on: ubuntu-latest
     permissions:
       contents: read
