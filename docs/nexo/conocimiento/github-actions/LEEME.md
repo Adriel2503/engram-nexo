@@ -34,9 +34,11 @@ El token llega al binario solo por la variable de entorno `ENGRAM_CLOUD_TOKEN` d
 nunca va en la línea de comandos (quedaría en los registros) ni en archivos. GitHub enmascara el
 secreto en la salida. El servidor llega por `ENGRAM_CLOUD_SERVER`.
 
-Alta de la cuenta de servicio (administrador de Nexo): crear la cuenta, emitir su token con alcance
-`write` y darle el rol `publicador` en el espacio por `/nexo/authz/v1/scopes/space/<slug>/members`.
-Una cuenta de servicio nunca puede ser responsable (NX-05).
+Alta de la cuenta de servicio (administrador de Nexo, SG-10): `engram nexo sa create --slug ci-<repo>
+--owner <usuario>`, el responsable del espacio le da el rol con `engram nexo sa grant ci-<repo> --space
+<slug> --role publicador` y el admin emite el token con `engram nexo sa token issue ci-<repo> --out
+token.txt` (también desde el panel, `/dashboard/admin/service-accounts`). Una cuenta de servicio nunca
+puede ser responsable (NX-05, R-10). Rotación y último uso: `docs/nexo/manuales/administracion.md` §3.8.
 
 ## Binario del fork
 

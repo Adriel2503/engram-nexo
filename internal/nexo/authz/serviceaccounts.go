@@ -1,7 +1,7 @@
 package authz
 
-// SG-10 · Cuentas de servicio para CI y bots (docs/nexo/seguridad/design.md
-// §9). Una cuenta de servicio es un cloud_principals con kind
+// SG-10 · Cuentas de servicio para CI y bots
+// (docs/nexo/seguridad/cuentas-servicio.md). Una cuenta de servicio es un cloud_principals con kind
 // 'service_account' (tabla de Engram, sin cambios) más una fila en la tabla
 // lateral nexo_service_accounts con lo que Engram no guarda: nombre corto
 // (slug), descripción, la persona responsable (owner) y quién la creó.
