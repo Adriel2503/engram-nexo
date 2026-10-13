@@ -18,6 +18,13 @@ import (
 
 // nexoInternalError registra el error y responde 500 sin su detalle.
 func nexoInternalError(w http.ResponseWriter, what string, err error) {
-	log.Printf("[nexo] %s: %v", what, err)
+	nexoLogInternal(what, err)
 	writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, what+": internal error")
+}
+
+// nexoLogInternal deja el detalle de un error interno solo en el log del
+// servidor. Lo usan nexoInternalError (API JSON) y las páginas del panel, que
+// responden 500 con un texto genérico en español y nunca muestran el error.
+func nexoLogInternal(what string, err error) {
+	log.Printf("[nexo] %s: %v", what, err)
 }

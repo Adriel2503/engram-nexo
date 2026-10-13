@@ -65,6 +65,7 @@ func (s *CloudServer) registerNexoKBDashboard(mux *http.ServeMux) {
 	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/upload", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbUpload)))
 	s.nexoRoute(mux, "GET", "/dashboard/kb/spaces/{slug}/doc", "space.read", s.requireDashboardSession(s.nexoKBPage(s.kbDocument)))
 	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/retire", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbRetire)))
+	s.registerNexoKBMembersDashboard(mux)   // K6 (KP-12): miembros del espacio
 }
 
 type kbPageHandler func(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity)
@@ -155,14 +156,26 @@ func kbRaw(markup string) templ.Component {
 }
 
 func (s *CloudServer) kbRender(w http.ResponseWriter, r *http.Request, status int, title, body string) {
-	page := dashboard.Layout(title, s.dashboardDisplayName(r), "kb", s.isDashboardAdmin(r), kbRaw(body))
+	s.kbRenderComponent(w, r, status, title, "kb", kbRaw(body))
+}
+
+// kbRenderComponent dibuja una página del panel de conocimiento con el marco
+// común; tab es la pestaña activa del menú ("kb" o "proposals").
+func (s *CloudServer) kbRenderComponent(w http.ResponseWriter, r *http.Request, status int, title, tab string, body templ.Component) {
+	page := dashboard.Layout(title, s.dashboardDisplayName(r), tab, s.isDashboardAdmin(r), body)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
 	w.WriteHeader(status)
 	if err := page.Render(r.Context(), w); err != nil {
-		fmt.Printf("dashboard kb: render: %v\n", err)
+		nexoLogInternal("dashboard kb render", err)
 	}
+}
+
+// kbFail responde con la página de error común: dice qué pasó y cómo seguir.
+func (s *CloudServer) kbFail(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	s.kbRender(w, r, status, "Conocimiento", `<div class="nx-page"><header class="nx-head"><h1>No se pudo completar</h1></header><div class="nx-note nx-note-error" role="alert"><p>`+
+		esc(msg)+`</p></div><p><a href="/dashboard/kb">Volver a Conocimiento</a></p></div>`)
 }
 
 // kbErrorText traduce los errores de dominio más comunes a un texto que dice
@@ -197,10 +210,9 @@ func (s *CloudServer) kbError(w http.ResponseWriter, r *http.Request, err error)
 			status = http.StatusRequestEntityTooLarge
 		}
 	} else {
-		fmt.Printf("dashboard kb: error: %v\n", err)
+		nexoLogInternal("dashboard kb", err)
 	}
-	s.kbRender(w, r, status, "Conocimiento", `<div class="nx-page"><header class="nx-head"><h1>No se pudo completar</h1></header><div class="nx-note nx-note-error" role="alert"><p>`+
-		esc(msg)+`</p></div><p><a href="/dashboard/kb">Volver a Conocimiento</a></p></div>`)
+	s.kbFail(w, r, status, msg)
 }
 
 func kbDate(t time.Time) string { return t.UTC().Format("2006-01-02 15:04") }
@@ -306,7 +318,7 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 	// 2. Nombrar responsable y miembros.
 	switch {
 	case len(spaces) > 0 && (canMembers || canCreate):
-		b.WriteString(kbStep("Nombrar responsable y miembros", "El responsable se nombra al crear el espacio. Después agrega publicadores y, en los espacios restringidos, lectores, con la API <code>/nexo/authz/v1</code>.", "Hecho", "nx-step-done", ""))
+		b.WriteString(kbStep("Nombrar responsable y miembros", "El responsable se nombra al crear el espacio. Después agrega publicadores y, en los espacios restringidos, lectores, desde la sección Miembros de cada espacio.", "Hecho", "nx-step-done", kbMembersStepLink(spaces)))
 	case len(spaces) > 0:
 		b.WriteString(kbStep("Nombrar responsable y miembros", "Cada espacio tiene un responsable que decide quién publica. Si necesitas publicar, pídeselo.", "No aplica a tu rol", "nx-step-na", ""))
 	case canCreate:
@@ -457,6 +469,7 @@ func (s *CloudServer) kbSpace(w http.ResponseWriter, r *http.Request, svc *kbser
 		fmt.Fprintf(&b, `<li>Última actualización %s</li>`, kbDay(st.last))
 	}
 	b.WriteString(`</ul></header>`)
+	b.WriteString(s.kbSpaceSectionsHTML(r, svc, id, sp.Slug, "docs")) // K6: Documentos, Miembros, Propuestas
 
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	atRaw := r.URL.Query().Get("at")
