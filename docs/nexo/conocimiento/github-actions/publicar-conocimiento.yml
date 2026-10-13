@@ -70,7 +70,7 @@ jobs:
 
       # Opción B (cuando exista un release del fork, OP-01): descargar y verificar el binario
       # en lugar de los tres pasos anteriores, por ejemplo:
-      #   curl -fsSL -o engram.tar.gz https://<releases>/engram_3.3.2-nexo.N_linux_amd64.tar.gz
+      #   curl -fsSL -o engram.tar.gz https://<releases>/engram_3.4.0-nexo.N_linux_amd64.tar.gz
       #   echo "<sha256>  engram.tar.gz" | sha256sum -c -
       #   tar -xzf engram.tar.gz -C "$RUNNER_TEMP" engram
 

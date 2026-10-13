@@ -28,7 +28,7 @@ identifica a quien publica (RN-K5): todo queda atribuido a la cuenta de servicio
 | Variable | `NEXO_SERVER` | URL de Nexo (`https://...`) |
 | Variable | `NEXO_KB_SPACE` | Slug del espacio |
 | Variable | `NEXO_KB_DIR` | Carpeta con los documentos (opcional; por defecto `docs`) |
-| Variable | `NEXO_FORK_REF` | Rama o etiqueta del fork a compilar (opcional; por defecto `develop`; conviene fijar una etiqueta `v3.3.2-nexo.N`) |
+| Variable | `NEXO_FORK_REF` | Rama o etiqueta del fork a compilar (opcional; por defecto `develop`; conviene fijar una etiqueta `v3.4.0-nexo.N`) |
 
 El token llega al binario solo por la variable de entorno `ENGRAM_CLOUD_TOKEN` del paso que lo usa;
 nunca va en la línea de comandos (quedaría en los registros) ni en archivos. GitHub enmascara el

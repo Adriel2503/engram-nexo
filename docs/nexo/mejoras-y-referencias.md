@@ -109,7 +109,7 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 |---|---|---|---|---|---|---|
 | OP-01 | Binario propio de Engram para los devs, con aviso de actualización apuntando al fork | D-R6 | Herramientas `nexo_*` en los asistentes | E3 | A | pendiente (requisito para que el kit use las herramientas `nexo_*` de la tanda 2) |
 | OP-02 | Instalador que inscribe proyectos según roles (`/nexo/authz/v1/me`) | Hallazgo E2E trazabilidad | Evitar autosync trabado | E3 / E4 | A | pendiente |
-| OP-03 | Pasar `develop` a `main` y etiquetar versiones `v3.3.2-nexo.N` | Flujo del fork | Versiones estables identificables | Al cerrar cada bloque | M | pendiente |
+| OP-03 | Etiquetar versiones estables `v3.4.0-nexo.N` desde `develop` (`main` queda como copia del Engram original para traer sus actualizaciones) | Flujo del fork | Versiones estables identificables | Al cerrar cada bloque | M | pendiente |
 | OP-04 | Ajuste de Postgres para búsqueda a escala (`shared_buffers`, memoria) si p95 supera 300 ms | Medición 2a (312 ms con 1 millón) | Rendimiento | Producción | B | pendiente |
 | OP-05 | Migraciones condicionales de extensiones (`vector`): verificar `pg_available_extension_versions` y la versión mínima (0.8), no dejar la migración a medias si falta, índices HNSW grandes con `CONCURRENTLY` fuera de la transacción; confirmar con Real Plaza el proveedor y la versión de Postgres y pgvector | WeKnora (migraciones 000059, 000112, 000115) | R2 en un Postgres administrado | Consulta a Real Plaza ahora; migración en R2 | A | pendiente (consultar) |
 

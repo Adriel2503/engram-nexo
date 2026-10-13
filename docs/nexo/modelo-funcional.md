@@ -6,7 +6,7 @@
 > antecedente; la sección 9 (Engram propio y vigencia) sigue vigente.
 
 Estado: borrador para revisión. Fecha: 2026-10-12.
-Base: Engram v3.3.2 (fork engram-nexo). Referencia: Utopia rc9 (`repository/utopia`).
+Base: Engram v3.3.2 al escribirlo; v3.4.0 desde el 2026-10-13 (fork engram-nexo). Referencia: Utopia rc9 (`repository/utopia`).
 
 ## 1. Objetivo y alcance
 

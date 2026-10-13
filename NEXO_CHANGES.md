@@ -1,6 +1,6 @@
 # NEXO_CHANGES — Registro de cambios del fork engram-nexo
 
-**Proyecto:** Nexo IA · **Base:** Engram v3.3.2 (commit `35d1452`) · **Versión del fork:** `3.3.2-nexo.1`
+**Proyecto:** Nexo IA · **Base:** Engram v3.4.0 (commit `fc43849`, integrado el 2026-10-13 en `1c3aadb`; antes v3.3.2, commit `35d1452`) · **Próxima versión del fork:** `3.4.0-nexo.1`
 **Especificación:** `docs/nexo/trazabilidad/` (`requirements.md`, `design.md`, `tasks.md`, `manual-admin.md`) · roles: `docs/nexo/roles/` (NX-05) · seguridad: `docs/nexo/seguridad/` (NX-07) · conocimiento: `docs/nexo/conocimiento/` (NX-10)
 
 Este archivo es el inventario de todo lo que el fork cambia respecto de Engram. Sirve para revisar el fork y para integrar versiones nuevas de Engram con conflictos mínimos (RNF-04).
@@ -422,6 +422,8 @@ Volver a la imagen oficial 3.3.2 con la misma base es posible: Engram ignora las
 
 ## 7. Compatibilidad con el cliente oficial
 
+**Integración de Engram v3.4.0 (2026-10-13).** `main` del fork se adelantó a `upstream/main` (`fc43849`, 30 commits: consolidación de memorias, revisiones programadas, prompts fuera de los chunks de Git salvo que se compartan, robustez del SQLite local, mejoras de plugins y hooks, CI de Engram) y se mezcló en `develop` (`1c3aadb`) sin conflictos; los enganches `NX-` quedaron intactos. Verificado: build, `go vet`, pruebas de `internal/nexo`, `internal/cloud`, `internal/setup` y `TestCloudRuntime`. En Windows fallan pruebas propias de Engram (`internal/store`: enlaces simbólicos sin privilegio y limpieza de carpetas temporales) que no dependen de Nexo. Las pruebas E2E con el cliente oficial descritas abajo se hicieron con 3.3.2; repetirlas con 3.4.0 queda pendiente. Procedimiento para las próximas versiones: adelantar `main` a `upstream/main`, probar la mezcla en una carpeta aparte y llevarla a `develop`.
+
 - Las rutas y respuestas de `/sync/*` no cambian; el autor no viaja a los clientes (`ListMutationsSince` sin cambios).
 - Verificado de punta a punta con el **binario oficial Engram 3.3.2** (linux/amd64) contra la imagen `nexo-engram-cloud:3.3.2-nexo.1`, por las dos vías: paquetes (`engram sync --cloud`, `--import`) y autosync de mutaciones (`engram serve` con `ENGRAM_CLOUD_AUTOSYNC=1`), detrás de Caddy HTTPS. Resultados en `06-pruebas/trazabilidad/RESULTADOS.md` del repositorio de Nexo.
 - Comportamiento del cliente a tener en cuenta (`design.md` §10.20): con token exige HTTPS en ambas vías; el autosync no envía `created_by` (lo declarado por la PC solo llega por paquetes); `engram sync --cloud` puede volver a subir observaciones importadas, que quedan atribuidas a quien las subió; un proyecto inscrito sin permiso traba el autosync de esa PC.
@@ -430,8 +432,8 @@ Volver a la imagen oficial 3.3.2 con la misma base es posible: Engram ignora las
 
 ```powershell
 # Desde la raíz del fork
-docker build --platform linux/amd64 -f deploy/nexo/Dockerfile --build-arg VERSION=3.3.2-nexo.1 -t nexo-engram-cloud:3.3.2-nexo.1 .
-docker run --rm nexo-engram-cloud:3.3.2-nexo.1 version   # engram 3.3.2-nexo.1
+docker build --platform linux/amd64 -f deploy/nexo/Dockerfile --build-arg VERSION=3.4.0-nexo.1 -t nexo-engram-cloud:3.4.0-nexo.1 .
+docker run --rm nexo-engram-cloud:3.4.0-nexo.1 version   # engram 3.4.0-nexo.1
 ```
 
 Misma plataforma, usuario, puerto (18080), `ENTRYPOINT` y `CMD` que la imagen oficial; se reemplaza la imagen del servicio `cloud` y se agregan `NEXO_TRUSTED_PROXIES` (IP del proxy) y, si se desea, `NEXO_ACTIVITY_RETENTION_DAYS`. Las migraciones se aplican solas.

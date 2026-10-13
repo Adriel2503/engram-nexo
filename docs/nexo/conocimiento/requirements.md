@@ -4,7 +4,7 @@ Estado: borrador para revisión. Fecha: 2026-10-12 (ajustado el 2026-10-13 por l
 usuario: subida de archivos sueltos, KP-10 descartado, §17.9 del diseño). Rama: `feat/conocimiento-nucleo`.
 Requisitos de producto: `nexo_ia/01-requisitos/Nexo_IA_Requisitos_e_Historias.md` (v2; HU-29, HU-30,
 HU-33, HU-35..HU-39, RN-14, RN-15).
-Identificador del cambio: **NX-10** (espacios de conocimiento). Base: Engram 3.3.2 + trazabilidad
+Identificador del cambio: **NX-10** (espacios de conocimiento). Base: Engram 3.3.2 (v3.4.0 desde el 2026-10-13) + trazabilidad
 NX-01..NX-04 (`develop`, `d0a0e62`). Roles: `docs/nexo/roles/` (NX-05).
 
 ## 1. Contexto y objetivo

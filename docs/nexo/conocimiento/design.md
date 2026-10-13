@@ -980,7 +980,7 @@ estándar, respetando vigencias y funcionando sin red con la copia local.
 La skill y la instalación de Nexo dejan el kit externo (`nexo_ia/02-nexo-kit`, que queda como
 histórico) y pasan al fork. Instalación para un dev, igual en Windows, Mac y Linux:
 
-1. Instalar el binario `engram` del fork (`3.3.2-nexo.N`).
+1. Instalar el binario `engram` del fork (`3.4.0-nexo.N`; la base es Engram v3.4.0 desde el 2026-10-13).
 2. `engram nexo connect --server https://<servidor-nexo> --token-stdin` (o `NEXO_TOKEN`, o `--token`).
 3. `engram setup <agente>` (claude-code, codex, cursor, windsurf, ...). Si ya estaba configurado:
    `engram nexo setup <agente>`.

@@ -7,15 +7,15 @@
 #
 # Construir (desde la raíz del fork):
 #   docker build --platform linux/amd64 -f deploy/nexo/Dockerfile \
-#     --build-arg VERSION=3.3.2-nexo.1 -t nexo-engram-cloud:3.3.2-nexo.1 .
+#     --build-arg VERSION=3.4.0-nexo.1 -t nexo-engram-cloud:3.4.0-nexo.1 .
 # Verificar:
-#   docker run --rm nexo-engram-cloud:3.3.2-nexo.1 version   -> engram 3.3.2-nexo.1
+#   docker run --rm nexo-engram-cloud:3.4.0-nexo.1 version   -> engram 3.4.0-nexo.1
 
 FROM --platform=$BUILDPLATFORM golang:1.25.10-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=3.3.2-nexo.1
+ARG VERSION=3.4.0-nexo.1
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/engram ./cmd/engram
 
 FROM alpine:3.21
-ARG VERSION=3.3.2-nexo.1
+ARG VERSION=3.4.0-nexo.1
 LABEL org.opencontainers.image.title="nexo-engram-cloud" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.description="Engram Cloud (fork Nexo IA) con trazabilidad NX-01..NX-04"
