@@ -2,7 +2,7 @@ name: Nexo Security
 
 # Nexo IA · NX-07 fase S5 (S5-04, RS-42): las pruebas de autorización (matriz
 # de roles, BOLA, BFLA) y de seguridad corren como puerta contra un Postgres
-# real (imagen pgvector/pgvector:pg16, solo Postgres oficial + pgvector).
+# real (imagen pgvector/pgvector:pg18, solo Postgres oficial + pgvector).
 # Incluye el registro de rutas con capacidad (CA-S14), las respuestas y los
 # registros sin secretos (CA-S13), límites, bloqueo, tokens y evidencia.
 # Solo corre en el fork (como los demás workflows Nexo).
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 30
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg18
         env:
           # Contenedor desechable del job, solo accesible desde el runner.
           POSTGRES_HOST_AUTH_METHOD: trust

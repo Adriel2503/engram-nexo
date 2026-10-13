@@ -54,7 +54,7 @@ GRANT USAGE ON SCHEMA public TO :"app";
 
 -- NX-10 R2: búsqueda por significado. La extensión vector (pgvector) solo la
 -- crea un superusuario; la cuenta dueña no puede. Si la imagen la trae
--- (pgvector/pgvector:pg16), se crea aquí; si no, el servidor funciona solo
+-- (pgvector/pgvector:pg18), se crea aquí; si no, el servidor funciona solo
 -- con búsqueda por texto.
 SELECT 'CREATE EXTENSION IF NOT EXISTS vector SCHEMA public'
  WHERE EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') \gexec

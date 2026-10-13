@@ -24,8 +24,8 @@ name: nexo-engram
 services:
   postgres:
     # NX-10 R2: Postgres oficial con la extensión pgvector (búsqueda por
-    # significado). Con postgres:16-alpine el servidor funciona solo con texto.
-    image: pgvector/pgvector:pg16
+    # significado). Con postgres:18-alpine (sin pgvector) funciona solo con texto.
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -36,7 +36,10 @@ services:
       NEXO_APP_PASSWORD: ${NEXO_APP_PASSWORD:?Falta NEXO_APP_PASSWORD}
       NEXO_DB_NAME: engram_cloud
     volumes:
-      - pg-data:/var/lib/postgresql/data
+      # Postgres 18: el volumen va en /var/lib/postgresql (no en .../data); los datos quedan en
+      # /var/lib/postgresql/18/docker. Montarlo en .../data hace que el contenedor se niegue a iniciar.
+      # Volumen nuevo (pg18-data): el de Postgres 16 (pg-data) no se reutiliza; ver servidor-produccion.md, 9.5.
+      - pg18-data:/var/lib/postgresql
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
       # TLS hacia Postgres (RS-05), necesario si la base está en otro host:
       # - ./pg-tls:/tls:ro
@@ -108,5 +111,5 @@ networks:
       config: [{ subnet: 192.168.240.0/24 }]   # cambiar si choca con otra red del host
 
 volumes:
-  pg-data:
+  pg18-data:
   caddy-data:
