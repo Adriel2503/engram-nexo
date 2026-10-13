@@ -138,7 +138,7 @@ func FindStaleServiceAccounts(ctx context.Context, db *sql.DB, days int, now tim
 	if err != nil {
 		return nil, fmt.Errorf("evidence: cuentas de servicio sin uso: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []StaleServiceAccount
 	for rows.Next() {
 		var s StaleServiceAccount

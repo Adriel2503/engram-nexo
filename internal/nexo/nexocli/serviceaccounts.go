@@ -255,7 +255,7 @@ func saList(args []string, dataDir string, stdout io.Writer) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "CUENTA\tID\tESTADO\tULTIMO USO\tRESPONSABLE\tROLES\tDESCRIPCION")
+	_, _ = fmt.Fprintln(tw, "CUENTA\tID\tESTADO\tULTIMO USO\tRESPONSABLE\tROLES\tDESCRIPCION")
 	stale := 0
 	for _, a := range page.Items {
 		roles := []string{}
@@ -265,13 +265,13 @@ func saList(args []string, dataDir string, stdout io.Writer) error {
 		if a.Stale {
 			stale++
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.PrincipalID, saListState(a), saLastUse(a), saOwner(a), strings.Join(roles, ","), a.Description)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.PrincipalID, saListState(a), saLastUse(a), saOwner(a), strings.Join(roles, ","), a.Description)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
 	}
 	if stale > 0 {
-		fmt.Fprintf(stdout, "\n%d cuenta(s) SIN USO en %s o más (NEXO_SA_STALE_DAYS): no se deshabilitan solas; confirme con el responsable si siguen en uso.\n",
+		_, _ = fmt.Fprintf(stdout, "\n%d cuenta(s) SIN USO en %s o más (NEXO_SA_STALE_DAYS): no se deshabilitan solas; confirme con el responsable si siguen en uso.\n",
 			stale, saDays(page.Items[0].StaleAfterDays))
 	}
 	return nil
@@ -298,9 +298,9 @@ func saShow(args []string, dataDir string, stdout io.Writer) error {
 		return saPrintJSON(stdout, a)
 	}
 	fmt.Fprintf(stdout, "Cuenta %s (id %s), %s. Responsable: %s.\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a))
-	fmt.Fprintf(stdout, "Último uso: %s.\n", saLastUse(a))
+	_, _ = fmt.Fprintf(stdout, "Último uso: %s.\n", saLastUse(a))
 	if a.Stale {
-		fmt.Fprintf(stdout, "SIN USO: %s sin uso (aviso a partir de %s, NEXO_SA_STALE_DAYS). No se deshabilita sola: confirme con %s si sigue en uso; si no, revoque sus tokens o deshabilítela.\n",
+		_, _ = fmt.Fprintf(stdout, "SIN USO: %s sin uso (aviso a partir de %s, NEXO_SA_STALE_DAYS). No se deshabilita sola: confirme con %s si sigue en uso; si no, revoque sus tokens o deshabilítela.\n",
 			saDays(a.IdleDays), saDays(a.StaleAfterDays), saOwner(a))
 	}
 	if a.Description != "" {
