@@ -91,7 +91,7 @@ func TestNexoProtocolSkillAgentsViaPlugin(t *testing.T) {
 	connectNexo(t, home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CODEX_HOME", "")
-	if claudeCodeMarketplace != "Adriel2503/engram-nexo" || codexMarketplace != "Adriel2503/engram-nexo" || codexMarketplaceRef != "develop" {
+	if claudeCodeMarketplace != "Adriel2503/engram-nexo" || codexMarketplace != "Adriel2503/engram-nexo" || codexMarketplaceRef != "main" {
 		t.Fatalf("marketplace del plugin: %s %s %s", claudeCodeMarketplace, codexMarketplace, codexMarketplaceRef)
 	}
 	stale := []string{

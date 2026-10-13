@@ -58,7 +58,7 @@ func agentAdapters() []agentAdapter {
 				"Verify ~/.codex/config.toml has [mcp_servers.engram]",
 				"Verify ~/.codex/config.toml does NOT set model_instructions_file or experimental_compact_prompt_file (they replace Codex's built-in prompt)",
 				"Verify plugin is installed with: codex plugin list",
-				"If codex CLI was absent during setup, install manually: codex plugin marketplace add Adriel2503/engram-nexo --ref develop && codex plugin add engram@engram", // NX-10: plugin desde el fork
+				"If codex CLI was absent during setup, install manually: codex plugin marketplace add Adriel2503/engram-nexo --ref main && codex plugin add engram@engram", // NX-10: plugin desde el fork
 			},
 		},
 		{
