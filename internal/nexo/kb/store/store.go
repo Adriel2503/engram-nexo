@@ -31,7 +31,9 @@ type Store struct {
 	modeMu     sync.Mutex
 	modeLoaded bool
 	fold       bool
-	index      IndexOptions // NX-10 2b (R1)
+	index      IndexOptions   // NX-10 2b (R1)
+	vec        *VectorSupport // NX-10 R2 (vectors.go)
+	vecAt      time.Time
 }
 
 // New crea el almacén sobre la base de Engram Cloud.

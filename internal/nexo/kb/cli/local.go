@@ -212,5 +212,8 @@ func evalMode(retriever string) string {
 	if retriever == "local-bm25" || retriever == "local" {
 		return "local-bm25"
 	}
+	if retriever == "hybrid" { // NX-10 R2
+		return "hybrid"
+	}
 	return "fts"
 }

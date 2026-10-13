@@ -101,3 +101,75 @@ func TestSearchQualityGate(t *testing.T) {
 		t.Fatal("la comparación debía detectar la regresión sin R1")
 	}
 }
+
+// TestSearchQualityGateHybrid (NX-10 R2): el modo hybrid con el embedder
+// simulado y determinista (sin red) sobre el mismo corpus sintético. No mide
+// la calidad de un modelo real (eso es la medición con Gemini, design §20.6):
+// protege la tubería (cola, indexador, fusión RRF y umbral) contra
+// regresiones. Exige no empeorar a fts y no bajar el acierto de "no hay
+// respuesta".
+func TestSearchQualityGateHybrid(t *testing.T) {
+	fake := kbtest.NewFakeEmbedder()
+	r2 := service.DefaultR2
+	r2.Worker = false
+	r2.MinSimilarity = hybridMinSimilarity
+	env := kbtest.New(t, service.WithEmbedder(fake, fake.FakeConfig()), service.WithR2(r2))
+	if !env.KB.VectorEnabled() {
+		t.Fatal("R2 configurado")
+	}
+	tm := env.NewTeam()
+	ctx := context.Background()
+	if _, err := env.KB.CreateSpace(env.Ctx(), env.ID(tm.Adm), service.CreateSpaceInput{Slug: "mini", Owner: "ana"}); err != nil {
+		t.Fatal(err)
+	}
+	var files []source.File
+	root := filepath.Join("testdata", "mini")
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		files = append(files, source.File{Path: filepath.ToSlash(rel), Data: b})
+		return nil
+	})
+	if _, err := env.KB.Upload(env.Ctx(), env.ID(tm.Ana), "mini", service.UploadRequest{Files: files, Collection: "mini"}); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := env.KB.DrainVectors(ctx); err != nil || len(d.Activated) != 1 {
+		t.Skipf("pgvector no disponible en la base de pruebas: %+v %v", d, err)
+	}
+	set, err := eval.Load(filepath.Join("testdata", "preguntas-mini.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fts := service.NewEvalRetriever(env.KB, env.ID(tm.Luis))
+	fts.Mode = "fts"
+	base := eval.RunWith(ctx, set, fts, eval.Options{ValidatedOnly: true})
+	hyb := service.NewEvalRetriever(env.KB, env.ID(tm.Luis))
+	hyb.Mode = "hybrid"
+	rep := eval.RunWith(ctx, set, hyb, eval.Options{ValidatedOnly: true})
+	t.Log("fts:    " + base.Summary())
+	t.Log("hybrid: " + rep.Summary())
+	t.Log("\n" + rep.Table())
+	if rep.Retriever != "hybrid" || rep.Total.Errors > 0 {
+		t.Fatalf("motor %s, errores %d", rep.Retriever, rep.Total.Errors)
+	}
+	if rep.Total.HitAt5 < base.Total.HitAt5 {
+		t.Fatalf("hybrid empeora a fts: Hit@5 %.3f < %.3f", rep.Total.HitAt5, base.Total.HitAt5)
+	}
+	if na, nb := rep.Total.NoAnswerAccuracy, base.Total.NoAnswerAccuracy; na == nil || nb == nil || *na < *nb || *na < minNoAnswer {
+		t.Fatalf("acierto de 'no hay respuesta' del hybrid: %v (fts %v)", na, nb)
+	}
+	if p := rep.ByClass[eval.ClassParaphrase]; p.HitAt5 <= base.ByClass[eval.ClassParaphrase].HitAt5 {
+		t.Fatalf("hybrid debe mejorar las paráfrasis: %.3f <= %.3f", p.HitAt5, base.ByClass[eval.ClassParaphrase].HitAt5)
+	}
+}
+
+// hybridMinSimilarity es el umbral de similitud del embedder simulado (su
+// escala no es la de Gemini; medido: 0,45 deja las paráfrasis y los 5 "no
+// hay" del corpus sintético).
+const hybridMinSimilarity = 0.45

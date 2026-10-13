@@ -106,8 +106,15 @@ func (s *Service) ApplyR1(o R1Options) {
 	if o.Diversity {
 		so.MaxPerDoc = o.MaxPerDoc
 	}
+	if s.hybrid != nil && o.Threshold { // NX-10 R2: umbral del modo hybrid (r2.go)
+		so.MinSimilarity, so.MinTextSimilarity = s.r2.MinSimilarity, s.r2.MinTextSimilarity
+	}
 	s.searcher.SetOptions(so)
-	if p, ok := s.searcher.Retriever().(*search.PGFTS); ok {
+	p, ok := s.searcher.Retriever().(*search.PGFTS)
+	if s.hybrid != nil {
+		p, ok = s.hybrid.Text(), true
+	}
+	if ok {
 		po := search.PGFTSOptions{Coverage: o.Threshold, Quote: o.Quote}
 		if o.Synonyms {
 			po.Synonyms = s.synonyms

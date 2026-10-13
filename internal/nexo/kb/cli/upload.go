@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
@@ -272,7 +273,11 @@ func runReindex(args []string, dataDir string, stdout io.Writer) error {
 	fsx := flag.NewFlagSet("reindex", flag.ContinueOnError)
 	server := fsx.String("server", "", "URL del servidor")
 	status := fsx.Bool("status", false, "solo mostrar el estado del índice")
-	if err := fsx.Parse(reorder(args, map[string]bool{"status": true})); err != nil {
+	// NX-10 R2: índice vectorial.
+	vectors := fsx.Bool("vectors", false, "reconstruir el índice vectorial (versión nueva en segundo plano; la búsqueda sigue con la activa)")
+	requeue := fsx.Bool("requeue-dead", false, "con --vectors: volver a encolar las secciones que fallaron (cartas muertas)")
+	version := fsx.Int("version", 0, "con --requeue-dead: versión del índice vectorial (por defecto la activa)")
+	if err := fsx.Parse(reorder(args, map[string]bool{"status": true, "vectors": true, "requeue-dead": true})); err != nil {
 		return exitError{2, err.Error()}
 	}
 	c, err := newClient(dataDir, *server)
@@ -283,7 +288,14 @@ func runReindex(args []string, dataDir string, stdout io.Writer) error {
 	if *status {
 		err = c.Do(context.Background(), "GET", "/nexo/kb/v1/admin/index", nil, &raw)
 	} else {
-		err = c.Do(context.Background(), "POST", "/nexo/kb/v1/admin/index:reindex", nil, &raw)
+		path := "/nexo/kb/v1/admin/index:reindex"
+		if *vectors {
+			path += "?kind=vector"
+			if *requeue {
+				path += "&requeue_dead=1&version=" + strconv.Itoa(*version)
+			}
+		}
+		err = c.Do(context.Background(), "POST", path, nil, &raw)
 	}
 	if err != nil {
 		return err

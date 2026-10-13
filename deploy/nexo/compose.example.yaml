@@ -11,6 +11,8 @@
 #        ENGRAM_JWT_SECRET=...
 #        ENGRAM_CLOUD_TOKEN_PEPPER=...
 #        NEXO_DOMAIN=engram.ejemplo.interno
+#        NEXO_KB_EMBEDDER=gemini       (opcional, NX-10 R2: búsqueda por significado; off = solo texto)
+#        NEXO_KB_EMBED_API_KEY=...      clave del proveedor (nunca en este archivo)
 #      Las contraseñas deben ser seguras para URL (por ejemplo, hexadecimal).
 #   2. docker compose up -d
 #   3. docker compose logs cloud | grep "\[nexo\] seguridad"   -> "dos cuentas de base de datos"
@@ -21,7 +23,9 @@ name: nexo-engram
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # NX-10 R2: Postgres oficial con la extensión pgvector (búsqueda por
+    # significado). Con postgres:16-alpine el servidor funciona solo con texto.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -71,6 +75,13 @@ services:
       NEXO_ALERT_WEBHOOK_URL: ${NEXO_ALERT_WEBHOOK_URL:-}          # Slack o Teams; vacía = solo base y API
       # NEXO_DISABLE_INACTIVE_DAYS: "90"                           # desactivado por defecto (DS-4)
       # NEXO_RETENTION_AUDIT_DAYS: "365"                           # vacías = no se depura (mínimo 365)
+      # NX-10 R2 (docs/nexo/conocimiento/design.md §20; manual servidor-produccion.md):
+      # proveedor de embeddings (gemini, openai, azure-openai, openai-compatible u off).
+      # Las secciones y las preguntas se envían al proveedor.
+      NEXO_KB_EMBEDDER: ${NEXO_KB_EMBEDDER:-off}
+      NEXO_KB_EMBED_API_KEY: ${NEXO_KB_EMBED_API_KEY:-}
+      # NEXO_KB_EMBED_MODEL: gemini-embedding-001                  # por defecto según el proveedor
+      # NEXO_KB_EMBED_DIMS: "768"                                  # cambiarla = índice vectorial nuevo
     volumes:
       # Carpeta del usuario del contenedor (uid 10001): mkdir audit-export && sudo chown 10001:10001 audit-export
       # Copiarla fuera del host (respaldo, almacenamiento con retención o WORM).

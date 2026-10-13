@@ -165,3 +165,26 @@ publica en 3,0 s y su reintento idempotente tarda 1,8 s (objetivo < 60 s).
 | **Total conocimiento** | **unos 13 días** (más roles R1 y R2: 5 días) |
 
 Después: K2 (Word y Excel), K3 (PDF y PowerPoint), K5 (búsqueda semántica), K6 (pantallas del panel).
+
+## R2. Búsqueda por significado (2026-10-13, rama `feat/r2-hibrido`)
+
+Diseño y desviaciones: `design.md` §20. Todas las tareas están hechas y verificadas, sin commit.
+
+| ID | Tarea | Verificación |
+|---|---|---|
+| R2-01 | Interfaz `Embedder` y capa común: lotes, reintentos, límites, tiempo máximo, dimensión, normalización y clave borrada en los errores | `embed/embed_test.go`: prueba de contrato con un servidor simulado por proveedor y modelo |
+| R2-02 | Adaptadores Gemini, OpenAI, Azure OpenAI y compatible, con la tabla de modelos validada al arrancar | `TestModelTable`; `TestEmbedderLive` con la API real (solo con clave) |
+| R2-03 | Migración: extensión `vector` tolerante, `nexo_kb_section_vectors`, HNSW por dimensión (`vector` y `halfvec`), cola y cartas muertas | `r2_pg_test.go`: sin pgvector, dos cuentas y `halfvec` |
+| R2-04 | Versiones de índice vectorial y cambio atómico (RC-16) | `TestR2HybridLifecycle`: reconstrucción con la versión anterior en uso y purga |
+| R2-05 | Indexador en `engram cloud serve`, alimentado por `nexo_kb_changes`, con reutilización por hash, reintentos y cartas muertas (RC-20) | `TestR2HybridLifecycle`; E2E `nexo-r2` |
+| R2-06 | Modo `hybrid`: filtros comunes, HNSW o recorrido exacto, RRF, umbral recalibrado, degradación a texto (RC-11, RC-19, RC-23) | `TestR2HNSWRecallSmallSpace`, `TestR2HybridLifecycle` (permisos, `known_at`, proveedor caído) |
+| R2-07 | API, MCP, panel y CLI (`search --mode hybrid`, `eval --retriever hybrid --wait-index`, `reindex --vectors`) | `cli_test.go`; E2E |
+| R2-08 | Prueba de calidad en el CI sin red (embedder simulado) | `eval/quality_test.go` `TestSearchQualityGateHybrid` |
+| R2-09 | Medición R0 con Gemini: línea base contra el híbrido, 13 configuraciones | `design.md` §20.6; `nexo_ia/06-pruebas/conocimiento/RESULTADOS.md` §5 |
+| R2-10 | Documentación: `NEXO_CHANGES`, manuales de producción, local y administración, compose de ejemplo y `THIRD_PARTY_NOTICES` | Revisión |
+
+Pendientes:
+
+- Validar las 50 preguntas con 3 o 4 devs y volver a calibrar los umbrales.
+- Aprobación de Real Plaza para enviar datos a un proveedor externo.
+- R3 (reordenamiento) si el orden sigue flojo. El MRR de las paráfrasis es 0,43.

@@ -27,6 +27,15 @@ internal/nexo/kb/domain/domain.go	IsKind
 internal/nexo/kb/eval/eval.go	Regressions
 internal/nexo/kb/eval/eval.go	Run
 internal/nexo/kb/eval/metrics.go	PrecisionAtK
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.Dims
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.Embed
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.FakeConfig
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.Model
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.Provider
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.SetFail
+internal/nexo/kb/kbtest/embedder.go	FakeEmbedder.SetReject
+internal/nexo/kb/kbtest/embedder.go	FakeVector
+internal/nexo/kb/kbtest/embedder.go	NewFakeEmbedder
 internal/nexo/kb/kbtest/http.go	Env.HTTPServer
 internal/nexo/kb/kbtest/http.go	Server.SetDown
 internal/nexo/kb/kbtest/kbtest.go	BaseDSN
@@ -46,6 +55,8 @@ internal/nexo/kb/service/evalrun.go	EvalRetriever.Changes
 internal/nexo/kb/service/evalrun.go	EvalRetriever.Name
 internal/nexo/kb/service/evalrun.go	EvalRetriever.Search
 internal/nexo/kb/service/evalrun.go	NewEvalRetriever
+internal/nexo/kb/service/r2.go	WithEmbedder
+internal/nexo/kb/service/r2.go	WithR2
 internal/nexo/kb/service/service.go	WithBlobStore
 internal/nexo/kb/service/service.go	WithLimits
 internal/nexo/kb/service/service.go	WithR1

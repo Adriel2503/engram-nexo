@@ -13,6 +13,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
 )
 
@@ -24,6 +25,9 @@ type EvalRetriever struct {
 	// NoChanges desactiva la consulta de cambios (línea base anterior a
 	// RC-27).
 	NoChanges bool
+	// Mode es el modo de las preguntas que no fijan uno (NX-10 R2: hybrid
+	// para medir el modo híbrido; vacío = el del servidor).
+	Mode string
 }
 
 // NewEvalRetriever crea el evaluador en proceso.
@@ -32,11 +36,20 @@ func NewEvalRetriever(svc *Service, id authz.Identity) *EvalRetriever {
 }
 
 // Name implementa eval.Retriever.
-func (r *EvalRetriever) Name() string { return r.svc.searcher.Retriever().Name() }
+func (r *EvalRetriever) Name() string {
+	if r.Mode == search.ModeFTS {
+		return store.IndexKindPGFTS
+	}
+	return r.svc.searcher.Retriever().Name()
+}
 
 // Search implementa eval.Retriever.
 func (r *EvalRetriever) Search(ctx context.Context, q eval.Question, spaces []string, at, knownAt *time.Time, limit int) (eval.Outcome, error) {
-	res, err := r.svc.Search(authz.WithRequestCache(ctx), r.id, SearchRequest{Q: q.Question, Spaces: spaces, At: at, KnownAt: knownAt, Limit: limit, Mode: q.Mode})
+	mode := q.Mode
+	if mode == "" {
+		mode = r.Mode
+	}
+	res, err := r.svc.Search(authz.WithRequestCache(ctx), r.id, SearchRequest{Q: q.Question, Spaces: spaces, At: at, KnownAt: knownAt, Limit: limit, Mode: mode})
 	if err != nil {
 		return eval.Outcome{}, err
 	}
@@ -72,6 +85,14 @@ func (s *Service) EvalConfig() map[string]any {
 	cfg := map[string]any{"retriever": s.searcher.Retriever().Name(), "index": s.st.IndexOpts(), "sectioner": s.sections}
 	if c, ok := s.searcher.Retriever().(interface{ Config() map[string]any }); ok {
 		cfg["search"] = c.Config()
+	}
+	cfg["r1"] = s.r1
+	if s.hybrid != nil { // NX-10 R2
+		cfg["r2"] = s.r2
+		cfg["embedder"] = s.embCfg.Describe()
+		if vi, ok, err := s.st.ActiveVectorIndex(context.Background()); err == nil && ok {
+			cfg["vector_index"] = map[string]any{"version": vi.Version, "signature": vi.Signature}
+		}
 	}
 	return cfg
 }

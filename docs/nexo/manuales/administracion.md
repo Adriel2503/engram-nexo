@@ -563,6 +563,56 @@ curl -fsS -H "$H" "$NEXO_URL/nexo/kb/v1/spaces/<espacio>/events"         # filtr
 Requieren `space.audit.read` (publicador o responsable) o `platform.audit.read` (auditor, admin,
 superadmin).
 
+### 5.12 Búsqueda por significado: índice vectorial (superadmin)
+
+Esta sección aplica solo si el servidor tiene configurado un proveedor de embeddings
+(`NEXO_KB_EMBEDDER`; ver el manual de producción, 4.6.1). Cada sección publicada se vectoriza en
+segundo plano. Mientras una sección no tiene vector, se encuentra solo por texto.
+
+```bash
+# Estado: versión activa y en construcción, modelo, vectores, pendientes, cartas muertas,
+# antigüedad del pendiente más viejo y feed_lag (cambios que el indexador todavía no leyó)
+engram nexo kb reindex --status
+
+# Reconstruir el índice vectorial completo en segundo plano (la búsqueda sigue con el actual
+# hasta que el nuevo termine). Hace falta después de recalibrar la composición del texto o si
+# se sospecha de vectores dañados. Cambiar el proveedor, el modelo o la dimensión no lo necesita:
+# al reiniciar, el servidor crea el índice nuevo solo.
+engram nexo kb reindex --vectors
+
+# Volver a encolar las secciones que fallaron 5 veces (cartas muertas) de la versión activa
+engram nexo kb reindex --vectors --requeue-dead
+```
+
+Por la API: `GET /nexo/kb/v1/admin/index` (campo `vector`) y
+`POST /nexo/kb/v1/admin/index:reindex?kind=vector[&requeue_dead=1&version=N]`.
+
+| Señal | Qué significa | Qué hacer |
+|---|---|---|
+| `pending` o `feed_lag` altos durante mucho tiempo | El proveedor no responde o la cuota se agotó | Revisar el log (`vectorización en pausa`); el indexador reintenta solo |
+| `dead` mayor que 0, alerta `kb_index_dead_letter` en `nexo_alerts` | Una sección que el proveedor rechaza siempre (por ejemplo, un texto inválido) | Revisar `last_error` en `nexo_kb_index_dead`; corregir el documento o reencolar con `--requeue-dead` |
+| La respuesta trae `vector.status = "failed"` y `notice` | El proveedor no respondió a la pregunta: se respondió solo por texto | Revisar la clave y la conectividad |
+| La respuesta trae `vector.status = "unavailable"` | No hay índice activo (en construcción) o falta pgvector | Esperar a que termine, o instalar pgvector |
+
+**Elegir el modo de búsqueda.**
+
+- Por defecto, la búsqueda es híbrida (`hybrid`) cuando hay un índice activo.
+- `mode=fts` busca solo por palabras y `mode=exact` busca literales o una expresión.
+- El modo se elige en la API, en `nexo_search`, en el selector "Cómo buscar" del panel y con
+  `engram nexo kb search --mode`.
+- La copia local de la PC no tiene vectores: sin conexión, la búsqueda es solo por palabras.
+
+**Medir antes de cambiar umbrales.** Compare los dos motores con el conjunto de preguntas del
+espacio:
+
+```bash
+engram nexo kb eval preguntas.yaml --retriever pgfts --record
+engram nexo kb eval preguntas.yaml --retriever hybrid --wait-index --record
+```
+
+`--wait-index` necesita el rol de superadmin. Las dos corridas quedan en `nexo_kb_eval_runs` para
+compararlas.
+
 ## 6. Propuestas
 
 Un proponente envía una propuesta (un documento nuevo o un cambio). No es oficial hasta que un

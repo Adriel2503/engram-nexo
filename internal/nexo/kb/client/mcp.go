@@ -115,7 +115,7 @@ func RegisterToolsWith(srv *server.MCPServer, kb *KB, allowlist map[string]bool)
 		mcp.WithString("tag", mcp.Description("Etiqueta.")),
 		mcp.WithString("at", mcp.Description("Fecha (AAAA-MM-DD o RFC 3339): la regla que estaba vigente en esa fecha (HU-37).")),
 		mcp.WithString("known_at", mcp.Description("Fecha: lo que Nexo tenía publicado en esa fecha (necesita el servidor).")),
-		mcp.WithString("mode", mcp.Description("fts (por defecto) o exact (nombres de componentes, códigos, siglas).")),
+		mcp.WithString("mode", mcp.Description("Vacío (recomendado): el servidor elige hybrid (palabras y significado) si tiene índice vectorial y fts si no. fts: solo palabras. exact: nombres de componentes, códigos, siglas. hybrid: palabras y significado (encuentra paráfrasis).")),
 		mcp.WithNumber("limit", mcp.Description("Resultados (por defecto 5, máximo 20).")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		at, err := ParseWhen(req.GetString("at", ""))

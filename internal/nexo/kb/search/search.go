@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 )
@@ -105,6 +106,10 @@ type Hit struct {
 	// consulta que contiene la sección (1 = todos; -1 = el motor no la
 	// calcula).
 	Coverage float64 `json:"coverage"`
+	// NX-10 R2: similitud de coseno con la pregunta (solo si hay índice
+	// vectorial activo) y qué búsquedas encontraron la sección (text, vector).
+	Similarity *float64 `json:"similarity,omitempty"`
+	MatchedBy  []string `json:"matched_by,omitempty"`
 	// Neighbors (RC-10): secciones anterior y siguiente, si se pidieron.
 	Neighbors []Neighbor `json:"neighbors,omitempty"`
 }
@@ -127,15 +132,25 @@ type SearcherOptions struct {
 	// MaxPerDoc (RC-09): máximo de secciones de un mismo documento en la
 	// respuesta (diversidad). 0 = sin tope.
 	MaxPerDoc int `json:"max_per_doc"`
+	// NX-10 R2 (umbral del modo hybrid, design §20.5): un resultado con
+	// similitud conocida pasa si la similitud llega a MinSimilarity (el
+	// significado alcanza solo) o si la cobertura llega a MinCoverage y la
+	// similitud a MinTextSimilarity (el texto coincide y el significado no lo
+	// contradice). Sin similitud (modo fts o vectores no disponibles) rige solo
+	// la cobertura. 0 = sin esa condición.
+	MinSimilarity     float64 `json:"min_similarity,omitempty"`
+	MinTextSimilarity float64 `json:"min_text_similarity,omitempty"`
 }
 
 // Relevance registra la decisión del umbral (RC-21: umbral aplicado, mejor
 // puntaje y cuántos resultados lo superaron).
 type Relevance struct {
-	MinCoverage  float64 `json:"min_coverage"`
-	BestCoverage float64 `json:"best_coverage"`
-	Above        int     `json:"above"`
-	Below        int     `json:"below"`
+	MinCoverage    float64 `json:"min_coverage"`
+	BestCoverage   float64 `json:"best_coverage"`
+	MinSimilarity  float64 `json:"min_similarity,omitempty"`
+	BestSimilarity float64 `json:"best_similarity,omitempty"`
+	Above          int     `json:"above"`
+	Below          int     `json:"below"`
 }
 
 // SectionPath es la ruta del panel de Nexo que muestra una sección (RC-08):
@@ -167,7 +182,12 @@ type Result struct {
 	Mode      string    `json:"mode"`
 	// Relevance: decisión del umbral (solo con umbral activo).
 	Relevance *Relevance `json:"relevance,omitempty"`
-	Dropped   int        `json:"-"`
+	// Vector (NX-10 R2): estado de la búsqueda por significado en esta
+	// consulta (usada, no disponible o fallida: en ese caso la respuesta es solo
+	// por texto y Notice lo explica).
+	Vector  *VectorInfo `json:"vector,omitempty"`
+	Notice  string      `json:"notice,omitempty"`
+	Dropped int         `json:"-"`
 }
 
 // NoResultsMessage es el aviso explícito de HU-06.
@@ -204,6 +224,9 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 	if len([]rune(q.Text)) > 500 {
 		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "q is longer than 500 characters")
 	}
+	if !utf8.ValidString(q.Text) { // NX-10 R2: antes llegaba a Postgres y daba 500
+		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "q must be valid UTF-8")
+	}
 	if q.Limit <= 0 {
 		q.Limit = DefaultLimit
 	}
@@ -222,39 +245,66 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 		}
 	}
 	q.Mode = strings.ToLower(strings.TrimSpace(q.Mode))
+	var vinfo *VectorInfo
 	switch q.Mode {
 	case "":
 		q.Mode = ModeFTS
+		if d, ok := s.r.(DefaultModer); ok {
+			q.Mode = d.DefaultMode(ctx)
+		}
 	case ModeFTS, ModeExact:
+	case ModeHybrid:
+		if _, ok := s.r.(InfoRetriever); !ok {
+			// R2 no configurado: se responde por texto y se avisa (sin error).
+			q.Mode = ModeFTS
+			vinfo = &VectorInfo{Status: VectorUnavailable, Reason: "la búsqueda por significado no está configurada en el servidor (NEXO_KB_EMBEDDER)"}
+		}
 	default:
-		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "mode must be fts or exact")
+		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "mode must be fts, exact or hybrid")
 	}
-	res := Result{At: f.at, KnownAt: f.knownAt, Retriever: s.r.Name(), Mode: q.Mode, Hits: []Hit{}}
+	res := Result{At: f.at, KnownAt: f.knownAt, Retriever: s.r.Name(), Mode: q.Mode, Hits: []Hit{}, Vector: vinfo}
 	if len(f.spaceIDs) > 0 {
 		// Con umbral o diversidad se piden más candidatos para completar el
 		// límite después de filtrar.
 		want := q.Limit
 		rq := q
-		if s.opts.MinCoverage > 0 || s.opts.MaxPerDoc > 0 {
+		if s.opts.MinCoverage > 0 || s.opts.MaxPerDoc > 0 || s.opts.MinSimilarity > 0 {
 			rq.Limit = min(q.Limit*3, MaxLimit)
 		}
-		hits, err := s.r.Search(ctx, rq, f)
+		var hits []Hit
+		var err error
+		if ir, ok := s.r.(InfoRetriever); ok && q.Mode == ModeHybrid {
+			hits, res.Vector, err = ir.SearchInfo(ctx, rq, f)
+		} else {
+			hits, err = s.r.Search(ctx, rq, f)
+		}
 		if err != nil {
 			return Result{}, err
 		}
+		if res.Vector != nil && res.Vector.Status != VectorUsed && q.Mode == ModeHybrid {
+			res.Mode = ModeFTS // respuesta solo por texto
+		}
 		perDoc := map[string]int{}
 		var rel *Relevance
-		if s.opts.MinCoverage > 0 && q.Mode == ModeFTS {
+		if s.opts.MinCoverage > 0 && (q.Mode == ModeFTS || q.Mode == ModeHybrid) {
 			rel = &Relevance{MinCoverage: s.opts.MinCoverage}
+			if res.Mode == ModeHybrid {
+				rel.MinSimilarity = s.opts.MinSimilarity
+			}
 		}
 		for _, h := range hits {
 			if !f.Allows(h) {
 				res.Dropped++
 				continue
 			}
-			if rel != nil && h.Coverage >= 0 {
-				rel.BestCoverage = max(rel.BestCoverage, h.Coverage)
-				if h.Coverage < s.opts.MinCoverage {
+			if rel != nil {
+				if h.Coverage >= 0 {
+					rel.BestCoverage = max(rel.BestCoverage, h.Coverage)
+				}
+				if h.Similarity != nil {
+					rel.BestSimilarity = max(rel.BestSimilarity, *h.Similarity)
+				}
+				if !s.relevant(h) {
 					rel.Below++
 					continue
 				}
@@ -267,7 +317,9 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 				continue
 			}
 			perDoc[h.DocumentID]++
-			h.Retriever = s.r.Name()
+			if h.Retriever == "" {
+				h.Retriever = s.r.Name()
+			}
 			h.Citation = Citation(h)
 			h.Link = SectionPath(h.Space, h.DocKey, h.Anchor, h.Version)
 			res.Hits = append(res.Hits, h)
@@ -277,11 +329,38 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 			log.Printf("[nexo] kb: el motor %s devolvió %d resultados fuera de los filtros de tiempo o permisos; se descartaron", s.r.Name(), res.Dropped)
 		}
 	}
+	if res.Vector != nil {
+		if res.Vector.Status != VectorUsed {
+			res.Retriever = "pgfts"
+			res.Notice = "Respuesta solo por texto: " + res.Vector.Reason + "."
+		} else if res.Vector.IndexLag > 0 {
+			res.Notice = "Hay secciones recién publicadas que todavía no tienen vector; esas se encuentran solo por texto."
+		}
+	}
 	if len(res.Hits) == 0 {
 		res.NoResults = true
 		res.Message = NoResultsMessage
 	}
 	return res, nil
+}
+
+// relevant aplica el umbral de "no hay estándar" (RC-07 y, con vectores,
+// design §20.5). Nunca se conserva un resultado por debajo del umbral
+// (RC-21).
+func (s *Searcher) relevant(h Hit) bool {
+	o := s.opts
+	covOK := h.Coverage < 0 || h.Coverage >= o.MinCoverage
+	if h.Similarity == nil {
+		return covOK
+	}
+	sim := *h.Similarity
+	if o.MinSimilarity > 0 && sim >= o.MinSimilarity {
+		return true
+	}
+	if h.Coverage < 0 {
+		return o.MinSimilarity <= 0
+	}
+	return covOK && sim >= o.MinTextSimilarity
 }
 
 // Allows comprueba un resultado contra el filtro (permisos y ambos relojes).

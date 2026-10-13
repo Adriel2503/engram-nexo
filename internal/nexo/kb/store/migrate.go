@@ -254,6 +254,9 @@ func Migrate(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("kb migrate: %w", err)
 		}
 	}
+	if err := migrateR2(ctx, tx); err != nil { // R2: pgvector y cola de vectorización (vectors.go)
+		return err
+	}
 	if err := migrate2b(ctx, tx); err != nil { // entrega 2b (migrate2b.go)
 		return err
 	}

@@ -21,10 +21,19 @@ import (
 
 // ServerRetriever evalúa la búsqueda del servidor (pgfts) y la consulta de
 // cambios (/changes).
-type ServerRetriever struct{ C *Client }
+type ServerRetriever struct {
+	C *Client
+	// Mode es el modo de las preguntas que no fijan uno (NX-10 R2: hybrid).
+	Mode string
+}
 
 // Name implementa eval.Retriever.
-func (s ServerRetriever) Name() string { return "pgfts" }
+func (s ServerRetriever) Name() string {
+	if s.Mode == "hybrid" {
+		return "hybrid"
+	}
+	return "pgfts"
+}
 
 // Search implementa eval.Retriever.
 func (s ServerRetriever) Search(ctx context.Context, q eval.Question, spaces []string, at, knownAt *time.Time, limit int) (eval.Outcome, error) {
@@ -36,8 +45,12 @@ func (s ServerRetriever) Search(ctx context.Context, q eval.Question, spaces []s
 		knS = knownAt.Format(time.RFC3339)
 	}
 	path := SearchQuery(q.Question, spaces, "", "", atS, knS, limit)
-	if q.Mode != "" {
-		path += "&mode=" + url.QueryEscape(q.Mode)
+	mode := q.Mode
+	if mode == "" {
+		mode = s.Mode
+	}
+	if mode != "" {
+		path += "&mode=" + url.QueryEscape(mode)
 	}
 	var res SearchResponse
 	if err := s.C.Do(ctx, "GET", path, nil, &res); err != nil {
@@ -88,7 +101,7 @@ func (s ServerRetriever) Changes(ctx context.Context, q eval.Question, spaces []
 
 func runEval(args []string, dataDir string, stdout io.Writer) error {
 	fsx := flag.NewFlagSet("eval", flag.ContinueOnError)
-	retriever := fsx.String("retriever", "pgfts", "motor: pgfts (servidor) o local-bm25 (copia local, FTS5); hybrid llega con R2")
+	retriever := fsx.String("retriever", "pgfts", "motor: pgfts (servidor, texto), hybrid (servidor, texto y significado, R2) o local-bm25 (copia local, FTS5)")
 	k := fsx.Int("k", 5, "Recall@k")
 	server := fsx.String("server", "", "URL del servidor")
 	asJSON := fsx.Bool("json", false, "salida JSON")
@@ -98,8 +111,9 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 	commit := fsx.String("commit", os.Getenv("GITHUB_SHA"), "commit medido (referencia)")
 	note := fsx.String("note", "", "nota de la corrida")
 	minHit := fsx.Float64("min-hit", 0, "salir con 1 si Hit@5 total queda por debajo (0-1)")
+	waitIndex := fsx.Bool("wait-index", false, "con hybrid: esperar a que el índice vectorial esté activo y sin secciones pendientes (requiere superadmin)")
 	baseTime := fsx.String("base-time", "", "momento de la marca @base de las preguntas (RFC 3339): entre la carga base y las versiones nuevas")
-	if err := fsx.Parse(reorder(args, map[string]bool{"json": true, "validated-only": true, "record": true, "accept": true})); err != nil {
+	if err := fsx.Parse(reorder(args, map[string]bool{"json": true, "validated-only": true, "record": true, "accept": true, "wait-index": true})); err != nil {
 		return exitError{2, err.Error()}
 	}
 	if fsx.NArg() != 1 {
@@ -123,7 +137,7 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 		if c, err = newClient(dataDir, *server); err != nil {
 			return err
 		}
-		r = ServerRetriever{C: c}
+		r = ServerRetriever{C: c, Mode: "fts"} // NX-10 R2: texto aunque el servidor tenga índice vectorial
 	case "local-bm25", "local":
 		// Tanda 2 (C-10): la copia local con BM25 (FTS5), sin servidor.
 		l, err := client.OpenLocal(client.DefaultLocalPath())
@@ -133,7 +147,15 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 		defer l.Close()
 		r = LocalRetriever{L: l}
 	case "hybrid":
-		return exitError{2, "el motor hybrid llega con R2; hoy: --retriever pgfts o local-bm25"}
+		if c, err = newClient(dataDir, *server); err != nil {
+			return err
+		}
+		if *waitIndex {
+			if err := waitVectorIndex(c, stdout); err != nil {
+				return err
+			}
+		}
+		r = ServerRetriever{C: c, Mode: "hybrid"}
 	default:
 		return exitError{2, "motor desconocido: " + *retriever}
 	}
@@ -193,4 +215,43 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 		return exitError{1, fmt.Sprintf("calidad por debajo del umbral: Hit@5 %.3f < %.3f", rep.Total.HitAt5, *minHit)}
 	}
 	return nil
+}
+
+// waitVectorIndex espera (hasta 30 minutos) a que haya una versión activa
+// del índice vectorial y ninguna sección pendiente (eval --wait-index).
+func waitVectorIndex(c *Client, stdout io.Writer) error {
+	deadline := time.Now().Add(30 * time.Minute)
+	for {
+		var st struct {
+			Vector struct {
+				Enabled  bool   `json:"enabled"`
+				Reason   string `json:"reason"`
+				Versions []struct {
+					Version int    `json:"version"`
+					Status  string `json:"status"`
+					Pending int64  `json:"pending"`
+					FeedLag int64  `json:"feed_lag"`
+				} `json:"versions"`
+			} `json:"vector"`
+		}
+		if err := c.Do(context.Background(), "GET", "/nexo/kb/v1/admin/index", nil, &st); err != nil {
+			return fmt.Errorf("--wait-index: %w", err)
+		}
+		if !st.Vector.Enabled {
+			return exitError{1, "el servidor no tiene búsqueda por significado: " + st.Vector.Reason}
+		}
+		active, pending := false, int64(0)
+		for _, v := range st.Vector.Versions {
+			active = active || v.Status == "active"
+			pending += v.Pending + v.FeedLag
+		}
+		if active && pending == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return exitError{1, fmt.Sprintf("--wait-index: el índice vectorial sigue con %d secciones pendientes", pending)}
+		}
+		fmt.Fprintf(stdout, "esperando el índice vectorial: %d secciones pendientes\n", pending)
+		time.Sleep(10 * time.Second)
+	}
 }

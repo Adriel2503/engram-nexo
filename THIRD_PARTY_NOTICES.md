@@ -13,8 +13,14 @@ dependencias declaradas en `go.mod`, que conservan sus propias licencias).
   subcadena), MAP dividido por el total de relevantes esperados, ideal de
   nDCG@k con min(relevantes, k), Recall@k como fracción y Hit@k aparte. El
   detalle está en la cabecera del archivo y en `NEXO_CHANGES.md` (NX-10 2b).
-- Del resto de WeKnora solo se tomaron ideas (diseño de la cola de indexación,
-  troceo de tablas por filas, modo grep, MMR); ese código no se copió.
+- Archivo de origen (NX-10 R2): `internal/application/service/knowledgebase_search_fusion.go`
+  (`fuseWithRRF` y `bestRanks`). Archivo del fork: `internal/nexo/kb/search/rrf.go`. Cambios
+  de Nexo: dos listas (texto y vectores) de ids de sección, pesos y k desde la configuración
+  (`NEXO_KB_RRF_*`), desempate estable por rango de texto y id. Aviso MIT en la cabecera.
+- Del resto de WeKnora solo se tomaron ideas (diseño de la cola de indexación y de
+  las cartas muertas, consulta pgvector con `ef_search` e `iterative_scan`, índices
+  HNSW parciales sobre una expresión, troceo de tablas por filas, modo grep, MMR);
+  ese código no se copió.
 
 Texto de la licencia (de `LICENSE` de WeKnora):
 

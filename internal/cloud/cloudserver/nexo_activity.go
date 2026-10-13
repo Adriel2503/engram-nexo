@@ -184,6 +184,7 @@ func (s *CloudServer) nexoPurgeActivityOnce(ctx context.Context, days int) int64
 // de evidencia (nexo_evidence.go), sin un enganche nuevo en Start().
 func (s *CloudServer) nexoStartActivityRetention() {
 	s.nexoStartMonitor()
+	s.nexoStartKBVectorWorker() // NX-10 R2: indexador de vectores (nexo_kb_bridge.go)
 	days := nexoActivityRetentionDays()
 	if days <= 0 {
 		return
