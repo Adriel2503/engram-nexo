@@ -179,7 +179,7 @@ Capturas en `nexo_ia/06-pruebas/conocimiento/evidencia/panel/` (Chrome sin inter
 
 ## 9. Fase K6: miembros, propuestas y panel en español
 
-Estado: diseño previo a la implementación (2026-10-13). Cubre KP-12 (miembros de un espacio), KP-13
+Estado: implementado en la rama `feat/panel-k6` (2026-10-13), diseño escrito antes de implementar. Cubre KP-12 (miembros de un espacio), KP-13
 (propuestas), SG-07 (pantallas de revisión) y OP-06 (textos en inglés del panel de Engram). No hay estilo
 nuevo: se reutilizan los tokens, el encabezado, las pestañas de texto, la lista de documentos, los chips y los
 formularios de las secciones 4 a 7. Solo se agregan unas pocas reglas a `nexo_theme.css` (lista de miembros,
@@ -304,3 +304,16 @@ sesiones, proyectos y colaboradores) pasan por `nx()`, que devuelve el original 
 activa. Es solo envolver cadenas: no cambian estructura, rutas ni comportamiento. Los diccionarios viven en
 `nexo_brand.go` (`nexoText`). Lo que ya viene del servidor en inglés (mensajes de error de la API de Engram)
 no se traduce aquí.
+
+### 9.8 Cambios tras la revisión con capturas
+
+Capturas con Chrome sin interfaz contra un servidor local con espacios, personas, una cuenta de servicio y
+propuestas reales (1366 px y 500 px, el ancho mínimo de la ventana sin interfaz; a 360 px las mismas reglas
+apilan filas y formularios).
+
+- Los formularios de la columna lateral heredaban la rejilla de varias columnas del formulario de crear
+  espacio y se salían de la columna: dentro de `.nx-aside` el formulario pasa a un campo por fila.
+- El selector de rol de cada fila salía alto (Pico): se reduce a la altura de los botones.
+- En una cuenta de servicio el usuario y el nombre coinciden y la línea gris decía `ci-wiki, ci-wiki, ...`:
+  si son iguales se muestra una sola vez.
+- Los controles de la fila de miembros caben junto al nombre hasta 720 px; por debajo se apilan.
