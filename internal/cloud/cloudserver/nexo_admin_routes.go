@@ -81,6 +81,7 @@ func (s *CloudServer) registerNexoAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /nexo/admin/authz-events", s.withAuth(s.handleNexoAuthzEvents))
 	s.registerNexoAuthzRoutes(mux)
 	s.registerNexoEvidenceRoutes(mux) // NX-07 S4: verificación de la cadena, alertas y revisión de accesos
+	s.registerNexoHealthRoutes(mux)   // NX-10: /nexo/health/ready (disponibilidad con la base; sin autenticación)
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
