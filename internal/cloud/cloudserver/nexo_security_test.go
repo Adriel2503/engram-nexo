@@ -461,7 +461,7 @@ func TestNexoNoSelfGrant(t *testing.T) {
 	}
 	// Panel.
 	cookie := managedDashboardLogin(t, env.srv, env.tokens["pedro"], false)
-	if rec := performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/users/"+ids["pedro"]+"/grants", "project=nexo-privado", cookie, false); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "themselves") {
+	if rec := performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/users/"+ids["pedro"]+"/grants", "project=nexo-privado", cookie, false); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "a sí mismo") {
 		t.Fatalf("CA-S06 panel: %d %s", rec.Code, rec.Body.String())
 	}
 	if n := env.count(`SELECT count(*) FROM cloud_project_grants WHERE principal_id IN ($1::bigint, $2::bigint)`, ids["carla"], ids["pedro"]); n != 0 {
