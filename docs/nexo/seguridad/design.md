@@ -543,3 +543,46 @@ agrupador equivalen a tokens distintos.
 - **Webhook.** Sin confirmación de entrega en la base (solo el log); la alerta queda siempre en
   `nexo_alerts` y en la API.
 
+
+### 8.5 Fase S5 (respuestas y pruebas)
+
+Fecha: 2026-10-13. Sobre `develop` 42f5f35, rama `feat/seguridad-s5`. Código:
+`internal/nexo/routes/` (registro de rutas), `cloudserver/nexo_routes.go`, `cloudserver/nexo_responses.go`,
+los `register*` de los archivos `nexo_*.go` y `internal/nexo/kb/httpapi` (capacidad por ruta). Pruebas:
+`cloudserver/nexo_response_fields_test.go`, `nexo_leakscan_test.go`, `nexo_flow_test.go`,
+`nexo_routes_test.go` (con `testdata/nexo_engram_routes.txt`), `nexo_secrets_test.go` e
+`internal/nexo/routes/routes_test.go`; workflow `.github/workflows/nexo-security.yml`. No se tocaron
+archivos de Engram.
+
+| ID | Diseño | Implementado | Motivo |
+|---|---|---|---|
+| D-S5-1 (S5-01) | Tipos de respuesta explícitos, sin serializar estructuras internas | Los tipos que serializan las rutas ya tenían etiquetas `json` por campo (incluidos `HumanUser` y `ProjectGrant` de Engram). En lugar de duplicarlos en DTO nuevos, una prueba recorre por reflexión cada tipo de respuesta (`nexoResponseTypes`) y falla si un campo exportado no tiene nombre `json` explícito, si un nombre parece un secreto (`token_hash`, `password`, `secret`, `pepper`, `verifier`, `cookie`, `authorization`, `api_key`, `raw_token`...) o si un campo es de `database/sql`. Para `/admin/*` de Engram, contrato de campos exacto por respuesta (usuario, token, permiso): un campo nuevo de Engram hace fallar la prueba hasta revisarlo | Mismo resultado (nada sale "por existir") sin ampliar el diff con Engram ni duplicar tipos estables |
+| D-S5-2 (S5-01) | — | Hallazgos corregidos: (1) los 500 de las rutas Nexo devolvían el detalle del error (`nexo query: <error de pgx>`, con SQL, tablas y columnas; CWE-209): ahora responden `<operación>: internal error` y el detalle queda en el log (`nexoInternalError`, `nexoRespondAuthzError`); (2) `source_blob_ref` de las versiones de conocimiento (referencia interna de almacenamiento) salía en la API: ahora `json:"-"`. No se encontraron tokens, hashes ni cabeceras en ninguna respuesta | RS-40 |
+| D-S5-3 (S5-01) | Revisión de respuestas | Además de la revisión estática, `TestNexoResponsesHaveNoSecrets` revisa todas las respuestas reales de una corrida en el proceso (más de 40 JSON y las páginas del panel): ningún token en claro (salvo el recién emitido en su respuesta de emisión), ningún hash con o sin el prefijo `hmac-sha256:v1:`, ningún sha256 de un token, ninguna clave con nombre de secreto | Los mapas libres (`details`, `metadata`, `settings`) solo se pueden revisar con datos reales |
+| D-S5-4 (S5-01) | Sin hashes de token | `credential_fp` (huella de A2 en `metadata` de `cloud_auth_audit_log`, visible en `/nexo/admin/audit`) se mantiene: es HMAC-SHA256 truncado a 64 bits con una clave aleatoria del proceso que nunca se guarda; no permite verificar un token fuera del proceso ni compararlo con `token_hash` | Sirve al auditor para relacionar rechazos; no es un verificador del token |
+| D-S5-5 (S5-02) | `nexoRoute(method, path, capability, handler)` | Paquete `internal/nexo/routes` (`Registry.Handle`, `Registrar`, `Validate`) y `s.nexoRoute(mux, método, ruta, capacidad, handler)` en `cloudserver`. La capacidad es una expresión validada al registrar: capacidades de `authz`, `a\|b` (cualquiera), `a+b` (todas) y los marcadores `public`, `identity` (cualquier identidad administrada; el resultado se limita a lo visible) y `token.write`. Vacía, desconocida o ruta repetida: pánico al armar el servidor (falla cualquier prueba). La comprobación real sigue en cada handler (`authz.Can` con el ámbito) | La capacidad depende a veces del ámbito o del objetivo (propios con `self.read`, ajenos con `platform.tokens.manage`); declararla fija el contrato y lo hace revisable sin mover la lógica de autorización |
+| D-S5-6 (S5-02) | Recorrer el mux | `http.ServeMux` no expone sus patrones: la prueba los lee por reflexión del índice interno de `net/http` (`routingIndex.segments` y `multis`, Go 1.22+). Si una versión de Go cambia esos campos, la prueba falla con un mensaje claro (no pasa en falso) | Única forma de ver también las rutas registradas fuera del registro |
+| D-S5-7 (S5-02) | Lista revisada de rutas de Engram | `cloudserver/testdata/nexo_engram_routes.txt` (66 rutas, agrupadas por protección). La prueba falla si aparece una ruta de Engram que no está, si la lista nombra una ruta que ya no existe o una ruta Nexo (`/nexo/*`, `/dashboard/kb*`). Las rutas del panel de conocimiento (`/dashboard/kb*`) también van al registro | Al integrar Engram, cada ruta nueva se revisa (autenticación, alcance `read`, respuesta) antes de entrar |
+| D-S5-8 (S5-02) | — | `httpapi.Register(mux, ...)` pasa a `httpapi.RegisterRoutes(routes.Func, ...)` con la capacidad de cada ruta de `/nexo/kb/v1`; `kbtest` y las pruebas de la CLI usan `new(routes.Registry).Registrar(mux)` | El módulo de conocimiento no conoce `cloudserver` (design §4 de NX-10) |
+| D-S5-9 (S5-03) | Logs y eventos de una corrida E2E | Corrida en el proceso (no en contenedores): login del panel (correcto y con token desconocido), emisión por `/admin/*`, por `/nexo/authz/v1/tokens` y por el panel, sync push/pull de chunks y mutaciones, token `read`, token desconocido, compartido, cabecera mal formada, token revocado, publicación, lectura y búsqueda en conocimiento, rechazos repetidos (A2) y una pasada del monitor (resúmenes, alertas, webhook, verificación, exportación). Revisa la salida de `log` y `log/slog`, **todas las filas de todas las tablas** del esquema (no solo auditoría y eventos; salvo `token_hash` de `cloud_principal_tokens`), los cuerpos del webhook y los archivos exportados. Busca los tokens en claro, sus hashes (con y sin prefijo), su sha256, la cookie de sesión del panel, cualquier token con la forma de Engram, el formato `hmac-sha256:v1:` y valores de `Authorization`/`Bearer`. Sin hallazgos | Más amplio que el diseño: un secreto en una tabla de datos (cambios sincronizados, conocimiento) también es un registro |
+| D-S5-10 (S5-04) | Workflow con Postgres de servicio | `.github/workflows/nexo-security.yml`: `pgvector/pgvector:pg16` con `POSTGRES_HOST_AUTH_METHOD=trust` (contenedor desechable del job, sin contraseña en el workflow), guarda `github.repository == 'Adriel2503/engram-nexo'`, `contents: read`, acciones fijadas por SHA (las mismas de `ci.yml`). Corre `go build`, `go vet`, los paquetes `authz`, `security` y `routes`, `-run TestNexo` de `cloudserver` y `cloudstore`, y `kb/service` y `kb/httpapi` (BOLA y BFLA de espacios) con `-p 1` | Hacerlo obligatorio para fusionar es una regla de protección de rama del repositorio (configuración manual en GitHub) |
+
+Verificación (2026-10-13), con un Postgres `pgvector/pgvector:pg16` propio:
+
+- `go build ./...` y `go vet ./internal/nexo/... ./internal/cloud/...` OK.
+- `go test -count=1 -p 1 ./internal/nexo/... ./internal/cloud/... ./internal/setup/... .`: 2071 OK, 29 omitidas,
+  1 fallo ajeno (`autosync.TestManagerCyclePersistsInboundProgressWhileOutboundEnrollmentIsBlocked`, limpieza
+  del directorio temporal de Windows; pasa al repetirla, paquete no tocado).
+- `-run "TestCloudRuntime|TestNexo" ./cmd/engram/` OK; `scripts/deadcode-ratchet.sh`: sin funciones nuevas
+  inalcanzables (`httpapi.Register` se reemplazó por `RegisterRoutes` en vez de ampliar la línea base).
+- El workflow no se ejecutó en GitHub desde esta rama (sin push); sus pasos son los mismos comandos.
+
+Riesgos y límites:
+
+- **`/admin/*` de Engram** sigue devolviendo el detalle de algunos errores internos (`list users: <error>`)
+  a un administrador; no se cambió para no editar handlers de Engram. Solo lo ve quien ya administra.
+- **Capacidad declarada frente a comprobada.** El registro no verifica que el handler compruebe la
+  capacidad declarada; eso lo cubren las pruebas de autorización por ruta (matriz NX-05, BOLA y BFLA).
+- **Reflexión sobre `net/http`.** Una versión futura de Go puede requerir ajustar `nexoMuxPatterns`.
+- **Cobertura de la corrida.** Las rutas que la corrida no ejerce solo tienen la revisión estática de
+  su tipo; al agregar una ruta, sumarla a `runNexoSecurityFlow` si escribe datos o registros nuevos.
