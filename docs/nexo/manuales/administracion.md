@@ -753,7 +753,7 @@ superadmin. Cada caso deja el evento `principal.disabled_inactive` y la alerta
 | `409 version_conflict` al aprobar | El documento cambió después de la propuesta | Revisar y aprobar con `"force":true` si corresponde |
 | `429 rate_limited` | Demasiadas peticiones por minuto | Esperar lo que indica `Retry-After`; si es habitual, pedir ajustar `NEXO_RATE_LIMITS` |
 | `429 auth_locked` | Muchos tokens inválidos distintos desde la misma IP | Esperar 15 minutos y revisar qué PC usa tokens inválidos (auditoría `sync.auth`, `unknown_token`, con IP y cliente) |
-| Los enlaces de las citas salen con `http://` | Falta `NEXO_KB_PUBLIC_URL` en el servidor | Pedir a quien opera el servidor que la configure |
+| Los enlaces de las citas salen con `http://` | Detrás de Caddy, el servidor no tiene a Caddy en `NEXO_TRUSTED_PROXIES` (y tampoco `NEXO_KB_PUBLIC_URL`) | Pedir a quien opera el servidor que configure `NEXO_TRUSTED_PROXIES` con la IP de Caddy (los enlaces toman el esquema y el host de `X-Forwarded-Proto` y `X-Forwarded-Host`) o `NEXO_KB_PUBLIC_URL=https://<dominio>`, que manda sobre lo anterior |
 | Una persona no sincroniza un proyecto | No tiene permiso de proyecto, o el proyecto no está en la lista del servidor | Dar el permiso (8) y revisar `ENGRAM_CLOUD_ALLOWED_PROJECTS` |
 | La alerta `shared_token_used` aparece | Alguien usa el token compartido del servidor | Identificar la PC por IP y cliente y entregarle un token personal |
 
@@ -790,6 +790,6 @@ superadmin. Cada caso deja el evento `principal.disabled_inactive` y la alerta
 
 | Tema | Motivo |
 |---|---|
-| Cuentas de servicio | Las reglas (sin caducidad, no pueden ser responsables) existen, pero en esta versión no hay ruta de API ni pantalla para crear una cuenta de servicio. Para la integración continua use un usuario dedicado (por ejemplo `ci-lineamientos`) con rol publicador y token con caducidad |
+| Cuentas de servicio | Las reglas (sin caducidad, no pueden ser responsables) existen, pero en esta versión no hay ruta de API ni pantalla para crear una cuenta de servicio. Para la integración continua use un usuario dedicado (por ejemplo `ci-lineamientos`) con rol publicador y token con caducidad. Pendiente en el backlog (`docs/nexo/mejoras-y-referencias.md`, SG-10) |
 | `ENGRAM_CLOUD_ALLOWED_PROJECTS` y personas con token asignado | La autorización por proyecto de una persona consulta solo sus permisos; no se confirmó si la lista del servidor también la limita |
 | Avisos de conocimiento para responsables | La ruta de alertas exige `platform.audit.read`; no hay una vista de avisos para el responsable del espacio |

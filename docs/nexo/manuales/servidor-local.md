@@ -324,6 +324,10 @@ Respuesta esperada:
 
 En Windows PowerShell 5.1, `curl` es otro comando: usa `curl.exe` o `Invoke-RestMethod http://127.0.0.1:18095/health`.
 
+`/health` responde `ok` aunque la base no responda. Para comprobar también la base:
+`curl http://127.0.0.1:18095/nexo/health/ready` debe responder `{"status":"ready"}` (con la base
+caída, `503` y `{"status":"unavailable"}`).
+
 ## 8. Crear el primer administrador
 
 El primer administrador se crea con un comando **dentro del contenedor** `cloud`. Así lo hacen las
@@ -658,7 +662,7 @@ recrea el contenedor). Los valores por defecto están leídos del código.
 | `NEXO_KB_MIN_COVERAGE` | `0.3` | Umbral de cobertura para responder "no existe un estándar oficial". Más alto: dice "no hay" más seguido |
 | `NEXO_KB_MAX_PER_DOC` | `2` | Máximo de secciones de un mismo documento por respuesta |
 | `NEXO_KB_RANK_CANDIDATES` | `20000` | Tope de secciones candidatas por búsqueda antes de ordenar (mínimo 100) |
-| `NEXO_KB_PUBLIC_URL` | vacía: el host de la petición | URL de los enlaces de las citas |
+| `NEXO_KB_PUBLIC_URL` | vacía: el esquema y el host de la petición (detrás de un proxy de `NEXO_TRUSTED_PROXIES`, los que informa el proxy) | URL de los enlaces de las citas; si está, manda |
 | `NEXO_KB_DISABLE_UNACCENT` | vacía | `1` al crear la configuración de búsqueda: no usar la extensión `unaccent` |
 
 ### Conocimiento: límites de subida y publicación
@@ -684,7 +688,7 @@ recrea el contenedor). Los valores por defecto están leídos del código.
 | `NEXO_AUTH_LOCKOUT` | vacía: 20 tokens distintos inválidos desde una IP en 300 s bloquean 900 s | JSON `{"max_failures","user_max_failures","window_seconds","lockout_seconds"}` u `off`. En local todas las peticiones vienen de la misma IP: si pruebas tokens inválidos a propósito, puedes bloquearte |
 | `NEXO_TOKEN_MAX_DAYS` | `365` | Caducidad máxima al emitir un token (por defecto se emiten con 90 días) |
 | `NEXO_SUPERADMIN_ALLOWED_CIDRS` | vacía (sin restricción, con aviso) | Redes desde las que se administran admins y ajustes de plataforma |
-| `NEXO_TRUSTED_PROXIES` | vacía | IP o CIDR de un proxy cuya cabecera `X-Forwarded-For` se cree. En local, sin proxy, se deja vacía |
+| `NEXO_TRUSTED_PROXIES` | vacía | IP o CIDR de un proxy cuyas cabeceras `X-Forwarded-For`, `X-Forwarded-Proto` y `X-Forwarded-Host` se creen. En local, sin proxy, se deja vacía |
 
 ### Evidencia y registro
 

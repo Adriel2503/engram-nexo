@@ -159,9 +159,17 @@ tu memoria de proyectos se conserva. Lo que hay que evitar es tener **dos** `eng
    codex plugin marketplace remove engram
    ```
 
-Por verificar: qué hacen `claude plugin marketplace add` y `codex plugin marketplace add` cuando ya
-existe otro catálogo llamado `engram` (el del fork se llama igual). Por eso se recomienda quitar el
-oficial antes. Los demás asistentes no necesitan este paso: `engram setup` reescribe su configuración.
+El catálogo del fork también se llama `engram`. Si te olvidas de los pasos 3 y 4, `engram setup
+claude-code` y `engram setup codex` (del binario del fork) detectan un catálogo `engram` que apunta a
+otro origen (o, en Codex, a otra rama que `main`), lo quitan y agregan el del fork; lo avisan con una
+línea `[nexo] el catálogo de plugins "engram" ... se reemplaza por Adriel2503/engram-nexo`. Si no
+pueden quitarlo, muestran los comandos para hacerlo a mano. Igual conviene hacer los pasos 3 y 4:
+esa detección solo cambia el catálogo, no el registro MCP viejo. Los demás
+asistentes no necesitan este paso: `engram setup` reescribe su configuración.
+
+El plugin del fork tiene versión propia (`0.1.1201` en Claude Code, `0.1.501` en Codex; la de Engram
+era `0.1.12` y `0.1.5`). Si `claude plugin list` muestra `engram@engram` con `0.1.12`, todavía tienes
+el plugin oficial: vuelve a ejecutar `engram setup claude-code`.
 
 ## 5. Instalar el binario
 
@@ -517,7 +525,7 @@ engram nexo kb search --local "nomenclatura de tablas"
 engram nexo kb get --space arquitectura <doc_key>     # usa la copia si el servidor no responde
 ```
 
-`engram nexo kb search` sin `--local` consulta solo al servidor: sin conexión, usa `--local`.
+`engram nexo kb search` sin `--local` consulta al servidor y, si no responde, usa la copia local con el aviso "El servidor de Nexo no respondió (...) Respuesta desde la copia local del <fecha>". Con `--known-at` no cae a la copia (no guarda el historial).
 
 ## 12. Comandos de terminal
 
@@ -530,11 +538,11 @@ No los necesitas para el uso diario, pero sirven para comprobar o consultar sin 
 | `engram nexo setup <asistente>` | Instalar o reinstalar solo el protocolo Nexo en un asistente |
 | `engram nexo disconnect [--keep-copy]` | Desconectar ([sección 14](#14-desconectar-y-desinstalar)) |
 | `engram nexo kb spaces [--json]` | Espacios que ves y tu rol en cada uno |
-| `engram nexo kb search [--space S] [--category C] [--tag T] [--at AAAA-MM-DD] [--known-at AAAA-MM-DD] [--limit N] [--mode fts\|exact] [--local] [--json] <consulta>` | Buscar. `--limit` por defecto 10 (máximo 50). `--mode exact` para nombres de componentes, códigos o siglas |
+| `engram nexo kb search [--space S] [--category C] [--tag T] [--at AAAA-MM-DD] [--known-at AAAA-MM-DD] [--limit N] [--mode fts\|exact] [--local] [--json] <consulta>` | Buscar. `--limit` por defecto 10 (máximo 50). `--mode exact` para nombres de componentes, códigos o siglas. Si el servidor no responde, usa la copia local y lo avisa |
 | `engram nexo kb get --space S [--version N] [--anchor A] [--local] [--json] <doc_key>[#ancla]` | Leer un documento o una sección |
 | `engram nexo kb changes --since AAAA-MM-DD [--until AAAA-MM-DD] [--space S] [--clock valid\|recorded]` | Qué cambió desde una fecha |
 | `engram nexo kb sync [--status] [--json]` | Actualizar o ver la copia local |
-| `engram nexo help` y `engram nexo kb help` | Ayuda completa |
+| `engram nexo help` y `engram nexo kb help` | Ayuda completa (`engram help` también lista `nexo`) |
 
 Las consultas de terminal usan el mismo servidor y token que guardó `engram nexo connect`.
 
@@ -572,7 +580,7 @@ Las herramientas nexo_* dejan de aparecer al reiniciar el asistente. La memoria 
 Qué hace:
 
 - Borra el marcador `~/.engram/nexo.json`.
-- Vacía la URL y el token de `~/.engram/cloud.json`.
+- Vacía la URL y el token de `~/.engram/cloud.json` solo si son los de la conexión Nexo. Si `cloud.json` apunta a otro servidor (por ejemplo, un Engram Cloud que no es Nexo) o no existía `nexo.json`, no lo toca y lo dice: "La configuración cloud de Engram (cloud.json, servidor ...) no se tocó porque no es la de la conexión Nexo". Para quitarla: `engram cloud config --clear`.
 - Borra la copia local (y sus archivos `-wal` y `-shm`). Con `--keep-copy` la conserva.
 
 Qué **no** hace (queda instalado):

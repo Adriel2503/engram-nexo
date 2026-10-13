@@ -129,16 +129,19 @@ auditoría. Un bloqueo por fallos responde `429` `auth_locked` y deja un evento 
 Al iniciar, el log resume la configuración efectiva:
 
 ```text
-[nexo] seguridad: limite de peticiones: sync=600/600 admin=120/120 ... (ip/token por minuto)
-[nexo] seguridad: bloqueo por fallos de autenticacion: ip 20 tokens distintos y usuario 20 fallos en 5m0s bloquean 15m0s
+[nexo] seguridad: limite de peticiones: sync=600/600 admin=120/120 login=20/- nexo=300/300 other=600/- (ip/token por minuto)
+[nexo] seguridad: bloqueo por fallos de autenticacion: ip 20 tokens distintos en 5m0s bloquean 15m0s; sin bloqueo por persona (tokens revocados: alerta)
 [nexo] seguridad: NEXO_SUPERADMIN_ALLOWED_CIDRS vacio: ... (RS-13)
 [nexo] seguridad: tokens nuevos vencen a los 90 dias (maximo 365, NEXO_TOKEN_MAX_DAYS)
+[nexo] seguridad: rechazos repetidos (misma huella, IP y motivo) se resumen cada 10m0s (NEXO_AUDIT_DEDUP_SECONDS)
 ```
 
 Recomendaciones de producción:
 
 - `NEXO_TRUSTED_PROXIES` con la IP del proxy (Caddy): sin ella todas las peticiones parecen venir
-  del proxy y comparten el límite y el bloqueo por IP.
+  del proxy y comparten el límite y el bloqueo por IP. Con ella, además, los enlaces de las citas
+  del conocimiento salen con el esquema y el host públicos (`X-Forwarded-Proto` y
+  `X-Forwarded-Host` del proxy); `NEXO_KB_PUBLIC_URL`, si está, sigue mandando.
 - `NEXO_SUPERADMIN_ALLOWED_CIDRS` con la red de administración o la VPN (ASVS 8.4.2).
 - Con muchas PCs detrás de un mismo NAT, subir `sync.ip` (600/min alcanza para unas 100 PCs con
   autosync). Los límites son por réplica: con varias réplicas, el efectivo se multiplica.

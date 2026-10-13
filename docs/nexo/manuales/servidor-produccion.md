@@ -124,9 +124,9 @@ se crea el volumen): `POSTGRES_PASSWORD`, `NEXO_OWNER_PASSWORD`, `NEXO_APP_PASSW
 | `ENGRAM_PORT` | No | `8080` | `18080` | Puerto interno. Si lo cambia, cambie también `reverse_proxy cloud:18080` en el Caddyfile |
 | `ENGRAM_CLOUD_ALLOWED_PROJECTS` | Sí | vacía: el servidor no arranca (`cloud project allowlist is required`) | `nexo-transversal` | Proyectos de memoria que acepta el servidor, separados por comas |
 | `ENGRAM_CLOUD_MAX_PUSH_BYTES` | No | `8388608` (8 MiB) | no se usa | Tamaño máximo de una subida de sincronización |
-| `NEXO_TRUSTED_PROXIES` | Sí detrás de Caddy | vacía: se registra la IP de la conexión y se ignora `X-Forwarded-For` | `192.168.240.10/32` (Caddy) | IP o CIDR del proxy, separados por comas o espacios. Sin ella todas las peticiones parecen venir del proxy y comparten límites y bloqueos |
+| `NEXO_TRUSTED_PROXIES` | Sí detrás de Caddy | vacía: se registra la IP de la conexión y se ignora `X-Forwarded-For` | `192.168.240.10/32` (Caddy) | IP o CIDR del proxy, separados por comas o espacios. Sin ella todas las peticiones parecen venir del proxy y comparten límites y bloqueos. Con ella, los enlaces de las citas toman el esquema y el host públicos de `X-Forwarded-Proto` y `X-Forwarded-Host` (solo desde esos proxies) |
 | `NEXO_SUPERADMIN_ALLOWED_CIDRS` | Recomendada | vacía: sin restricción y aviso al iniciar | no se usa | Redes (CIDR o IP, separadas por comas) desde las que un superadmin puede administrar admins y la configuración de la plataforma. Fuera de ellas: 403 auditado (`reason=network`). Si tiene valor pero ninguna red válida, se niega todo |
-| `NEXO_KB_PUBLIC_URL` | Recomendada | vacía: se arma con el host de la petición | no se usa | URL pública (por ejemplo `https://<dominio>`) para los enlaces de las citas. Detrás de Caddy, sin esta variable los enlaces salen con `http://` porque el servidor no ve el TLS |
+| `NEXO_KB_PUBLIC_URL` | Recomendada | vacía: esquema y host de la petición; detrás de un proxy de `NEXO_TRUSTED_PROXIES`, los que informa el proxy | no se usa | URL pública (por ejemplo `https://<dominio>`) para los enlaces de las citas; si está, manda. Detrás de Caddy, sin esta variable ni `NEXO_TRUSTED_PROXIES`, los enlaces salen con `http://` porque el servidor no ve el TLS |
 
 ### 4.4 Límites y bloqueos
 
@@ -349,10 +349,12 @@ docker compose -f compose.yaml exec cloud engram cloud bootstrap recover-token -
 export NEXO_URL="https://<dominio>"
 read -rs NEXO_ADMIN_TOKEN    # pegue el token; no queda en el historial
 curl -fsS "$NEXO_URL/health"
+curl -fsS "$NEXO_URL/nexo/health/ready"
 curl -fsS -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" "$NEXO_URL/nexo/authz/v1/me"
 ```
 
-`/health` responde `{"service":"engram-cloud","status":"ok"}`. En `/me`, `platform.role` debe ser
+`/health` responde `{"service":"engram-cloud","status":"ok"}` y `/nexo/health/ready`,
+`{"status":"ready"}` (sección 11.1). En `/me`, `platform.role` debe ser
 `superadmin` y `token` debe mostrar `scope`, `expires_at` y `last_used_at`. Si usa `tls internal`,
 agregue `--cacert <ca-de-caddy>.crt` a `curl`.
 
@@ -559,12 +561,27 @@ Las acciones (reconocer una alerta, registrar una revisión) exigen además un t
 | Comprobación | Comando | Esperado |
 |---|---|---|
 | El proceso responde | `curl -fsS https://<dominio>/health` | `{"service":"engram-cloud","status":"ok"}` |
+| El servidor está disponible (con la base) | `curl -fsS https://<dominio>/nexo/health/ready` | `200` `{"status":"ready"}`; con la base caída, `503` `{"status":"unavailable"}` |
 | Contenedores | `docker compose -f compose.yaml ps` | `postgres` en `healthy`; `cloud` y `proxy` en `running` |
 | La base y la autenticación responden | `curl -fsS -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" https://<dominio>/nexo/authz/v1/me` | `200` con su rol |
 | Avisos del servidor | `docker compose -f compose.yaml logs --since 1h cloud \| grep "\[nexo\]"` | Sin errores de exportación, retención ni verificación |
 
-`/health` solo indica que el proceso está vivo: no consulta la base. Para un monitoreo externo,
-combínelo con la consulta a `/nexo/authz/v1/me` o con las alertas.
+`/health` (de Engram) solo indica que el proceso está vivo: no consulta la base y responde `ok`
+aunque Postgres esté caído. Para el monitoreo externo, el balanceador o el `healthcheck` de Docker use
+`GET /nexo/health/ready`: consulta la base (`SELECT 1`, 2 segundos como máximo) y responde `200`
+`{"status":"ready"}` o `503` `{"status":"unavailable"}`. No pide token ni muestra datos de la base ni
+del error. Cuenta en el límite del grupo `nexo` (300 por minuto por IP). Ejemplo de `healthcheck`
+para el servicio `cloud` del compose (la imagen trae `wget` de busybox):
+
+```yaml
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:18080/nexo/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
+Combínelo con la consulta a `/nexo/authz/v1/me` (la autenticación) y con las alertas.
 
 ### 11.2 Alertas
 
@@ -663,7 +680,7 @@ documentos no se depuran.
 - Certificado corporativo en Caddy; no use `tls internal` si las PCs no confían en esa CA.
 - `NEXO_TRUSTED_PROXIES` con la IP de Caddy y nada más.
 - `NEXO_SUPERADMIN_ALLOWED_CIDRS` con la red de administración o la VPN.
-- `NEXO_KB_PUBLIC_URL=https://<dominio>` para que los enlaces de las citas usen HTTPS.
+- `NEXO_KB_PUBLIC_URL=https://<dominio>` para fijar la URL de los enlaces de las citas (con `NEXO_TRUSTED_PROXIES` bien puesto ya salen con HTTPS; la variable evita depender de las cabeceras del proxy).
 
 ### 12.2 Cuentas y tokens
 
