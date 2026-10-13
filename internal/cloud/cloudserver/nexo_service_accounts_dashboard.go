@@ -130,8 +130,8 @@ func (s *CloudServer) saPanelAction(w http.ResponseWriter, r *http.Request, svc 
 		st.status, st.errText = saPanelErrText(err)
 		s.saPanelRender(w, r, svc, id, st)
 	}
-	respond := func(_ http.ResponseWriter, status int, _ string, message string) {
-		st.status, st.errText = status, "No se pudo completar: "+message
+	respond := func(_ http.ResponseWriter, status int, code string, message string) {
+		st.status, st.errText = status, saPanelCodeText(code, message)
 		s.saPanelRender(w, r, svc, id, st)
 	}
 	switch op {
@@ -214,6 +214,19 @@ func (s *CloudServer) saPanelAction(w http.ResponseWriter, r *http.Request, svc 
 		st.notice = "Token " + strings.TrimSpace(r.FormValue("token_id")) + " revocado: se rechaza desde la siguiente petición."
 	}
 	s.saPanelRender(w, r, svc, id, st)
+}
+
+// saPanelCodeText traduce los rechazos de validación de la emisión.
+func saPanelCodeText(code, message string) string {
+	switch code {
+	case "no_expiry_forbidden":
+		return "Solo un superadmin puede emitir tokens sin caducidad."
+	case authz.CodePrincipalDisabled:
+		return "La cuenta está deshabilitada: habilítela antes de emitir tokens."
+	case authz.CodeNotFound:
+		return "No encontramos el token en esta cuenta."
+	}
+	return "No se pudo completar: " + message
 }
 
 func (s *CloudServer) saPanelRequireTokens(r *http.Request, svc *authz.Service, id authz.Identity, ref string) error {
