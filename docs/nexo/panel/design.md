@@ -176,3 +176,87 @@ Capturas en `nexo_ia/06-pruebas/conocimiento/evidencia/panel/` (Chrome sin inter
 - El fragmento citado mezclaba la negrita del documento con el resaltado del buscador: solo se resaltan términos sueltos y se limpian barras de tabla y comillas de código.
 - Los bloques de código dentro de listas conservaban la sangría: se quita la sangría común.
 - Botones "Retirar" y de elegir archivo más discretos.
+
+## 9. Pantallas del auditor (SG-07)
+
+Estado: diseño de la rama `feat/panel-auditor`. Mismo lenguaje visual que Conocimiento y Cuentas de
+servicio (papel gris frío, tinta verde oscura, chips de estado, tablas dentro de `.nx-scroll`); no se
+agregan colores, tipografías ni componentes de otro estilo.
+
+### 9.1 Audiencia y trabajo principal
+
+| Quién | Qué viene a hacer |
+|---|---|
+| Auditor (rol de plataforma `auditor`) | Responder "qué pasó, quién y cuándo" y dejar constancia de que la evidencia está íntegra |
+| Administrador y superadmin | Lo mismo, y atender las alertas |
+
+El trabajo principal es **encontrar un hecho con su actor y su hora** (registro). El segundo es **demostrar
+que la evidencia no se alteró** (integridad) y **cerrar el ciclo** (reconocer alertas, registrar la revisión
+trimestral de accesos).
+
+### 9.2 Estructura
+
+Una pestaña "Auditoría" en el menú (solo para quien tiene `platform.audit.read`) y, dentro, una fila de
+seis enlaces con la forma de los filtros de Conocimiento (`.nx-filters`, la actual con `aria-current`):
+
+```
+Auditoría
+Registro   Actividad   Historial   Integridad   Alertas   Revisión de accesos
+------------------------------------------------------------------------------
+Registro:   [Seguridad | Roles]   Desde [..] Hasta [..] Actor [..] Acción [..] [Filtrar]
+            Fecha (UTC)  Actor  Acción  Resultado  Ámbito  Origen  Detalle
+            ...                                          [Ver más antiguos]
+
+Integridad: [Tabla: todas v] [Verificar ahora]
+            | La cadena está íntegra: 3 tablas, 1 284 filas verificadas.        |   <- elemento memorable
+            Tabla  Capa  Estado  Verificadas  Sin cadena  Alteradas  Faltantes
+            Fila alterada (la primera): id 57, posición 58, contenido ...
+            Huecos: de la posición 12 a la 14 (3 faltantes), en el medio
+
+Alertas:    [Pendientes | Todas]  Regla [..] Severidad [..]
+            Fecha  Severidad  Regla  Sujeto  Resumen  Estado / [Reconocer v nota]
+
+Revisión:   Última revisión: 2026-07-02 por Luis (hace 103 días)   [Marcar revisión como hecha]
+            Resumen: personas, inactivas, cuentas de servicio sin uso, tokens sin caducidad ...
+            Requieren atención (solo personas con marcas)  |  Todas las personas
+            Persona  Estado  Rol  Roles por ámbito  Tokens  Última actividad  Marcas
+```
+
+El elemento memorable es el veredicto de integridad: una frase plana a todo el ancho con barra lateral
+verde ("La cadena está íntegra") o roja ("Se detectó una alteración"), seguida de las filas exactas. El
+resto es tabla y filtros, callado.
+
+### 9.3 Decisiones
+
+1. **Tablas, no tarjetas.** Son datos para comparar: columnas fijas, `font-variant-numeric: tabular-nums`,
+   encabezado pegado, desplazamiento horizontal dentro de `.nx-scroll` (a 360 px la página no se mueve).
+2. **Hora en UTC con la columna rotulada.** `AAAA-MM-DD HH:MM:SS` dentro de `<time datetime>`; el rótulo
+   dice "(UTC)" una sola vez en el encabezado. Las fechas sueltas dicen "hace N días".
+3. **Filtros por GET y en la URL.** Se puede copiar el enlace de una búsqueda. Paginación por cursor con
+   "Ver más antiguos" (el servidor solo avanza; para volver se usa el botón Atrás del navegador).
+4. **El código y su glosa.** La acción se muestra con su código (es lo que se escribe en el filtro) y, si se
+   conoce, una línea en español debajo.
+5. **Solo lo que ya expone la API.** El detalle de un evento sale de los mismos campos que el JSON y se
+   filtra de nuevo al dibujarlo: se omiten claves con nombre de secreto y valores con forma de token, hash
+   o cabecera Authorization. Nunca se muestra el prefijo del token, solo su nombre.
+6. **Acciones con CSRF y PRG.** Reconocer una alerta y registrar la revisión son POST con el token CSRF del
+   panel; al terminar redirigen (303) a la lista con un aviso fijo. Si la sesión es de un token de lectura,
+   el botón no aparece y el servidor igual lo rechaza.
+7. **Vacíos que orientan.** "No hay eventos con esos filtros. Amplía el rango de fechas o quita el actor."
+   en lugar de una tabla vacía.
+8. **Bloque propio en el tema.** Los estilos nuevos (veredicto, tablas densas, resumen, clases `nxa-`) van
+   en un bloque separado al final de `nexo_theme.css`; no se tocan las reglas existentes.
+
+### 9.4 Revisión contra clichés
+
+- No hay tablero de números grandes con degradado: el resumen de la revisión es una lista de pares
+  etiqueta y valor, y lo importante son las filas.
+- No hay semáforos decorativos: el color solo marca severidad y marcas (chips ya existentes).
+- Sin mayúsculas sostenidas, sin "01 / 02", sin flechas en botones, sin tarjetas por fila.
+
+### 9.5 Accesibilidad
+
+Etiquetas visibles en cada campo, `scope="col"` en los encabezados, `<caption>` oculto a la vista por tabla
+(`nx-sr`), foco visible heredado del tema, veredicto con `role="status"` (o `role="alert"` si falla),
+formularios de reconocimiento dentro de `<details>` accesibles con teclado, contraste AA con los chips
+del tema, y sin dependencia de JavaScript.
