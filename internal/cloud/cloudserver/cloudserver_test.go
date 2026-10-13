@@ -732,7 +732,7 @@ func TestHandlerDashboardAdminTokenFlowEstablishesAdminSession(t *testing.T) {
 		t.Fatalf("expected admin dashboard request to succeed with admin credential session, got %d body=%q", admin.Code, admin.Body.String())
 	}
 	// UPDATED: new admin page uses AdminPage templ component which renders "Admin Overview".
-	if !strings.Contains(admin.Body.String(), "ADMIN SURFACE") {
+	if !strings.Contains(admin.Body.String(), "Resumen de administración") {
 		t.Fatalf("expected admin page content, body=%q", admin.Body.String())
 	}
 }
@@ -812,7 +812,7 @@ func TestHandlerDashboardRouteOwnershipParity(t *testing.T) {
 	}
 	// MIGRATED: handleProjectDetail now uses ProjectDetailPage templ (renders "PROJECT DETAIL"
 	// kicker + "proj-a" in breadcrumb, not "Project: proj-a" from old raw-HTML builder).
-	if !strings.Contains(shareable.Body.String(), "PROJECT DETAIL") || !strings.Contains(shareable.Body.String(), "proj-a") {
+	if !strings.Contains(shareable.Body.String(), "Detalle del proyecto") || !strings.Contains(shareable.Body.String(), "proj-a") {
 		t.Fatalf("expected shareable project detail page content, body=%q", shareable.Body.String())
 	}
 

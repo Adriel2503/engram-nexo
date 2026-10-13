@@ -117,7 +117,7 @@ func TestManagedDashboardAdminLoginSetsSignedCookieAndRevalidatesAccess(t *testi
 	if adminRec.Code != http.StatusOK {
 		t.Fatalf("expected managed admin dashboard access to succeed, got %d body=%q", adminRec.Code, adminRec.Body.String())
 	}
-	if !strings.Contains(adminRec.Body.String(), "ADMIN SURFACE") {
+	if !strings.Contains(adminRec.Body.String(), "Resumen de administración") {
 		t.Fatalf("expected admin dashboard content after managed login, body=%q", adminRec.Body.String())
 	}
 	if got := store.getCalls - beforeAdminRequest; got != 1 {

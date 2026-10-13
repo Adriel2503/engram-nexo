@@ -606,12 +606,12 @@ func TestNexoDashboardSessionFollowsToken(t *testing.T) {
 	env := newNexoSecEnv(t, nil)
 	cookie := managedDashboardLogin(t, env.srv, env.tokens["carla"], false)
 	page := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/admin/users/"+env.ids["ana"], cookie)
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), " / write") || !strings.Contains(page.Body.String(), "expires_in_days") {
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), " / escritura") || !strings.Contains(page.Body.String(), "expires_in_days") {
 		t.Fatalf("panel: %d", page.Code)
 	}
 	// Emisión desde el panel con alcance read y 15 días.
 	created := performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/users/"+env.ids["ana"]+"/tokens", "name=panel&scope=read&expires_in_days=15", cookie, false)
-	if created.Code != http.StatusOK || !strings.Contains(created.Body.String(), "scope read") {
+	if created.Code != http.StatusOK || !strings.Contains(created.Body.String(), "alcance lectura") {
 		t.Fatalf("emisión en el panel: %d %s", created.Code, created.Body.String())
 	}
 	if n := env.count(`SELECT count(*) FROM cloud_principal_tokens WHERE name = 'panel' AND nexo_scope = 'read' AND nexo_expires_at BETWEEN now() + interval '14 days' AND now() + interval '15 days 1 minute'`); n != 1 {

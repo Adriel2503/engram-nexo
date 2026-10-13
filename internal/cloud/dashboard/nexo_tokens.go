@@ -18,7 +18,7 @@ func nexoTokenExpiry(tok cloudstore.PrincipalToken) string {
 		return formatTimeValue(*tok.NexoExpiresAt)
 	}
 	if tok.NexoScope != "" {
-		return "Never"
+		return nx("Never")
 	}
 	return "-"
 }
@@ -28,7 +28,7 @@ func nexoTokenScope(tok cloudstore.PrincipalToken) string {
 	if tok.NexoScope == "" {
 		return "-"
 	}
-	return tok.NexoScope
+	return nx(tok.NexoScope)
 }
 
 // nexoTokenStatus: etiqueta y tono del estado de un token no revocado
@@ -36,9 +36,9 @@ func nexoTokenScope(tok cloudstore.PrincipalToken) string {
 // agregar nodos a la plantilla (diff mínimo del archivo generado).
 func nexoTokenStatus(tok cloudstore.PrincipalToken) (string, string) {
 	if nexoTokenExpired(tok) {
-		return "Expired", "danger"
+		return nx("Expired"), "danger"
 	}
-	return "Active", "success"
+	return nx("Active"), "success"
 }
 
 // nexoTokenExpired informa si el token ya venció.
