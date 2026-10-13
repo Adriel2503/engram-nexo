@@ -72,7 +72,37 @@ var serviceAccountMigrations = []string{
 				FOR EACH ROW EXECUTE FUNCTION nexo_service_accounts_validate();
 		END IF;
 	END $$`,
+	// Último uso de un principal (cuentas sin uso): lo mismo que muestra el
+	// detalle de la cuenta. Es el último last_used_at de sus tokens o la
+	// última acción registrada con su identidad (sincronización, capa
+	// conocimiento, administración y denegaciones). NULL = nunca usada. Las
+	// tablas de otras capas pueden no existir todavía: se consultan solo si
+	// están (PL/pgSQL prepara cada consulta recién al ejecutarla).
+	`CREATE OR REPLACE FUNCTION ` + PrincipalLastUseFunction + `(p_id BIGINT) RETURNS TIMESTAMPTZ AS $$
+	DECLARE
+		v_last TIMESTAMPTZ;
+		v_at   TIMESTAMPTZ;
+	BEGIN
+		SELECT max(t.last_used_at) INTO v_last FROM cloud_principal_tokens t WHERE t.principal_id = p_id;
+		IF to_regclass('nexo_actor_presence') IS NOT NULL THEN
+			SELECT max(s.last_seen_at) INTO v_at FROM nexo_actor_presence s WHERE s.actor_principal_id = p_id::text;
+			v_last := GREATEST(v_last, v_at);
+		END IF;
+		IF to_regclass('nexo_kb_events') IS NOT NULL THEN
+			SELECT k.occurred_at INTO v_at FROM nexo_kb_events k WHERE k.actor_principal_id = p_id ORDER BY k.id DESC LIMIT 1;
+			v_last := GREATEST(v_last, v_at);
+		END IF;
+		v_at := NULL;
+		SELECT e.occurred_at INTO v_at FROM nexo_authz_events e WHERE e.actor_principal_id = p_id ORDER BY e.id DESC LIMIT 1;
+		RETURN GREATEST(v_last, v_at);
+	END
+	$$ LANGUAGE plpgsql STABLE`,
 }
+
+// PrincipalLastUseFunction es la función SQL del último uso de un principal
+// (ver serviceAccountMigrations). La usan el listado de cuentas de servicio,
+// la revisión de accesos y la alerta de cuentas sin uso.
+const PrincipalLastUseFunction = "nexo_principal_last_use"
 
 var serviceAccountSlugRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}$`)
 
@@ -95,8 +125,39 @@ type ServiceAccount struct {
 	CreatedByName string    `json:"created_by_username,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+	// LastActivityAt es el último uso: último uso de sus tokens o última
+	// acción registrada (nil = nunca usada).
+	LastActivityAt *time.Time `json:"last_activity_at"`
+	// IdleDays son los días sin uso desde LastActivityAt (o desde el alta si
+	// nunca se usó).
+	IdleDays int `json:"idle_days"`
+	// Stale: habilitada y sin uso en StaleAfterDays días (NEXO_SA_STALE_DAYS;
+	// 0 = aviso desactivado). Solo avisa: una cuenta de servicio nunca se
+	// deshabilita por inactividad.
+	Stale          bool `json:"stale"`
+	StaleAfterDays int  `json:"stale_after_days"`
 	// Bindings son los roles en proyectos y espacios.
 	Bindings []ServiceAccountBinding `json:"bindings"`
+}
+
+// IdleDaysSince son los días completos sin uso: desde el último uso o, si
+// nunca se usó, desde el alta.
+func IdleDaysSince(createdAt time.Time, lastUse *time.Time, now time.Time) int {
+	base := createdAt
+	if lastUse != nil && lastUse.After(base) {
+		base = *lastUse
+	}
+	if d := int(now.Sub(base).Hours() / 24); d > 0 {
+		return d
+	}
+	return 0
+}
+
+// markStale completa los días sin uso y la marca de cuenta sin uso.
+func (a *ServiceAccount) markStale(staleDays int, now time.Time) {
+	a.IdleDays = IdleDaysSince(a.CreatedAt, a.LastActivityAt, now)
+	a.StaleAfterDays = staleDays
+	a.Stale = a.Enabled && staleDays > 0 && a.IdleDays >= staleDays
 }
 
 // ServiceAccountBinding es un rol de la cuenta en un ámbito.
@@ -115,7 +176,8 @@ type CreateServiceAccountInput struct {
 
 const saColumns = `p.id::text, sa.slug, p.display_name, sa.description, p.enabled,
 	sa.owner_principal_id::text, COALESCE(ho.username, ''), COALESCE(po.display_name, ''), COALESCE(po.enabled, FALSE),
-	COALESCE(sa.created_by_principal_id::text, ''), COALESCE(hc.username, ''), sa.created_at, sa.updated_at`
+	COALESCE(sa.created_by_principal_id::text, ''), COALESCE(hc.username, ''), sa.created_at, sa.updated_at,
+	` + PrincipalLastUseFunction + `(p.id)`
 
 const saFrom = ` FROM nexo_service_accounts sa
 	JOIN cloud_principals p ON p.id = sa.principal_id
@@ -125,8 +187,13 @@ const saFrom = ` FROM nexo_service_accounts sa
 
 func scanServiceAccount(row interface{ Scan(...any) error }) (ServiceAccount, error) {
 	var a ServiceAccount
+	var last sql.NullTime
 	err := row.Scan(&a.PrincipalID, &a.Slug, &a.DisplayName, &a.Description, &a.Enabled,
-		&a.OwnerID, &a.OwnerUsername, &a.OwnerName, &a.OwnerEnabled, &a.CreatedBy, &a.CreatedByName, &a.CreatedAt, &a.UpdatedAt)
+		&a.OwnerID, &a.OwnerUsername, &a.OwnerName, &a.OwnerEnabled, &a.CreatedBy, &a.CreatedByName, &a.CreatedAt, &a.UpdatedAt, &last)
+	if last.Valid {
+		v := last.Time
+		a.LastActivityAt = &v
+	}
 	a.Bindings = []ServiceAccountBinding{}
 	return a, err
 }
@@ -197,7 +264,19 @@ func (s *Service) CreateServiceAccount(ctx context.Context, actor Identity, in C
 	if err != nil {
 		return ServiceAccount{}, err
 	}
+	created.markStale(s.saStaleDays, time.Now())
 	return created, nil
+}
+
+// WithServiceAccountStaleDays fija los días sin uso a partir de los cuales
+// el listado y el detalle marcan una cuenta de servicio como sin uso
+// (NEXO_SA_STALE_DAYS; 0 = sin marca). Devuelve el mismo servicio.
+func (s *Service) WithServiceAccountStaleDays(days int) *Service {
+	if days < 0 {
+		days = 0
+	}
+	s.saStaleDays = days
+	return s
 }
 
 func checkServiceAccountOwner(owner principalRow) error {
@@ -261,6 +340,10 @@ func (s *Service) ListServiceAccounts(ctx context.Context, actor Identity, q Ser
 }
 
 func (s *Service) fillServiceAccountBindings(ctx context.Context, items []ServiceAccount) error {
+	now := time.Now()
+	for i := range items {
+		items[i].markStale(s.saStaleDays, now)
+	}
 	if len(items) == 0 {
 		return nil
 	}

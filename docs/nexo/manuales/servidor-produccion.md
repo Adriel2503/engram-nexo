@@ -265,7 +265,8 @@ solo.
 | `NEXO_AUDIT_VERIFY_MINUTES` | `60` | Cada cuántos minutos el servidor verifica la cadena de hashes de la auditoría. `0` = solo a pedido |
 | `NEXO_AUDIT_EXPORT_DIR` | vacía: exportación desactivada (aviso al iniciar) | Carpeta de la exportación diaria firmada (`<dir>/<tabla>/<AAAA-MM-DD>.jsonl` y `.jsonl.sig`). En el compose: `/export` |
 | `NEXO_AUDIT_EXPORT_KEY` | vacía: exportación desactivada | Clave de las firmas, 32 caracteres o más |
-| `NEXO_DISABLE_INACTIVE_DAYS` | vacía: desactivado | Días sin uso tras los cuales el servidor deshabilita una cuenta (mínimo 7; nunca el último superadmin) |
+| `NEXO_DISABLE_INACTIVE_DAYS` | vacía: desactivado | Días sin uso tras los cuales el servidor deshabilita a una **persona** (mínimo 7; nunca el último superadmin). Las cuentas de servicio nunca se deshabilitan por inactividad |
+| `NEXO_SA_STALE_DAYS` | `180` | Días sin uso tras los cuales una cuenta de servicio habilitada deja la alerta `service_account_stale` (con su nombre y su responsable, una vez por período sin uso) y la marca "sin uso"; no la deshabilita. `0` = sin aviso |
 | `NEXO_RETENTION_AUDIT_DAYS` | vacía: no se depura | Retención de `cloud_auth_audit_log`. Mínimo 365 |
 | `NEXO_RETENTION_AUTHZ_EVENTS_DAYS` | vacía: no se depura | Retención de `nexo_authz_events`. Mínimo 365 |
 | `NEXO_RETENTION_KB_EVENTS_DAYS` | vacía: no se depura | Retención de `nexo_kb_events`. Mínimo 365. Las versiones de documentos no se depuran nunca |
@@ -344,7 +345,8 @@ Agregue en el servicio `cloud`, bajo `environment`, lo que recomienda este manua
 ```yaml
       NEXO_SUPERADMIN_ALLOWED_CIDRS: "<red-de-administración>/24"   # red de administración o VPN
       NEXO_KB_PUBLIC_URL: "https://${NEXO_DOMAIN}"
-      # NEXO_DISABLE_INACTIVE_DAYS: "90"        # opcional, decisión de la empresa
+      # NEXO_DISABLE_INACTIVE_DAYS: "90"        # opcional, decisión de la empresa (solo personas)
+      # NEXO_SA_STALE_DAYS: "180"               # aviso de cuentas de servicio sin uso (0 = sin aviso)
       # NEXO_RETENTION_AUDIT_DAYS: "365"        # solo con una política de retención aprobada
 ```
 
@@ -697,7 +699,8 @@ devuelve `409`. El servidor evalúa las reglas cada minuto en una sola réplica.
 | `invalid_token_repeated` | Un token inválido se repite | 10 en 30 min | warning |
 | `audit_chain_broken` | La verificación de la cadena falla | 1 | critical |
 | `logging_stalled` | La auditoría deja de registrar (desactivada por defecto) | 30 min | high |
-| `inactive_account_disabled` | El servidor deshabilitó una cuenta por inactividad | 1 | warning |
+| `inactive_account_disabled` | El servidor deshabilitó a una persona por inactividad (`NEXO_DISABLE_INACTIVE_DAYS`) | 1 | warning |
+| `service_account_stale` | Una cuenta de servicio habilitada lleva `NEXO_SA_STALE_DAYS` días sin uso (no se deshabilita); una vez por período sin uso, pasada diaria | 180 días | warning |
 | `audit_export_failed` | Falla la exportación diaria | 1 | high |
 | `kb_doc_expiring` | Un documento vigente vence pronto | 30 días (o `settings.expiry_warn_days` del espacio) | info |
 | `kb_doc_review_due` | Un documento no se revisa en el plazo del espacio (`settings.review_every_days`) | según el espacio | info |

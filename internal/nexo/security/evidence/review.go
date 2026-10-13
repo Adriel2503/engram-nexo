@@ -10,8 +10,10 @@ package evidence
 //     hashes ni prefijos de token.
 //   - CompleteReview: registra que la revisión se hizo (quién, cuándo, notas y
 //     el hash del reporte revisado) en nexo_access_reviews (solo inserción).
-//   - DisableInactive: con NEXO_DISABLE_INACTIVE_DAYS deshabilita cuentas sin
-//     uso, con evento y alerta; nunca al último superadmin habilitado.
+//   - DisableInactive: con NEXO_DISABLE_INACTIVE_DAYS deshabilita personas
+//     (kind human) sin uso, con evento y alerta; nunca al último superadmin
+//     habilitado ni a una cuenta de servicio (esas solo avisan con
+//     NEXO_SA_STALE_DAYS, ver serviceaccounts.go).
 
 import (
 	"context"
@@ -137,6 +139,9 @@ type ReviewSummary struct {
 	TokensNeverUse int `json:"tokens_never_used"`
 	ExpiringIn30d  int `json:"tokens_expiring_30d"`
 	PlatformStaff  int `json:"platform_staff"`
+	// StaleServiceAccounts: cuentas de servicio habilitadas sin uso en
+	// NEXO_SA_STALE_DAYS días (marca "stale"; no se deshabilitan).
+	StaleServiceAccounts int `json:"service_accounts_stale"`
 }
 
 // ReviewRecord es una revisión registrada.
@@ -154,7 +159,8 @@ type ReviewRecord struct {
 type AccessReview struct {
 	GeneratedAt     time.Time      `json:"generated_at"`
 	InactiveDays    int            `json:"inactive_threshold_days"`
-	DisableInactive int            `json:"disable_inactive_days"` // 0 = desactivado
+	DisableInactive int            `json:"disable_inactive_days"` // 0 = desactivado; solo personas
+	SAStaleDays     int            `json:"sa_stale_days"`         // 0 = desactivado; cuentas de servicio, solo aviso
 	Summary         ReviewSummary  `json:"summary"`
 	People          []ReviewPerson `json:"people"`
 	LastReview      *ReviewRecord  `json:"last_review"`
@@ -177,17 +183,22 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 	if inactiveDays <= 0 {
 		inactiveDays = ReviewInactiveDays
 	}
-	rep := AccessReview{GeneratedAt: now.UTC(), InactiveDays: inactiveDays, DisableInactive: DisableInactiveDays()}
+	rep := AccessReview{GeneratedAt: now.UTC(), InactiveDays: inactiveDays, DisableInactive: DisableInactiveDays(), SAStaleDays: SAStaleDays()}
 	people := map[string]*ReviewPerson{}
 	var order []string
 
+	// Cuentas de servicio (SG-10): el último uso es el del detalle de la
+	// cuenta (nexo_principal_last_use; emitir o rotar un token no cuenta como
+	// uso) y el usuario es su nombre corto.
 	rows, err := db.QueryContext(ctx, `
-		SELECT p.id::text, COALESCE(u.username, ''), COALESCE(u.email, ''), p.display_name, p.kind, p.enabled, p.created_at, p.role,
-			GREATEST(p.created_at,
+		SELECT p.id::text, COALESCE(u.username, sa.slug, ''), COALESCE(u.email, ''), p.display_name, p.kind, p.enabled, p.created_at, p.role,
+			CASE WHEN p.kind = 'service_account' THEN GREATEST(p.created_at, `+principalLastUseSQL+`(p.id))
+			ELSE GREATEST(p.created_at,
 				(SELECT max(t.last_used_at) FROM cloud_principal_tokens t WHERE t.principal_id = p.id),
 				(SELECT max(t.created_at) FROM cloud_principal_tokens t WHERE t.principal_id = p.id),
-				(SELECT max(s.last_seen_at) FROM nexo_actor_presence s WHERE s.actor_principal_id = p.id::text)) AS last_activity
+				(SELECT max(s.last_seen_at) FROM nexo_actor_presence s WHERE s.actor_principal_id = p.id::text)) END AS last_activity
 		FROM cloud_principals p LEFT JOIN cloud_human_users u ON u.principal_id = p.id
+		LEFT JOIN nexo_service_accounts sa ON sa.principal_id = p.id
 		ORDER BY p.id`)
 	if err != nil {
 		return rep, fmt.Errorf("evidence: revisión: personas: %w", err)
@@ -308,7 +319,15 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 		p := people[id]
 		if p.Enabled {
 			rep.Summary.Enabled++
-			if p.LastActivityAt != nil && p.InactiveDays >= inactiveDays {
+			switch {
+			case p.Kind == "service_account":
+				// Una cuenta de servicio nunca se deshabilita por
+				// inactividad: se marca "stale" con NEXO_SA_STALE_DAYS.
+				if rep.SAStaleDays > 0 && p.LastActivityAt != nil && p.InactiveDays >= rep.SAStaleDays {
+					p.Flags = append(p.Flags, "stale")
+					rep.Summary.StaleServiceAccounts++
+				}
+			case p.LastActivityAt != nil && p.InactiveDays >= inactiveDays:
 				p.Flags = append(p.Flags, "inactive")
 				rep.Summary.Inactive++
 			}
@@ -418,6 +437,7 @@ func CompleteReview(ctx context.Context, db *sql.DB, rep AccessReview, who Revie
 		"people": rep.Summary.People, "enabled": rep.Summary.Enabled, "inactive": rep.Summary.Inactive,
 		"active_tokens": rep.Summary.ActiveTokens, "tokens_no_expiry": rep.Summary.TokensNoExpiry,
 		"tokens_never_used": rep.Summary.TokensNeverUse, "platform_staff": rep.Summary.PlatformStaff,
+		"service_accounts_stale":  rep.Summary.StaleServiceAccounts,
 		"inactive_threshold_days": rep.InactiveDays, "generated_at": rep.GeneratedAt,
 	})
 	digest := ReportDigest(rep)
@@ -460,9 +480,12 @@ type DisabledAccount struct {
 	InactiveDays   int       `json:"inactive_days"`
 }
 
-// DisableInactive deshabilita las cuentas habilitadas sin actividad en days
-// días. Nunca deshabilita al último superadmin habilitado (lo salta; además
-// lo impide el trigger de NX-05). Cada cuenta deshabilitada deja el evento
+// DisableInactive deshabilita las personas (kind human) habilitadas sin
+// actividad en days días; las cuentas de servicio y las legacy nunca se
+// deshabilitan por inactividad (las de servicio avisan con
+// ServiceAccountStaleAlerts). Nunca deshabilita al último superadmin
+// habilitado (lo salta; además lo impide el trigger de NX-05). Cada cuenta
+// deshabilitada deja el evento
 // principal.disabled_inactive (nexo_authz_events), user.disable en
 // cloud_auth_audit_log y una alerta.
 func DisableInactive(ctx context.Context, db *sql.DB, days int, now time.Time, rule RuleConfig) ([]DisabledAccount, []Alert, error) {
@@ -476,7 +499,7 @@ func DisableInactive(ctx context.Context, db *sql.DB, days int, now time.Time, r
 				(SELECT max(t.last_used_at) FROM cloud_principal_tokens t WHERE t.principal_id = p.id),
 				(SELECT max(t.created_at) FROM cloud_principal_tokens t WHERE t.principal_id = p.id),
 				(SELECT max(s.last_seen_at) FROM nexo_actor_presence s WHERE s.actor_principal_id = p.id::text)) AS last_activity) x
-		WHERE p.enabled AND x.last_activity < $1
+		WHERE p.enabled AND p.kind = 'human' AND x.last_activity < $1
 		ORDER BY p.id`, now.Add(-time.Duration(days)*24*time.Hour))
 	if err != nil {
 		return nil, nil, fmt.Errorf("evidence: inactivos: %w", err)

@@ -56,6 +56,7 @@ var AllRules = []string{
 	RuleExpiredTokenUsed, RuleRevokedTokenUsed, RuleInvalidTokenRepeated, RuleAuditChainBroken,
 	RuleLoggingStalled, RuleInactiveDisabled, RuleAuditExportFailed,
 	RuleKBDocExpiring, RuleKBReviewDue, // NX-10 2b (KP-09, alerts_kb.go)
+	RuleSAStale, // SG-10: cuentas de servicio sin uso (serviceaccounts.go)
 }
 
 // RuleConfig es la configuración de una regla.
@@ -89,6 +90,9 @@ func DefaultRules() RuleSet {
 		// revisión según settings.review_every_days de cada espacio.
 		RuleKBDocExpiring: {Enabled: true, Threshold: 1, Window: 30 * 24 * time.Hour, Severity: SeverityInfo},
 		RuleKBReviewDue:   {Enabled: true, Threshold: 1, Severity: SeverityInfo},
+		// SG-10: el plazo sale de NEXO_SA_STALE_DAYS; la regla permite apagarla
+		// o cambiar la severidad con NEXO_ALERT_RULES.
+		RuleSAStale: {Enabled: true, Threshold: 1, Severity: SeverityWarning},
 	}
 }
 

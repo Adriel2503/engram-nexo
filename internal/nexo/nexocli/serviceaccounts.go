@@ -147,7 +147,12 @@ type saAccount struct {
 	OwnerID       string `json:"owner_principal_id"`
 	OwnerUsername string `json:"owner_username"`
 	CreatedBy     string `json:"created_by_username"`
-	Bindings      []struct {
+	// Último uso y marca de cuenta sin uso (NEXO_SA_STALE_DAYS).
+	LastActivityAt *time.Time `json:"last_activity_at"`
+	IdleDays       int        `json:"idle_days"`
+	Stale          bool       `json:"stale"`
+	StaleAfterDays int        `json:"stale_after_days"`
+	Bindings       []struct {
 		Scope struct {
 			Type string `json:"type"`
 			Key  string `json:"key"`
@@ -180,6 +185,32 @@ func saOwner(a saAccount) string {
 		return a.OwnerUsername
 	}
 	return a.OwnerID
+}
+
+func saDays(n int) string {
+	if n == 1 {
+		return "1 día"
+	}
+	return fmt.Sprintf("%d días", n)
+}
+
+// saLastUse es el último uso en texto.
+func saLastUse(a saAccount) string {
+	switch {
+	case a.LastActivityAt == nil:
+		return "nunca usada (creada hace " + saDays(a.IdleDays) + ")"
+	case a.IdleDays == 0:
+		return "en las últimas 24 horas"
+	}
+	return "sin uso desde hace " + saDays(a.IdleDays)
+}
+
+// saListState es el estado con la marca de cuenta sin uso.
+func saListState(a saAccount) string {
+	if a.Stale {
+		return saState(a.Enabled) + ", SIN USO"
+	}
+	return saState(a.Enabled)
 }
 
 func saState(enabled bool) string {
@@ -224,15 +255,26 @@ func saList(args []string, dataDir string, stdout io.Writer) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CUENTA\tID\tESTADO\tRESPONSABLE\tROLES\tDESCRIPCION")
+	_, _ = fmt.Fprintln(tw, "CUENTA\tID\tESTADO\tULTIMO USO\tRESPONSABLE\tROLES\tDESCRIPCION")
+	stale := 0
 	for _, a := range page.Items {
 		roles := []string{}
 		for _, b := range a.Bindings {
 			roles = append(roles, b.Role+"@"+b.Scope.Type+":"+b.Scope.Key)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a), strings.Join(roles, ","), a.Description)
+		if a.Stale {
+			stale++
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.PrincipalID, saListState(a), saLastUse(a), saOwner(a), strings.Join(roles, ","), a.Description)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if stale > 0 {
+		_, _ = fmt.Fprintf(stdout, "\n%d cuenta(s) SIN USO en %s o más (NEXO_SA_STALE_DAYS): no se deshabilitan solas; confirme con el responsable si siguen en uso.\n",
+			stale, saDays(page.Items[0].StaleAfterDays))
+	}
+	return nil
 }
 
 func saShow(args []string, dataDir string, stdout io.Writer) error {
@@ -256,6 +298,11 @@ func saShow(args []string, dataDir string, stdout io.Writer) error {
 		return saPrintJSON(stdout, a)
 	}
 	_, _ = fmt.Fprintf(stdout, "Cuenta %s (id %s), %s. Responsable: %s.\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a))
+	_, _ = fmt.Fprintf(stdout, "Último uso: %s.\n", saLastUse(a))
+	if a.Stale {
+		_, _ = fmt.Fprintf(stdout, "SIN USO: %s sin uso (aviso a partir de %s, NEXO_SA_STALE_DAYS). No se deshabilita sola: confirme con %s si sigue en uso; si no, revoque sus tokens o deshabilítela.\n",
+			saDays(a.IdleDays), saDays(a.StaleAfterDays), saOwner(a))
+	}
 	if a.Description != "" {
 		_, _ = fmt.Fprintf(stdout, "Descripción: %s\n", a.Description)
 	}

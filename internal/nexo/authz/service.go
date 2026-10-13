@@ -55,6 +55,9 @@ type Service struct {
 	db    *sql.DB
 	eng   *Engine
 	store *PGStore
+	// saStaleDays: días sin uso para marcar una cuenta de servicio
+	// (NEXO_SA_STALE_DAYS; 0 = sin marca). Ver WithServiceAccountStaleDays.
+	saStaleDays int
 }
 
 // NewService crea el servicio sobre la base de Engram Cloud.

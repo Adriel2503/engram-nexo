@@ -77,6 +77,28 @@ reúne, por token:
 
 Límite: una petición de solo lectura que no deja evento (búsqueda) mueve `last_used_at` pero no la IP.
 
+### Inactividad: aviso, nunca deshabilitar (decisión)
+
+- `NEXO_DISABLE_INACTIVE_DAYS` (S4-04) deshabilita **solo personas** (`kind = 'human'`). Una cuenta
+  de servicio nunca se deshabilita por inactividad.
+- `NEXO_SA_STALE_DAYS` (por defecto 180; `0` = desactivado): una cuenta de servicio habilitada sin
+  uso en ese plazo deja la alerta `service_account_stale` en `nexo_alerts` (capa plataforma,
+  severidad `warning`; se apaga o cambia con `NEXO_ALERT_RULES`), con su nombre corto y su
+  responsable, y la marca "sin uso" en la API (`stale`, `idle_days`, `last_activity_at`), en
+  `engram nexo sa list|show`, en el panel y en la revisión de accesos (marca `stale`).
+- **Último uso**: función SQL `nexo_principal_last_use(bigint)`, el último `last_used_at` de sus
+  tokens o la última acción registrada con su identidad (las mismas fuentes que arriba). Si nunca se
+  usó, el plazo cuenta desde el alta. Emitir o rotar un token no cuenta como uso.
+- **Sin repetición**: una alerta por cuenta y período sin uso (la clave de deduplicación lleva la
+  fecha del último uso o del alta). La pasada diaria siguiente no la repite; reconocerla la cierra.
+  Si la cuenta vuelve a usarse y otra vez queda sin uso, avisa de nuevo.
+
+**Por qué.** Un pipeline de CI que publica cada pocos meses es un uso normal: deshabilitarlo en
+silencio rompe el CI sin que nadie lo note. Las cuentas de servicio ya tienen sus propias defensas:
+tokens con caducidad (90 días por defecto; sin caducidad solo un superadmin), rotación con gracia y
+revocación con evento, y una persona responsable obligatoria. El aviso le pide a esa persona que
+confirme si la cuenta sigue en uso; si no, se revocan sus tokens o se deshabilita a mano.
+
 ## 6. Eventos
 
 En `nexo_authz_events` (encadenada por S4), ámbito plataforma, objetivo la cuenta:
@@ -90,6 +112,7 @@ token). Las asignaciones de rol dejan `binding.*` como siempre.
 |---|---|
 | Casos de uso y migración | `internal/nexo/authz/serviceaccounts.go` |
 | Último uso | `internal/nexo/security/tokenusage.go` |
+| Cuentas sin uso (alerta `service_account_stale`, `NEXO_SA_STALE_DAYS`) | `internal/nexo/security/evidence/serviceaccounts.go` |
 | API `/nexo/authz/v1/service-accounts` | `internal/cloud/cloudserver/nexo_service_accounts.go` |
 | Panel `/dashboard/admin/service-accounts` | `cloudserver/nexo_service_accounts_dashboard.go`, `dashboard/nexo_service_accounts.templ` |
 | CLI `engram nexo sa` | `internal/nexo/nexocli/serviceaccounts.go` |
@@ -111,8 +134,8 @@ Rutas nuevas (para el registro de rutas de S5):
 
 ## 8. Decisiones abiertas
 
-- **Desactivación por inactividad (S4-04).** `NEXO_DISABLE_INACTIVE_DAYS` también alcanza a las
-  cuentas de servicio (no filtra por tipo). Un pipeline que publica cada pocos meses quedaría
-  deshabilitado. Opciones: excluirlas, o darles un umbral propio.
+- **Desactivación por inactividad (S4-04).** Resuelta: `NEXO_DISABLE_INACTIVE_DAYS` solo alcanza a
+  personas y las cuentas de servicio sin uso solo avisan con `NEXO_SA_STALE_DAYS` (ver §5,
+  "Inactividad").
 - **IP de peticiones de solo lectura.** Si se quiere la IP de cada uso (no solo de las acciones
   registradas), haría falta una escritura por petición para las cuentas de servicio.

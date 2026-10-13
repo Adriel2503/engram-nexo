@@ -84,27 +84,33 @@ func newNexoSATokenView(t nexoTokenView) nexoSATokenView {
 
 // nexoSADetail es GET .../service-accounts/{sa}: la cuenta con sus tokens.
 type nexoSADetail struct {
-	PrincipalID   string                        `json:"principal_id"`
-	Slug          string                        `json:"slug"`
-	DisplayName   string                        `json:"display_name"`
-	Description   string                        `json:"description"`
-	Enabled       bool                          `json:"enabled"`
-	OwnerID       string                        `json:"owner_principal_id"`
-	OwnerUsername string                        `json:"owner_username,omitempty"`
-	OwnerName     string                        `json:"owner_display_name,omitempty"`
-	OwnerEnabled  bool                          `json:"owner_enabled"`
-	CreatedBy     string                        `json:"created_by_principal_id,omitempty"`
-	CreatedByName string                        `json:"created_by_username,omitempty"`
-	CreatedAt     time.Time                     `json:"created_at"`
-	UpdatedAt     time.Time                     `json:"updated_at"`
-	Bindings      []authz.ServiceAccountBinding `json:"bindings"`
-	Tokens        []nexoSATokenView             `json:"tokens"`
+	PrincipalID   string    `json:"principal_id"`
+	Slug          string    `json:"slug"`
+	DisplayName   string    `json:"display_name"`
+	Description   string    `json:"description"`
+	Enabled       bool      `json:"enabled"`
+	OwnerID       string    `json:"owner_principal_id"`
+	OwnerUsername string    `json:"owner_username,omitempty"`
+	OwnerName     string    `json:"owner_display_name,omitempty"`
+	OwnerEnabled  bool      `json:"owner_enabled"`
+	CreatedBy     string    `json:"created_by_principal_id,omitempty"`
+	CreatedByName string    `json:"created_by_username,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	// Último uso y marca de cuenta sin uso (NEXO_SA_STALE_DAYS; solo aviso).
+	LastActivityAt *time.Time                    `json:"last_activity_at"`
+	IdleDays       int                           `json:"idle_days"`
+	Stale          bool                          `json:"stale"`
+	StaleAfterDays int                           `json:"stale_after_days"`
+	Bindings       []authz.ServiceAccountBinding `json:"bindings"`
+	Tokens         []nexoSATokenView             `json:"tokens"`
 }
 
 func newNexoSADetail(a authz.ServiceAccount, tokens []nexoSATokenView) nexoSADetail {
 	return nexoSADetail{PrincipalID: a.PrincipalID, Slug: a.Slug, DisplayName: a.DisplayName, Description: a.Description, Enabled: a.Enabled,
 		OwnerID: a.OwnerID, OwnerUsername: a.OwnerUsername, OwnerName: a.OwnerName, OwnerEnabled: a.OwnerEnabled,
 		CreatedBy: a.CreatedBy, CreatedByName: a.CreatedByName, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
+		LastActivityAt: a.LastActivityAt, IdleDays: a.IdleDays, Stale: a.Stale, StaleAfterDays: a.StaleAfterDays,
 		Bindings: a.Bindings, Tokens: tokens}
 }
 
