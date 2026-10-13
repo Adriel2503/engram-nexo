@@ -36,6 +36,10 @@ type Block struct {
 	Level       int      // nivel del título (solo BlockHeading)
 	Text        string   // Markdown del bloque
 	HeadingPath []string // títulos que lo contienen (para un título, incluido él)
+	// AnchorPath, si no es nil, reemplaza a HeadingPath solo para calcular el
+	// ancla. Markdown lo usa cuando el título visible conserva '_', '*' o '`'
+	// que antes se quitaban, para que las anclas ya publicadas no cambien.
+	AnchorPath []string
 	// Location es la procedencia en el archivo original (md: heading_path,
 	// line_start, line_end; pdf: page_start, page_end; xlsx: sheet,
 	// row_start, row_end; pptx: slide_start, slide_end).

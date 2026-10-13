@@ -767,7 +767,7 @@ func TestNexoRateLimitMiddlewareOverhead(t *testing.T) {
 	t.Setenv(security.RateLimitsEnv, `{"other":{"ip":100000000}}`)
 	srv := &CloudServer{}
 	with := srv.nexoHandler(ok)
-	without := nexoHandler(ok)
+	without := nexoClientContextMiddleware(nexoParseTrustedProxies(os.Getenv(NexoTrustedProxiesEnv)), ok)
 	measure := func(h http.Handler) time.Duration {
 		const n = 20000
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
