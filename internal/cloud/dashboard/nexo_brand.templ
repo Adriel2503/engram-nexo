@@ -17,6 +17,7 @@ templ nexoNavTabs(activeTab string, isAdmin bool) {
 			if isAdmin {
 				@navTab("/dashboard/admin", nx("Admin"), "admin", activeTab)
 				@navTab("/dashboard/admin/service-accounts", "Cuentas de servicio", "service-accounts", activeTab)
+				@navTab(NexoSearchStatusPath, "Estado de la búsqueda", NexoSearchStatusTab, activeTab)
 			}
 			if nexoAuditNavOn(ctx) {
 				@navTab("/dashboard/admin/audit", "Auditoría", "audit", activeTab)

@@ -121,7 +121,7 @@ func newNexoSecurityFromEnv() *nexoSecurity {
 // datos del token (NX-07).
 func (s *CloudServer) nexoHandler(next http.Handler) http.Handler {
 	trusted := nexoParseTrustedProxies(os.Getenv(NexoTrustedProxiesEnv))
-	return nexoClientContextMiddleware(trusted, s.nexoSecurityMiddleware(s.nexoAuditNavMiddleware(next)))
+	return nexoClientContextMiddleware(trusted, s.nexoSecurityMiddleware(s.nexoAuditNavMiddleware(nexoPanelErrorText(next)))) // OP-06: errores del panel en español
 }
 
 func (s *CloudServer) nexoSecurityMiddleware(next http.Handler) http.Handler {
@@ -493,7 +493,7 @@ func (s *CloudServer) nexoDashboardScopeGuard(w http.ResponseWriter, r *http.Req
 	if isDashboardHTMXRequest(r) {
 		w.Header().Set("HX-Reswap", "none")
 	}
-	http.Error(w, "forbidden: this session was opened with a read-only token (scope read) and cannot change anything; sign in with a write token", http.StatusForbidden)
+	http.Error(w, "Esta sesión entró con un token de solo lectura y no puede cambiar nada. Entra con un token de escritura.", http.StatusForbidden)
 	return false
 }
 

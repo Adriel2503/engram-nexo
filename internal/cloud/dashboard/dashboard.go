@@ -1002,6 +1002,7 @@ func (h *handlers) handlePromptDetail(w http.ResponseWriter, r *http.Request) {
 
 func (h *handlers) renderStoreError(w http.ResponseWriter, r *http.Request, activeTab string, contextLabel string, err error) {
 	status, headline, message := classifyStoreError(contextLabel, err)
+	headline, message = nx(headline), nx(message) // NX-10 (panel, OP-06)
 	log.Printf("dashboard: %s store error: %v", strings.ToLower(strings.TrimSpace(contextLabel)), err)
 	fragment := fmt.Sprintf(`<div class="empty-state" role="alert"><h3>%s</h3><p>%s</p></div>`, html.EscapeString(headline), html.EscapeString(message))
 	if isHTMXRequest(r) {
@@ -1011,7 +1012,7 @@ func (h *handlers) renderStoreError(w http.ResponseWriter, r *http.Request, acti
 	// R5-1: Use templ Layout for non-HTMX error pages so status-ribbon and shell-footer
 	// are always present regardless of which handler generated the error.
 	p := h.principalFromRequest(r)
-	body := fmt.Sprintf(`<section class="frame-section"><p class="section-kicker">DEGRADED</p><h2>%s</h2>%s</section>`, html.EscapeString(contextLabel), fragment)
+	body := fmt.Sprintf(`<section class="frame-section"><p class="section-kicker">%s</p><h2>%s</h2>%s</section>`, html.EscapeString(nx("DEGRADED")), html.EscapeString(nx(contextLabel)), fragment) // NX-10 (panel, OP-06)
 	renderComponentStatus(w, r, status, Layout(contextLabel, p.DisplayName(), activeTab, p.IsAdmin(), templ.Raw(body)))
 }
 

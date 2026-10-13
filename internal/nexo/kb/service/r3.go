@@ -130,11 +130,11 @@ func (s *Service) RerankStats() (rerank.Stats, bool) {
 
 // RerankState es el estado del reordenamiento.
 type RerankState struct {
-	Enabled  bool                `json:"enabled"`
-	Reranker map[string]any      `json:"reranker,omitempty"`
+	Enabled  bool                 `json:"enabled"`
+	Reranker map[string]any       `json:"reranker,omitempty"`
 	Options  search.RerankOptions `json:"options"`
-	Stats    *rerank.Stats       `json:"stats,omitempty"`
-	Reason   string              `json:"reason,omitempty"`
+	Stats    *rerank.Stats        `json:"stats,omitempty"`
+	Reason   string               `json:"reason,omitempty"`
 }
 
 // RerankState informa el estado del reordenamiento (platform.settings).
@@ -142,14 +142,19 @@ func (s *Service) RerankState(ctx context.Context, id authz.Identity) (RerankSta
 	if err := s.requirePlatform(ctx, id, authz.CapPlatformSettings, "index.rerank.state"); err != nil {
 		return RerankState{}, err
 	}
+	return s.rerankState(), nil
+}
+
+// rerankState arma el estado sin comprobar permisos (quien llama ya lo hizo).
+func (s *Service) rerankState() RerankState {
 	st := RerankState{Enabled: s.rr != nil, Options: s.r3}
 	if s.rr == nil {
 		st.Reason = "NEXO_KB_RERANKER no configurado: la búsqueda no se reordena"
-		return st, nil
+		return st
 	}
 	st.Reranker = s.rrCfg.Describe()
 	if sr, ok := s.RerankStats(); ok {
 		st.Stats = &sr
 	}
-	return st, nil
+	return st
 }

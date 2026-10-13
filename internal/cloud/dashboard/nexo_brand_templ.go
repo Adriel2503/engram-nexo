@@ -76,6 +76,14 @@ func nexoNavTabs(activeTab string, isAdmin bool) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = navTab(NexoSearchStatusPath, "Estado de la búsqueda", NexoSearchStatusTab, activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 			if nexoAuditNavOn(ctx) {
 				templ_7745c5c3_Err = navTab("/dashboard/admin/audit", "Auditoría", "audit", activeTab).Render(ctx, templ_7745c5c3_Buffer)
@@ -83,7 +91,7 @@ func nexoNavTabs(activeTab string, isAdmin bool) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -120,20 +128,20 @@ func nexoHome(username string) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if NexoBrand() {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<section class=\"hero-panel nexo-home\"><div class=\"hero-copy\"><h2>Hola, ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<section class=\"hero-panel nexo-home\"><div class=\"hero-copy\"><h2>Hola, ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 35, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 36, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</h2><p class=\"hero-lead\">Aquí ves la memoria que comparten los asistentes del equipo. Los estándares oficiales están en Conocimiento.</p><p><a href=\"/dashboard/kb\" class=\"nexo-btn nexo-btn-primary\">Buscar en Conocimiento</a></p></div><div class=\"data-frame\" id=\"dashboard-stats\" hx-get=\"/dashboard/stats\" hx-trigger=\"load\" hx-swap=\"innerHTML\"><p class=\"htmx-indicator terminal-note\">Cargando estadísticas...</p></div></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</h2><p class=\"hero-lead\">Aquí ves la memoria que comparten los asistentes del equipo. Los estándares oficiales están en Conocimiento.</p><p><a href=\"/dashboard/kb\" class=\"nexo-btn nexo-btn-primary\">Buscar en Conocimiento</a></p></div><div class=\"data-frame\" id=\"dashboard-stats\" hx-get=\"/dashboard/stats\" hx-trigger=\"load\" hx-swap=\"innerHTML\"><p class=\"htmx-indicator terminal-note\">Cargando estadísticas...</p></div></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -172,12 +180,12 @@ func nexoProposalsTab(activeTab string) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if activeTab == "proposals" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<a href=\"/dashboard/kb/proposals\" role=\"tab\" aria-selected=\"true\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<a href=\"/dashboard/kb/proposals\" role=\"tab\" aria-selected=\"true\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<a href=\"/dashboard/kb/proposals\" role=\"tab\" aria-selected=\"false\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<a href=\"/dashboard/kb/proposals\" role=\"tab\" aria-selected=\"false\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

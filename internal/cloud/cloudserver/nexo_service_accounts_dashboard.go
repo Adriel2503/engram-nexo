@@ -41,12 +41,12 @@ func (s *CloudServer) nexoSAPanel(fn saPanelHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		svc, ok := s.nexoAuthz()
 		if !ok {
-			http.Error(w, "service accounts are not available on this server", http.StatusServiceUnavailable)
+			http.Error(w, "Las cuentas de servicio no están disponibles en este servidor.", http.StatusServiceUnavailable)
 			return
 		}
 		principal, ok := s.dashboardPrincipalFromRequest(r)
 		if !ok {
-			http.Error(w, "forbidden: service accounts require a managed user session", http.StatusForbidden)
+			http.Error(w, "Las cuentas de servicio necesitan una sesión de una persona con usuario en Nexo. Entra con el token que te asignó el administrador.", http.StatusForbidden)
 			return
 		}
 		r = r.WithContext(WithPrincipal(r.Context(), principal))
@@ -54,11 +54,11 @@ func (s *CloudServer) nexoSAPanel(fn saPanelHandler) http.HandlerFunc {
 		id.TokenScope = s.nexoEffectiveTokenScope(r.Context(), principal)
 		r = r.WithContext(authz.WithIdentity(r.Context(), id))
 		if !id.Managed() {
-			http.Error(w, "forbidden: service accounts require a managed user token", http.StatusForbidden)
+			http.Error(w, "Las cuentas de servicio necesitan el token de una persona con usuario en Nexo. Entra con el token que te asignó el administrador.", http.StatusForbidden)
 			return
 		}
 		if r.Method == http.MethodPost && !s.kbCSRFOK(r) {
-			http.Error(w, "forbidden: invalid or missing CSRF token; reload the page", http.StatusForbidden)
+			http.Error(w, "El formulario venció o no es válido. Vuelve a abrir la página e inténtalo de nuevo.", http.StatusForbidden)
 			return
 		}
 		fn(w, r, svc, id)

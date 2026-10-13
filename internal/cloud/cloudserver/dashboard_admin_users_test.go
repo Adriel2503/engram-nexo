@@ -395,7 +395,7 @@ func TestDashboardManagedUserDetailPageReturns404ForUnknownPrincipal(t *testing.
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown managed user detail page, got %d body=%q", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Managed User Not Found") {
+	if !strings.Contains(rec.Body.String(), "Persona no encontrada") {
 		t.Fatalf("expected not-found body content, got %q", rec.Body.String())
 	}
 }
@@ -438,7 +438,7 @@ func TestDashboardCreateManagedTokenRejectsDisabledUserWithStyledErrorWithoutMin
 		t.Fatalf("expected disabled-user rejection to render a dashboard HTML page, got Content-Type=%q body=%q", contentType, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, marker := range []string{"<!doctype html>", "Engram Cloud", "Cannot Create Token", "Enable this managed user before creating a managed token.", "disabled-user"} {
+	for _, marker := range []string{"<!doctype html>", "Nexo IA", "No se puede crear el token", "Habilita a esta persona antes de crearle un token.", "disabled-user"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("expected styled disabled-user error page marker %q, body=%q", marker, body)
 		}
@@ -497,7 +497,7 @@ func TestDashboardCreateManagedTokenStoreDisabledRaceReturns409WithoutPersisting
 		t.Fatalf("expected store-level disabled rejection to render a dashboard HTML page, got Content-Type=%q body=%q", contentType, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, marker := range []string{"<!doctype html>", "Engram Cloud", "Cannot Create Token", "Enable this managed user before creating a managed token.", "race"} {
+	for _, marker := range []string{"<!doctype html>", "Nexo IA", "No se puede crear el token", "Habilita a esta persona antes de crearle un token.", "race"} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("expected styled store-level disabled error page marker %q, body=%q", marker, body)
 		}
@@ -607,7 +607,7 @@ func TestDashboardDisableLastActiveAdminSurfacesErrorNotSuccess(t *testing.T) {
 	if rec.Code == http.StatusSeeOther || rec.Code == http.StatusOK {
 		t.Fatalf("expected disabling the last active admin to be rejected, got %d body=%q", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), cloudstore.ErrLastActiveAdmin.Error()) {
+	if !strings.Contains(rec.Body.String(), "sin un administrador activo") {
 		t.Fatalf("expected the error body to mention the last-active-admin guard, got %q", rec.Body.String())
 	}
 	for _, event := range store.auditEvents {

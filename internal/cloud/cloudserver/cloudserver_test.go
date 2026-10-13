@@ -581,7 +581,7 @@ func TestHandlerDashboardLoginRejectsOversizedFormPayload(t *testing.T) {
 	if login.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expected 413 for oversized login payload, got %d body=%q", login.Code, login.Body.String())
 	}
-	if !strings.Contains(login.Body.String(), "payload too large") {
+	if !strings.Contains(login.Body.String(), "demasiado grande") {
 		t.Fatalf("expected clear payload too large error, got %q", login.Body.String())
 	}
 }
