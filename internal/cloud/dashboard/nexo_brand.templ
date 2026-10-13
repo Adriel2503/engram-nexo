@@ -10,6 +10,7 @@ templ nexoNavTabs(activeTab string, isAdmin bool) {
 		<div role="tablist">
 			@navTab("/dashboard/", nx("Dashboard"), "dashboard", activeTab)
 			@navTab("/dashboard/kb", "Conocimiento", "kb", activeTab)
+			@nexoProposalsTab(activeTab)
 			@navTab("/dashboard/browser", nx("Browser"), "browser", activeTab)
 			@navTab("/dashboard/projects", nx("Projects"), "projects", activeTab)
 			@navTab("/dashboard/contributors", nx("Contributors"), "contributors", activeTab)
@@ -38,5 +39,16 @@ templ nexoHome(username string) {
 		</section>
 	} else {
 		@DashboardHome(username)
+	}
+}
+
+// nexoProposalsTab es la pestaña Propuestas (K6, KP-13). La insignia con las
+// propuestas por revisar se pide con htmx al cargar la página: vacía si quien
+// mira no revisa ningún espacio o no hay pendientes.
+templ nexoProposalsTab(activeTab string) {
+	if activeTab == "proposals" {
+		<a href="/dashboard/kb/proposals" role="tab" aria-selected="true">Propuestas<span hx-get="/dashboard/kb/proposals/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>
+	} else {
+		<a href="/dashboard/kb/proposals" role="tab" aria-selected="false">Propuestas<span hx-get="/dashboard/kb/proposals/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>
 	}
 }

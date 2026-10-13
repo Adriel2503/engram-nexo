@@ -1,0 +1,158 @@
+package dashboard
+
+// Nexo IA · K6 (KP-13) — propuestas de cambio en el panel: listado (global y
+// por espacio) y detalle con la comparación y la decisión. Archivo propio de
+// Nexo: components.templ no cambia. Todo texto de usuarios se escapa; el
+// Markdown llega ya renderizado por mdhtml (sin HTML crudo).
+
+templ NexoProposalsPageView(p NexoProposalsPage) {
+	<div class="nx-page nexo-proposals">
+		if p.Head != nil {
+			@NexoSpaceHeader(*p.Head, p.Title, p.Lead)
+		} else {
+			<header class="nx-head">
+				<p class="nx-crumbs"><a href="/dashboard/kb">Conocimiento</a> / Propuestas</p>
+				<h1>{ p.Title }</h1>
+				if p.Lead != "" {
+					<p>{ p.Lead }</p>
+				}
+			</header>
+		}
+		if p.Error != "" {
+			<div class="nx-note nx-note-error" role="alert"><p>{ p.Error }</p></div>
+		}
+		<section aria-labelledby="nx-props-t">
+			<h2 class="nx-h2" id="nx-props-t">Propuestas</h2>
+			<nav class="nx-filters" aria-label="Filtrar propuestas por estado">
+				for _, f := range p.Filters {
+					@nexoSectionLink(f.Href, f.Label, f.Current)
+				}
+			</nav>
+			if len(p.Items) == 0 {
+				<p class="nx-empty">{ p.Empty }</p>
+				if p.Hint != "" {
+					<p class="nx-hint">{ p.Hint }</p>
+				}
+			} else {
+				<ul class="nx-docs nx-rows">
+					for _, it := range p.Items {
+						<li class="nx-doc">
+							<span class="nx-doc-title"><a href={ templ.URL(it.Href) }>{ it.Title }</a></span>
+							<span class="nx-doc-path">{ nexoProposalLine(it) }</span>
+							<span class="nx-doc-side"><span class={ "nx-chip " + it.StatusClass }>{ it.StatusLabel }</span></span>
+						</li>
+					}
+				</ul>
+			}
+		</section>
+	</div>
+}
+
+templ NexoProposalPageView(p NexoProposalPage) {
+	<div class="nx-page nexo-proposal">
+		<header class="nx-head">
+			<p class="nx-crumbs"><a href="/dashboard/kb">Conocimiento</a> / <a href={ templ.URL(nexoSpaceURL(p.Head.Slug)) }>{ p.Head.Slug }</a> / <a href={ templ.URL(nexoProposalsURL(p.Head.Slug)) }>Propuestas</a></p>
+			<h1>{ p.Title }</h1>
+			<ul class="nx-meta">
+				<li><span class={ "nx-chip " + p.StatusClass }>{ p.StatusLabel }</span></li>
+				<li>Propuso <strong>{ p.Author }</strong> el { p.Date }</li>
+				<li>{ p.Target }</li>
+				if p.Category != "" {
+					<li>Categoría: { p.Category }</li>
+				}
+				if p.Vigencia != "" {
+					<li>{ p.Vigencia }</li>
+				}
+			</ul>
+		</header>
+		if p.Notice != "" {
+			<div class="nx-note nx-note-ok" role="status">
+				<p>{ p.Notice }
+					if p.NoticeLink != "" {
+						{ " " }<a href={ templ.URL(p.NoticeLink) }>{ p.NoticeLinkT }</a>
+					}
+				</p>
+			</div>
+		}
+		if p.Error != "" {
+			<div class="nx-note nx-note-error" role="alert"><p>{ p.Error }</p></div>
+		}
+		if p.Stale != "" && p.Open {
+			<div class="nx-note" role="note"><p>{ p.Stale }</p></div>
+		}
+		if p.Decision != "" {
+			<div class="nx-note nx-note-info" role="note"><p>{ p.Decision }</p></div>
+		}
+		<div class={ nexoProposalGridClass(p) }>
+			<div class="nx-main-col">
+				if p.Rationale != "" {
+					<section aria-labelledby="nx-why-t">
+						<h2 class="nx-h2" id="nx-why-t">Motivo del autor</h2>
+						<p class="nx-rationale">{ p.Rationale }</p>
+					</section>
+				}
+				<section aria-labelledby="nx-cmp-t">
+					<h2 class="nx-h2" id="nx-cmp-t">
+						if p.HasCurrent {
+							Versión vigente y propuesta
+						} else {
+							Texto propuesto
+						}
+					</h2>
+					<div class={ nexoCompareClass(p.HasCurrent) }>
+						if p.HasCurrent {
+							<article class="nx-prose" aria-labelledby="nx-cur-t">
+								<h3 class="nx-compare-title" id="nx-cur-t">{ p.CurrentName }</h3>
+								@templ.Raw(p.CurrentHTML)
+							</article>
+						}
+						<article class="nx-prose" aria-labelledby="nx-new-t">
+							<h3 class="nx-compare-title" id="nx-new-t">Propuesta</h3>
+							@templ.Raw(p.ProposedHTML)
+						</article>
+					</div>
+				</section>
+			</div>
+			if p.CanReview && p.Open {
+				<aside class="nx-aside">
+					<section class="nx-panel" aria-labelledby="nx-ok-t">
+						<h2 class="nx-h2" id="nx-ok-t">Aprobar y publicar</h2>
+						<form method="post" action={ templ.URL(p.ApproveURL) } class="nx-create">
+							<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+							<label for="nx-note">Nota para el autor <span class="nx-hint">opcional</span>
+								<input id="nx-note" type="text" name="note" maxlength="500" autocomplete="off" value={ p.FormNote }/>
+							</label>
+							<label for="nx-vf">Vigente desde <span class="nx-hint">opcional; vacío = la fecha propuesta o hoy</span>
+								<input id="nx-vf" type="date" name="valid_from" value={ p.ValidFrom }/>
+							</label>
+							<label for="nx-vu">Vigente hasta <span class="nx-hint">opcional</span>
+								<input id="nx-vu" type="date" name="valid_until" value={ p.ValidUntil }/>
+							</label>
+							if p.NeedsKey {
+								<label for="nx-key">Clave del documento <span class="nx-hint">opcional; vacío = propuestas/título</span>
+									<input id="nx-key" type="text" name="doc_key" autocomplete="off" value={ p.DocKey }/>
+								</label>
+							}
+							if p.ShowForce {
+								<label class="nx-check" for="nx-force"><input id="nx-force" type="checkbox" name="force" value="true"/> <span>Aprobar aunque el documento cambió desde que se hizo la propuesta</span></label>
+							}
+							<div><button type="submit">Aprobar y publicar</button></div>
+						</form>
+						<p class="nx-hint">Publica una versión nueva del documento con esta propuesta. Queda registrado quién propuso y quién aprobó.</p>
+					</section>
+					<section class="nx-panel" aria-labelledby="nx-no-t">
+						<h2 class="nx-h2" id="nx-no-t">Descartar</h2>
+						<form method="post" action={ templ.URL(p.DiscardURL) } class="nx-create">
+							<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+							<label for="nx-reason">Motivo <span class="nx-hint">obligatorio; lo ve el autor</span>
+								<textarea id="nx-reason" name="reason" rows="3" maxlength="2000" required>{ p.FormReason }</textarea>
+							</label>
+							<div><button type="submit" class="nexo-btn-secondary">Descartar propuesta</button></div>
+						</form>
+						<p class="nx-hint">La propuesta se conserva con su motivo; no se borra.</p>
+					</section>
+				</aside>
+			}
+		</div>
+	</div>
+}

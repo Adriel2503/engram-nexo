@@ -68,6 +68,9 @@ func nx(s string) string {
 	if t, ok := nexoText[s]; ok {
 		return t
 	}
+	if t, ok := nexoTextPanel[s]; ok { // K6 (OP-06): textos de las páginas de Engram
+		return t
+	}
 	return s
 }
 

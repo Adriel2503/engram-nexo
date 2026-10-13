@@ -20,12 +20,13 @@ propuestas, proyectos, auditoría y revisión de accesos. La instalación del se
 
 | Herramienta | Para qué | Dónde |
 |---|---|---|
-| Panel web | Usuarios y tokens, cuentas de servicio, permisos de proyecto, crear espacios, subir y retirar documentos, buscar | `https://<dominio>/dashboard/` (entrar con su token). Conocimiento en `https://<dominio>/dashboard/kb`; cuentas de servicio en `https://<dominio>/dashboard/admin/service-accounts` |
+| Panel web | Usuarios y tokens, cuentas de servicio, permisos de proyecto, crear espacios, miembros de cada espacio, subir y retirar documentos, buscar, revisar propuestas | `https://<dominio>/dashboard/` (entrar con su token). Conocimiento en `https://<dominio>/dashboard/kb`; cuentas de servicio en `https://<dominio>/dashboard/admin/service-accounts` |
 | API con `curl` | Todo lo anterior y además: roles de plataforma, miembros de espacios, propuestas, avisos, auditoría y revisión de accesos | `https://<dominio>/...` con `Authorization: Bearer <token>` |
 | CLI `engram nexo` | Subir carpetas o la wiki, ver cambios, reindexar, verificar la auditoría, cuentas de servicio (`engram nexo sa`) | En su PC conectada (`engram nexo connect`) o dentro del contenedor del servidor |
 
-No hay pantalla para gestionar miembros de espacios ni roles de plataforma: se hace con la API
-`/nexo/authz/v1` (secciones 2.4 y 4.3).
+Los miembros de un espacio se gestionan en el panel (sección 4.3) o con la API `/nexo/authz/v1`. Los
+roles de plataforma no tienen pantalla: se cambian con la API (sección 2.4). Las propuestas se revisan
+en el panel (sección 6.1), con las herramientas `nexo_*` o con la API.
 
 ### 1.2 Preparar la terminal
 
@@ -146,8 +147,8 @@ La única identidad en Nexo es el **token asignado** por un administrador. Lo qu
 
 ### 3.1 Crear una persona
 
-En el panel: **Administración > Usuarios** (`/dashboard/admin/users`), formulario "CREATE MANAGED
-USER": usuario, correo (opcional), nombre mostrado (opcional) y rol (`Member` o `Admin`). Por API:
+En el panel: **Administración > Usuarios** (`/dashboard/admin/users`), formulario "Crear
+usuario": usuario, correo (opcional), nombre para mostrar (opcional) y rol (Miembro o Administrador). Por API:
 
 ```sh
 curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
@@ -186,8 +187,8 @@ se reasigna un equipo, revoque su token y emita uno nuevo con el mismo nombre.
 | Alcance (`scope`) | `write` (lee y escribe) o `read` (solo descarga y consulta) | `write` |
 | Sin caducidad (`expires_in_days: 0`) | Solo cuentas de servicio y solo un superadmin (desde las redes permitidas) | No |
 
-En el panel: detalle de la persona (`/dashboard/admin/users/<id>`), campos "Token label", "Expires in
-days (default 90)" y "Scope", botón "Create Token". El token aparece **una sola vez**.
+En el panel: detalle de la persona (`/dashboard/admin/users/<id>`), campos "Nombre del token (opcional)", "Días de vida (por defecto 90)" y "Alcance",
+botón "Crear token". El token aparece **una sola vez**.
 
 Por API (cualquiera de las dos rutas):
 
@@ -225,7 +226,7 @@ son tokens emitidos antes de esta versión y deben rotarse.
 
 ### 3.5 Revocar un token
 
-En el panel: detalle de la persona, botón "Revoke" del token. Por API:
+En el panel: detalle de la persona, botón "Revocar" del token. Por API:
 
 ```sh
 curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
@@ -261,7 +262,7 @@ curl -fsS -X POST -H "$H" "$NEXO_URL/admin/users/<id>/disable"
 curl -fsS -X POST -H "$H" "$NEXO_URL/admin/users/<id>/enable"
 ```
 
-En el panel: botones "Disable User" y "Enable User" del detalle. Deshabilitar a un admin, superadmin
+En el panel: botones "Deshabilitar usuario" y "Habilitar usuario" del detalle. Deshabilitar a un admin, superadmin
 o auditor solo lo puede hacer un superadmin; el último superadmin no se deshabilita (`409`). Si la
 persona era el único responsable de un espacio, ese espacio queda sin responsable: un superadmin lo
 recupera (4.4).
@@ -553,6 +554,33 @@ Solo el **responsable** del espacio asigna roles (capacidad `space.members.manag
 superadmin sin rol en el espacio no puede hacerlo: o lo nombran responsable, o el responsable actual
 asigna los roles.
 
+#### Desde el panel
+
+Abre el espacio en **Conocimiento** y entra a la sección **Miembros**
+(`/dashboard/kb/spaces/<espacio>/members`). La lista agrupa a las personas y cuentas de servicio por
+rol (responsables, publicadores, proponentes y lectores), con el tipo ("Persona" o "Cuenta de
+servicio") y desde cuándo tienen el rol.
+
+| Quién abre la página | Qué ve |
+|---|---|
+| Responsable del espacio | La lista con los controles: selector de rol y botón "Cambiar rol", botón "Quitar" y el formulario "Agregar un miembro" |
+| Cualquier persona con acceso al espacio (lector, proponente, publicador) | Solo la lista, con la nota "Solo el responsable del espacio y los administradores cambian roles" |
+| Admin o auditor sin rol en un espacio restringido | Solo la lista (permiso de directorio); sin controles |
+| Persona sin acceso a un espacio restringido | Nada: la página responde 404, como el resto del espacio |
+
+- **Agregar:** escriba el nombre de usuario (o el nombre corto de una cuenta de servicio), elija el rol
+  y pulse "Agregar miembro". Si la persona ya tenía un rol, se cambia por el nuevo. El administrador
+  y el auditor ven sugerencias de nombres; el responsable escribe el nombre.
+- **Cambiar el rol:** elija el rol en la fila y pulse "Cambiar rol".
+- **Quitar:** botón "Quitar" de la fila. Es reversible: se vuelve a agregar con el rol que corresponda.
+- La página muestra los rechazos de las reglas con un texto que dice qué hacer: una cuenta de servicio
+  no puede ser responsable, el último responsable no se puede quitar ni bajar, nadie se sube el rol a
+  sí mismo y el usuario escrito no existe.
+- Las sesiones abiertas con un token de solo lectura ven la lista pero no pueden cambiar nada.
+- Cada cambio queda en los eventos de roles (`GET /nexo/admin/authz-events`), igual que por la API.
+
+#### Con la API
+
 ```sh
 # Listar miembros (filtro opcional ?role=publicador)
 curl -fsS -H "$H" "$NEXO_URL/nexo/authz/v1/scopes/space/<espacio>/members"
@@ -841,7 +869,34 @@ compararlas.
 Un proponente envía una propuesta (un documento nuevo o un cambio). No es oficial hasta que un
 publicador o responsable la aprueba. Los desarrolladores suelen proponer desde su asistente
 (herramienta `nexo_propose`); quien revisa puede usar `nexo_proposals` y `nexo_review` desde su
-asistente, o la API. El panel no tiene pantalla de propuestas.
+asistente, la API o, desde K6, el panel.
+
+### 6.1 Revisar propuestas desde el panel
+
+- **Dónde:** la pestaña **Propuestas** del menú (`/dashboard/kb/proposals`) lista las propuestas de
+  todos sus espacios; la sección **Propuestas** de cada espacio
+  (`/dashboard/kb/spaces/<espacio>/proposals`) lista las de ese espacio. Los filtros son Pendientes,
+  Aprobadas, Descartadas y Retiradas. Cada fila dice el espacio, si cambia un documento (y desde qué
+  versión) o es un documento nuevo, quién propuso y cuándo.
+- **Quién la ve:** quien tiene rol publicador o responsable en el espacio (`space.review`) ve todas las
+  propuestas del espacio; un proponente solo ve las suyas. Si usted revisa algún espacio, la pestaña
+  **Propuestas** muestra un número con las propuestas abiertas que puede revisar.
+- **Detalle:** muestra el motivo del autor, la vigencia propuesta y, lado a lado, la versión vigente del
+  documento y el texto propuesto (Markdown seguro: nunca se interpreta HTML). Si la propuesta es de un
+  documento nuevo, solo muestra el texto propuesto. Si el documento cambió después de la propuesta, un
+  aviso lo dice.
+- **Aprobar y publicar:** nota para el autor (opcional), fechas de vigencia (opcionales; vacías, vale la
+  propuesta o la fecha de hoy) y, si la propuesta es de un documento nuevo, la clave del documento
+  (opcional). Si el documento cambió, aparece la casilla "Aprobar aunque el documento cambió": márquela
+  solo si el cambio sigue siendo válido. Es lo mismo que `:approve` con `force`.
+- **Descartar:** el motivo es obligatorio y lo ve el autor. La propuesta se conserva.
+- Una propuesta ya cerrada muestra quién la cerró, cuándo y la nota, sin botones.
+- Solo decide quien tiene rol publicador o responsable en el espacio y una sesión con token de
+  escritura. Las sesiones con token de solo lectura no ven propuestas ajenas ni pueden decidir.
+- Las decisiones usan los mismos eventos de auditoría que la API (`proposal.approved`,
+  `proposal.discarded` en `GET /nexo/kb/v1/spaces/<espacio>/events`).
+
+### 6.2 Con la API
 
 ```sh
 # Propuestas abiertas de un espacio (estados: open, approved, discarded, withdrawn)
@@ -887,8 +942,8 @@ Un proyecto es la memoria compartida de un equipo (por ejemplo `nexo-transversal
 |---|---|
 | Qué proyectos acepta el servidor | Los de `ENGRAM_CLOUD_ALLOWED_PROJECTS` (lo define quien opera el servidor) |
 | Quién sincroniza un proyecto | La persona con **permiso de proyecto** (de Engram). Equivale a publicador: puede escribir y cambiar memorias de otros |
-| Dar permiso | Panel: detalle de la persona, campo "Project name" y botón "Grant Project". API: `POST /admin/users/<id>/grants` con `{"project":"<proyecto>"}` |
-| Quitar permiso | Panel: botón "Revoke" del permiso. API: `POST /admin/users/<id>/grants/<proyecto>/revoke` |
+| Dar permiso | Panel: detalle de la persona, campo "Nombre del proyecto" y botón "Dar permiso". API: `POST /admin/users/<id>/grants` con `{"project":"<proyecto>"}` |
+| Quitar permiso | Panel: botón "Revocar" del permiso. API: `POST /admin/users/<id>/grants/<proyecto>/revoke` |
 | Ver permisos | `GET /admin/users/<id>/grants` |
 | Auto-asignación | Nadie se da permiso a sí mismo (`403 self_grant_forbidden`). Hace falta `platform.users.manage` (admin o superadmin) |
 | Pausar la sincronización | Panel: **Administración > Proyectos** (requiere token `write`) |
@@ -1063,6 +1118,10 @@ defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marc
 | `POST /nexo/kb/v1/spaces/<espacio>/uploads` | `space.publish` |
 | `POST /nexo/kb/v1/spaces/<espacio>/documents/<doc_key>:retire` y `:supersede` | `space.publish` |
 | `GET /nexo/kb/v1/proposals`, `POST /nexo/kb/v1/proposals/<id>:approve` y `:discard` | propias, o `space.review` |
+| `GET /dashboard/kb/spaces/<espacio>/members` (panel) | `space.read` o `platform.directory.read` |
+| `POST /dashboard/kb/spaces/<espacio>/members` y `/members/remove` (panel, con CSRF) | `space.members.manage` |
+| `GET /dashboard/kb/proposals` y `/dashboard/kb/spaces/<espacio>/proposals[/<id>]` (panel) | propias, o `space.review` |
+| `POST /dashboard/kb/spaces/<espacio>/proposals/<id>/approve` y `/discard` (panel, con CSRF) | `space.review` |
 | `GET /nexo/kb/v1/changes?since=` | `space.read` |
 | `GET /nexo/kb/v1/spaces/<espacio>/events` y `/publish-runs` | `space.audit.read` o `platform.audit.read` |
 | `GET /nexo/admin/audit`, `/activity`, `/presence`, `/history/<sync_id>` | `platform.audit.read` |

@@ -176,3 +176,144 @@ Capturas en `nexo_ia/06-pruebas/conocimiento/evidencia/panel/` (Chrome sin inter
 - El fragmento citado mezclaba la negrita del documento con el resaltado del buscador: solo se resaltan términos sueltos y se limpian barras de tabla y comillas de código.
 - Los bloques de código dentro de listas conservaban la sangría: se quita la sangría común.
 - Botones "Retirar" y de elegir archivo más discretos.
+
+## 9. Fase K6: miembros, propuestas y panel en español
+
+Estado: implementado en la rama `feat/panel-k6` (2026-10-13), diseño escrito antes de implementar. Cubre KP-12 (miembros de un espacio), KP-13
+(propuestas), SG-07 (pantallas de revisión) y OP-06 (textos en inglés del panel de Engram). No hay estilo
+nuevo: se reutilizan los tokens, el encabezado, las pestañas de texto, la lista de documentos, los chips y los
+formularios de las secciones 4 a 7. Solo se agregan unas pocas reglas a `nexo_theme.css` (lista de miembros,
+comparación lado a lado, insignia de la pestaña).
+
+### 9.1 Trabajo principal de cada pantalla
+
+| Pantalla | Quién la usa | Trabajo principal | Lo demás |
+|---|---|---|---|
+| Miembros del espacio | Responsable del espacio, administrador; lectura para el resto con acceso | Saber quién tiene cada rol y cambiarlo sin salir del panel | Ver desde cuándo y si es persona o cuenta de servicio |
+| Propuestas (lista) | Revisor (publicador, responsable, administrador con rol en el espacio); autor | Ver qué falta revisar | Historial de aprobadas, descartadas y retiradas |
+| Propuesta (detalle) | Revisor | Comparar el texto propuesto con la versión vigente y decidir | Ver el motivo del autor, la vigencia propuesta y el rastro de la decisión |
+| Panel de Engram (usuarios, tokens, salud, auditoría) | Administrador | Lo mismo que antes, en español | Sin cambios de comportamiento |
+
+### 9.2 Navegación
+
+El espacio gana una fila de secciones bajo su encabezado, con el mismo estilo de los filtros de documentos:
+Documentos, Miembros, Propuestas (con el número de propuestas abiertas si hay). El menú común gana la
+pestaña Propuestas, con una insignia que solo ven los revisores y que cuenta lo pendiente en todos sus
+espacios (se pide con htmx al cargar la página; sin permisos o sin pendientes no muestra nada).
+
+```
+Conocimiento / arquitectura
+Arquitectura
+Descripción. Abierto. Tu rol: responsable.
+[ Documentos ] [ Miembros ] [ Propuestas 3 ]
+```
+
+### 9.3 Wireframes
+
+Miembros (una columna; en pantallas anchas la lista y el formulario de alta van lado a lado, como la subida de documentos):
+
+```
+Miembros de Arquitectura
+Abierto: quienes no aparecen aquí tienen el rol lector. Solo el responsable y los administradores cambian roles.
+
+Responsables (1)
+  Ana Torres              Persona, desde 2026-10-01 por Carla     [ responsable v ] [Cambiar rol] [Quitar]
+  ana
+Publicadores (2)
+  ci-lineamientos         Cuenta de servicio, desde 2026-10-05    [ publicador  v ] [Cambiar rol] [Quitar]
+  ...
+                                                        | Agregar un miembro
+                                                        | Usuario o cuenta  [ ana              ]
+                                                        | Rol               [ publicador     v ]
+                                                        | [Agregar]
+```
+
+Sin permiso para cambiar: la misma lista sin selector, botones ni formulario de alta. Sin `space.read` (ni
+lectura de directorio): 404 como el resto del espacio.
+
+Propuestas (lista):
+
+```
+Propuestas de Arquitectura                       [ Pendientes ] [ Aprobadas ] [ Descartadas ] [ Retiradas ]
+  Regla de trazas en servicios            Pendiente
+  Cambia logging, versión 3. Propuso Luis el 2026-10-12
+  Guía nueva de despliegue                Pendiente
+  Documento nuevo. Propuso Ana el 2026-10-10
+```
+
+Propuesta (detalle):
+
+```
+Conocimiento / arquitectura / propuestas
+Regla de trazas en servicios                          Pendiente
+Propuso Luis el 2026-10-12. Cambia logging (versión 3). Entra en vigencia el 2026-11-01.
+Motivo del autor: texto breve.
+[ aviso si el documento cambió desde la versión que vio el autor ]
+
++--------------------------+  +--------------------------+   | Decidir
+| Versión vigente (v3)     |  | Propuesta                |   | Nota para el autor (opcional)
+| texto del documento      |  | texto propuesto          |   | Vigente desde / hasta (opcional)
++--------------------------+  +--------------------------+   | [Aprobar y publicar]
+                                                             | Motivo del descarte (obligatorio)
+                                                             | [Descartar]
+```
+
+El texto se muestra con `mdhtml` (Markdown sin HTML crudo). Si la propuesta es un documento nuevo, solo se
+muestra la columna de la propuesta. Una propuesta ya decidida muestra quién la cerró, cuándo y la nota, y
+no ofrece acciones.
+
+### 9.4 Decisiones
+
+- Los formularios de miembros y de decisión repiten la página en el mismo POST con el mensaje de éxito o de
+  error, sin perder el contexto (igual que cuentas de servicio). Los errores de reglas salen en español y
+  dicen qué hacer: R-10 ("Una cuenta de servicio no puede ser responsable..."), R-9 (último responsable),
+  R-11 (subirse el rol a uno mismo), usuario no encontrado, propuesta ya cerrada y conflicto de versión.
+- Aprobar sobre un documento que cambió exige marcar "Aprobar aunque el documento cambió"; la casilla solo
+  aparece cuando hay diferencia o tras el conflicto. Descartar exige motivo.
+- El directorio de usuarios (para sugerir nombres al agregar un miembro) solo se carga si quien mira puede
+  leer el directorio (administrador, auditor). El responsable escribe el nombre de usuario, igual que al
+  crear el espacio: no se expone la lista de personas a quien no la tiene.
+- No hay confirmación en JavaScript al quitar un miembro: quitar es reversible (se vuelve a agregar) y queda
+  en el registro de eventos. Los botones llevan el nombre de la persona en `aria-label`.
+- Cada acción usa el servicio existente (`authz.Service.SetScopeMember`, `kbservice.ApproveProposal`,
+  `DiscardProposal`): las reglas y los eventos de auditoría son los mismos que por la API y la CLI.
+
+### 9.5 Revisión contra clichés
+
+- Sin tarjetas por miembro ni por propuesta: filas de lista con una línea de contexto en gris, como los
+  documentos. Las únicas superficies con borde son los dos textos comparados (hojas de lectura) y el panel de
+  decisión.
+- Sin degradados, sin iconos, sin etiquetas en mayúsculas, sin flechas en los botones.
+- La insignia de la pestaña es un número en un chip ámbar (el color de "pendiente" ya existe); no se anima.
+- El rojo se reserva para errores; "Descartar" es un botón secundario, no rojo, porque descartar es una
+  decisión normal de revisión.
+
+### 9.6 Accesibilidad y respuesta
+
+- Cada selector y campo tiene `<label>` (visible o `nx-visually-hidden` cuando la fila ya nombra a la persona
+  en el `aria-label` del botón), foco visible heredado del tema, mensajes de éxito con `role="status"` y de
+  error con `role="alert"`.
+- A 360 px las filas de miembros y de propuestas pasan a una columna; la comparación lado a lado se apila
+  (versión vigente arriba, propuesta abajo) desde 1080 px; no hay tablas anchas.
+- Todo texto de usuarios, documentos y propuestas se escapa; el Markdown pasa por `mdhtml`.
+
+### 9.7 Panel de Engram en español (OP-06)
+
+Los textos fijos de `components.templ` (usuarios, tokens, permisos de proyecto, salud, auditoría, memorias,
+sesiones, proyectos y colaboradores) pasan por `nx()`, que devuelve el original si la marca de Nexo no está
+activa. Es solo envolver cadenas: no cambian estructura, rutas ni comportamiento. Los diccionarios viven en
+`nexo_brand.go` (`nexoText`). Lo que ya viene del servidor en inglés (mensajes de error de la API de Engram)
+no se traduce aquí.
+
+### 9.8 Cambios tras la revisión con capturas
+
+Capturas con Chrome sin interfaz contra un servidor local con espacios, personas, una cuenta de servicio y
+propuestas reales (1366 px y 500 px, el ancho mínimo de la ventana sin interfaz; a 360 px las mismas reglas
+apilan filas y formularios).
+
+- Los formularios de la columna lateral heredaban la rejilla de varias columnas del formulario de crear
+  espacio y se salían de la columna: dentro de `.nx-aside` el formulario pasa a un campo por fila.
+- El selector de rol de cada fila salía alto (Pico): se reduce a la altura de los botones.
+- En una cuenta de servicio el usuario y el nombre coinciden y la línea gris decía `ci-wiki, ci-wiki, ...`:
+  si son iguales se muestra una sola vez.
+- Los controles de la fila de miembros caben junto al nombre hasta 720 px; por debajo se apilan.

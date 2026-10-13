@@ -1672,3 +1672,178 @@ body.nexo .nx-upload input[type="file"] {
 .nx-prose > .nx-sec:first-child > :first-child {
 	margin-top: 0;
 }
+
+/* ─── K6: miembros y propuestas ───────────────────────────────────────────── */
+
+/* Mensajes de éxito y de información (el aviso base es ámbar). */
+.nx-note-ok {
+	border-left-color: var(--nx-ok-fg);
+	background: var(--nx-ok-bg);
+}
+
+.nx-note-info {
+	border-left-color: var(--nx-sched-fg);
+	background: var(--nx-sched-bg);
+}
+
+.nx-note p {
+	margin: 0;
+}
+
+/* Listas de filas (miembros, propuestas): como los documentos, sin sangría de árbol. */
+.nx-docs.nx-rows {
+	padding-left: 0;
+	border-top: 1px solid var(--nx-line);
+	margin-bottom: 1.5rem;
+}
+
+.nx-docs.nx-rows .nx-doc:first-child {
+	border-top: 0;
+}
+
+.nx-group {
+	font-family: var(--nx-font-ui);
+	font-size: var(--nx-s3);
+	font-weight: 600;
+	margin: 1.5rem 0 0.4rem;
+}
+
+.nx-group:first-of-type {
+	margin-top: 0.5rem;
+}
+
+.nx-count {
+	color: var(--nx-ink-soft);
+	font-weight: 400;
+}
+
+/* Cambiar el rol: selector y botón en la misma línea. */
+.nx-doc-side form {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+}
+
+.nx-doc-side select {
+	margin: 0;
+	width: auto;
+	min-width: 8.5rem;
+	padding: 0.2rem 2rem 0.2rem 0.5rem;
+	font-size: var(--nx-s2);
+}
+
+.nx-doc-title .nx-chip {
+	margin-left: 0.4rem;
+	vertical-align: 0.1em;
+}
+
+.nx-roles {
+	margin: 0;
+	font-size: var(--nx-s2);
+}
+
+.nx-roles dt {
+	font-weight: 600;
+	margin-top: 0.5rem;
+}
+
+.nx-roles dd {
+	margin: 0;
+	color: var(--nx-ink-soft);
+}
+
+.nx-create textarea {
+	display: block;
+	width: 100%;
+	margin-top: 0.3rem;
+	font-size: var(--nx-s2);
+}
+
+.nx-create input[type="date"] {
+	font-size: var(--nx-s2);
+}
+
+/* Propuesta: texto vigente y propuesto lado a lado. */
+.nx-main-col {
+	display: grid;
+	gap: 2rem;
+	min-width: 0;
+}
+
+.nx-rationale {
+	margin: 0;
+	max-width: 70ch;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.nx-compare {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1.25rem;
+	align-items: start;
+}
+
+.nx-compare-one {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+body.nexo .nx-compare article.nx-prose {
+	max-width: none;
+	min-width: 0;
+}
+
+.nx-compare-title {
+	font-family: var(--nx-font-ui) !important;
+	font-size: var(--nx-s2) !important;
+	font-weight: 600;
+	color: var(--nx-ink-soft);
+	margin: 0 0 0.75rem !important;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+/* Insignia de la pestaña Propuestas: el color de "pendiente". */
+.nx-badge {
+	display: inline-block;
+	margin-left: 0.4rem;
+	padding: 0 0.5rem;
+	border-radius: 999px;
+	background: var(--nx-exp-bg);
+	color: var(--nx-exp-fg);
+	font-size: var(--nx-s1);
+	font-weight: 600;
+	line-height: 1.5;
+}
+
+@media (max-width: 1080px) {
+	.nx-compare {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+@media (max-width: 720px) {
+	.nx-doc-side form {
+		flex-wrap: wrap;
+	}
+}
+
+/* Formularios dentro de la columna lateral: un campo por fila. */
+.nx-aside .nx-create {
+	grid-template-columns: minmax(0, 1fr);
+	max-width: none;
+	align-items: stretch;
+}
+
+body.nexo .nx-doc-side select {
+	height: auto;
+	margin: 0;
+	padding: 0.2rem 2rem 0.2rem 0.5rem;
+	font-size: var(--nx-s2);
+	line-height: 1.5;
+	background-position: right 0.5rem center;
+}
+
+body.nexo .nx-doc-side form {
+	margin: 0;
+}

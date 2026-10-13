@@ -213,10 +213,10 @@ func TestDashboardManagedUserDetailPageDisabledUserHidesTokenCreateForm(t *testi
 		t.Fatalf("expected 200 for disabled managed user detail page, got %d body=%q", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if strings.Contains(body, `action="/dashboard/admin/users/p-disabled/tokens"`) || strings.Contains(body, "Create Token") {
+	if strings.Contains(body, `action="/dashboard/admin/users/p-disabled/tokens"`) || strings.Contains(body, "Create Token") || strings.Contains(body, "Crear token") {
 		t.Fatalf("disabled managed user detail page must not present active token creation affordance, body=%q", body)
 	}
-	if !strings.Contains(body, "Enable this managed user before creating a managed token.") {
+	if !strings.Contains(body, "Habilita al usuario antes de crearle un token.") {
 		t.Fatalf("expected inline disabled-user token creation guidance, body=%q", body)
 	}
 }
@@ -736,7 +736,7 @@ func TestDashboardManagedUserDetailHidesRevokeFormForRevokedTokens(t *testing.T)
 		t.Fatalf("expected 200 for managed user detail page, got %d body=%q", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "Revoked") {
+	if !strings.Contains(body, "Revocado") {
 		t.Fatalf("expected a Revoked status indicator for the revoked token, body=%q", body)
 	}
 	if strings.Contains(body, "/dashboard/admin/tokens/tok-1/revoke") {
@@ -765,7 +765,7 @@ func TestDashboardLegacyAdminCanViewButNotMutateManagedUsers(t *testing.T) {
 		t.Fatalf("expected legacy admin dashboard session to view the managed users shell, got %d body=%q", shellRec.Code, shellRec.Body.String())
 	}
 	shellBody := shellRec.Body.String()
-	for _, marker := range []string{"Managed-user administration requires a managed admin token.", "engram cloud bootstrap admin --issue-token", "engram cloud bootstrap recover-token"} {
+	for _, marker := range []string{"Administrar usuarios exige el token de un administrador.", "engram cloud bootstrap admin --issue-token", "engram cloud bootstrap recover-token"} {
 		if !strings.Contains(shellBody, marker) {
 			t.Fatalf("expected actionable legacy-admin guidance %q, body=%q", marker, shellBody)
 		}
@@ -787,7 +787,7 @@ func TestDashboardLegacyAdminCanViewButNotMutateManagedUsers(t *testing.T) {
 		t.Fatalf("expected legacy admin dashboard session to view the managed user detail page, got %d body=%q", detailRec.Code, detailRec.Body.String())
 	}
 	detailBody := detailRec.Body.String()
-	for _, marker := range []string{"target-user", "egc_live_safe", "alpha", "Managed-user administration requires a managed admin token."} {
+	for _, marker := range []string{"target-user", "egc_live_safe", "alpha", "Administrar usuarios exige el token de un administrador."} {
 		if !strings.Contains(detailBody, marker) {
 			t.Fatalf("expected legacy admin detail marker %q, body=%q", marker, detailBody)
 		}
@@ -845,7 +845,7 @@ func TestDashboardManagedAdminSeesManagedUserMutationControls(t *testing.T) {
 	if shellRec.Code != http.StatusOK {
 		t.Fatalf("expected managed admin dashboard session to view the managed users shell, got %d body=%q", shellRec.Code, shellRec.Body.String())
 	}
-	if !strings.Contains(shellRec.Body.String(), `action="/dashboard/admin/users" class="managed-user-form"`) || !strings.Contains(shellRec.Body.String(), "Create User") {
+	if !strings.Contains(shellRec.Body.String(), `action="/dashboard/admin/users" class="managed-user-form"`) || !strings.Contains(shellRec.Body.String(), "Crear usuario") {
 		t.Fatalf("managed admin shell must expose managed-user creation controls, body=%q", shellRec.Body.String())
 	}
 
@@ -867,10 +867,10 @@ func TestDashboardManagedAdminSeesManagedUserMutationControls(t *testing.T) {
 		`/dashboard/admin/tokens/tok-target/revoke`,
 		`/dashboard/admin/users/p-target/grants`,
 		`/dashboard/admin/users/p-target/grants/alpha/revoke`,
-		"Disable User",
-		"Create Token",
-		"Grant Project",
-		">Revoke</button>",
+		"Deshabilitar usuario",
+		"Crear token",
+		"Dar permiso",
+		">Revocar</button>",
 	} {
 		if !strings.Contains(detailRec.Body.String(), control) {
 			t.Fatalf("managed admin detail must expose mutation control %q, body=%q", control, detailRec.Body.String())

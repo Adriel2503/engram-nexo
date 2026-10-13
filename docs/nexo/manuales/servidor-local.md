@@ -385,10 +385,10 @@ la API. El detalle de roles y permisos está en [administracion.md](administraci
 
 1. Entra al panel con el token del admin ([sección 10](#10-entrar-al-panel)).
 2. Ve a *Administración > Usuarios* (`http://127.0.0.1:18095/dashboard/admin/users`).
-3. En el formulario de creación (en inglés): *Username*, *Email* (opcional), *Display name* (opcional) y
-   el rol *Member* o *Admin*. Pulsa *Create User*.
-4. Abre el usuario en la lista. En *Tokens*: nombre del token (por ejemplo `pc-ana`), *Expires in days*
-   (vacío = 90), alcance *write* o *read*. Pulsa *Create Token*.
+3. En el formulario de creación: *Usuario*, *Correo* (opcional), *Nombre para mostrar* (opcional) y
+   el rol *Miembro* o *Administrador*. Pulsa *Crear usuario*.
+4. Abre el usuario en la lista. En *Tokens*: nombre del token (por ejemplo `pc-ana`), *Días de vida*
+   (vacío = 90), alcance *Escritura* o *Solo lectura*. Pulsa *Crear token*.
 5. Copia el token que aparece. Se muestra **una sola vez**.
 
 ### Desde la API

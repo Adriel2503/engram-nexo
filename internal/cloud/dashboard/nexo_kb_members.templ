@@ -1,0 +1,142 @@
+package dashboard
+
+// Nexo IA · K6 (KP-12) — miembros de un espacio de conocimiento y partes
+// comunes de las páginas de un espacio (encabezado y secciones). Archivo
+// propio de Nexo: components.templ no cambia. Todo el texto se escapa.
+
+templ NexoSpaceHeader(h NexoSpaceHead, title string, lead string) {
+	<header class="nx-head">
+		<p class="nx-crumbs"><a href="/dashboard/kb">Conocimiento</a> / <a href={ templ.URL(nexoSpaceURL(h.Slug)) }>{ h.Slug }</a></p>
+		<h1>{ title }</h1>
+		if lead != "" {
+			<p>{ lead }</p>
+		}
+		<ul class="nx-meta">
+			<li>{ h.Visibility }</li>
+			<li>Tu rol: <strong>{ h.Role }</strong></li>
+		</ul>
+	</header>
+	@NexoSpaceSections(h)
+}
+
+// NexoSpaceSections es la fila de secciones del espacio (Documentos, Miembros, Propuestas).
+templ NexoSpaceSections(h NexoSpaceHead) {
+	<nav class="nx-filters" aria-label="Secciones del espacio">
+		@nexoSectionLink(nexoSpaceURL(h.Slug), "Documentos", h.Active == "docs")
+		@nexoSectionLink(nexoMembersURL(h.Slug), "Miembros", h.Active == "members")
+		if h.OpenProposals > 0 {
+			@nexoSectionLink(nexoProposalsURL(h.Slug), nexoPendingLabel(h.OpenProposals), h.Active == "proposals")
+		} else {
+			@nexoSectionLink(nexoProposalsURL(h.Slug), "Propuestas", h.Active == "proposals")
+		}
+	</nav>
+}
+
+templ nexoSectionLink(href string, label string, current bool) {
+	if current {
+		<a href={ templ.URL(href) } aria-current="page">{ label }</a>
+	} else {
+		<a href={ templ.URL(href) }>{ label }</a>
+	}
+}
+
+templ NexoMembersPageView(p NexoMembersPage) {
+	<div class="nx-page nexo-members">
+		@NexoSpaceHeader(p.Head, "Miembros de "+p.Head.Name, nexoMembersLead(p))
+		if p.Notice != "" {
+			<div class="nx-note nx-note-ok" role="status"><p>{ p.Notice }</p></div>
+		}
+		if p.Error != "" {
+			<div class="nx-note nx-note-error" role="alert"><p>{ p.Error }</p></div>
+		}
+		<div class={ nexoMembersGridClass(p.CanManage) }>
+			<section aria-labelledby="nx-members-t">
+				<h2 class="nx-h2" id="nx-members-t">Quién tiene cada rol</h2>
+				if p.Total == 0 {
+					<p class="nx-empty">Nadie tiene un rol asignado en este espacio todavía.</p>
+				}
+				for _, g := range p.Groups {
+					<h3 class="nx-group">{ g.Label } <span class="nx-count">({ nexoItoa(len(g.Members)) })</span></h3>
+					<ul class="nx-docs nx-rows">
+						for _, m := range g.Members {
+							@nexoMemberRow(p, m)
+						}
+					</ul>
+				}
+				if p.Truncated {
+					<p class="nx-hint">Se muestran los primeros miembros. Usa la API para ver el resto.</p>
+				}
+			</section>
+			if p.CanManage {
+				<aside class="nx-aside">
+					<section class="nx-panel" aria-labelledby="nx-add-t">
+						<h2 class="nx-h2" id="nx-add-t">Agregar un miembro</h2>
+						<form method="post" action={ templ.URL(nexoMembersURL(p.Head.Slug)) } class="nx-create">
+							<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+							<label for="nx-member">Usuario o cuenta de servicio <span class="nx-hint">nombre de usuario o nombre corto de la cuenta</span>
+								<input id="nx-member" type="text" name="member" required autocomplete="off" list="nx-candidates"/>
+							</label>
+							if len(p.Candidates) > 0 {
+								<datalist id="nx-candidates">
+									for _, c := range p.Candidates {
+										<option value={ c }></option>
+									}
+								</datalist>
+							}
+							<label for="nx-add-role">Rol
+								<select id="nx-add-role" name="role">
+									for _, o := range p.Roles {
+										<option value={ o.Value } selected?={ o.Value == "lector" }>{ o.Label }</option>
+									}
+								</select>
+							</label>
+							<div><button type="submit">Agregar miembro</button></div>
+						</form>
+						<p class="nx-hint">Si la persona ya tiene un rol en este espacio, se cambia por el nuevo. Una cuenta de servicio no puede ser responsable.</p>
+					</section>
+					<section class="nx-panel" aria-labelledby="nx-roles-t">
+						<h2 class="nx-h2" id="nx-roles-t">Qué puede hacer cada rol</h2>
+						<dl class="nx-roles">
+							<dt>Lector</dt><dd>Lee y busca.</dd>
+							<dt>Proponente</dt><dd>Además propone cambios.</dd>
+							<dt>Publicador</dt><dd>Además publica, retira y revisa propuestas.</dd>
+							<dt>Responsable</dt><dd>Además decide quién es miembro.</dd>
+						</dl>
+					</section>
+				</aside>
+			}
+		</div>
+	</div>
+}
+
+templ nexoMemberRow(p NexoMembersPage, m NexoMemberRow) {
+	<li class="nx-doc nx-member">
+		<span class="nx-doc-title">
+			{ m.Name }
+			if m.Disabled {
+				<span class="nx-chip nx-chip-ret">Deshabilitado</span>
+			}
+		</span>
+		<span class="nx-doc-path">{ nexoMemberLine(m) }</span>
+		if p.CanManage {
+			<span class="nx-doc-side">
+				<form method="post" action={ templ.URL(nexoMembersURL(p.Head.Slug)) }>
+					<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+					<input type="hidden" name="member" value={ m.Ref }/>
+					<label class="nx-visually-hidden" for={ "nx-role-" + m.Ref }>Rol de { m.Name }</label>
+					<select id={ "nx-role-" + m.Ref } name="role">
+						for _, o := range m.Options {
+							<option value={ o.Value } selected?={ o.Value == m.Role }>{ o.Label }</option>
+						}
+					</select>
+					<button type="submit" class="nexo-btn-secondary" aria-label={ "Cambiar el rol de " + m.Name }>Cambiar rol</button>
+				</form>
+				<form method="post" action={ templ.URL(nexoMembersURL(p.Head.Slug) + "/remove") }>
+					<input type="hidden" name="csrf_token" value={ p.CSRF }/>
+					<input type="hidden" name="member" value={ m.Ref }/>
+					<button type="submit" class="nexo-btn-secondary" aria-label={ "Quitar a " + m.Name + " del espacio" }>Quitar</button>
+				</form>
+			</span>
+		}
+	</li>
+}
