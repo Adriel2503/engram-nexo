@@ -356,8 +356,9 @@ Integridad: [Tabla: todas v] [Verificar ahora]
 Alertas:    [Pendientes | Todas]  Regla [..] Severidad [..]
             Fecha  Severidad  Regla  Sujeto  Resumen  Estado / [Reconocer v nota]
 
-Revisión:   Última revisión: 2026-07-02 por Luis (hace 103 días)   [Marcar revisión como hecha]
+Revisión:   Última revisión: 2026-07-02 por Luis (hace 103 días), huella a1b2...   [Marcar revisión como hecha]
             Resumen: personas, inactivas, cuentas de servicio sin uso, tokens sin caducidad ...
+            Descargar como evidencia:  [Descargar CSV] [Descargar JSON]
             Requieren atención (solo personas con marcas)  |  Todas las personas
             Persona  Estado  Rol  Roles por ámbito  Tokens  Última actividad  Marcas
 ```
@@ -365,6 +366,13 @@ Revisión:   Última revisión: 2026-07-02 por Luis (hace 103 días)   [Marcar r
 El elemento memorable es el veredicto de integridad: una frase plana a todo el ancho con barra lateral
 verde ("La cadena está íntegra") o roja ("Se detectó una alteración"), seguida de las filas exactas. El
 resto es tabla y filtros, callado.
+
+La pestaña la decide un middleware de Nexo, una vez por petición de página: calcula si la sesión tiene
+`platform.audit.read` y deja la marca en el contexto; la marca de Nexo solo la lee. Sale a todo el que
+tiene el permiso (auditor, admin y superadmin) en todas las páginas del panel, y a nadie más: un admin
+de Engram con token heredado no tiene roles de Nexo y no la ve. Es solo interfaz (OWASP: la
+autorización se hace en el servidor): cada pantalla vuelve a comprobar el permiso. Si la consulta de
+roles falla, la pestaña se oculta y la página carga igual.
 
 ### 9.3 Decisiones
 
@@ -386,6 +394,14 @@ resto es tabla y filtros, callado.
    en lugar de una tabla vacía.
 8. **Bloque propio en el tema.** Los estilos nuevos (veredicto, tablas densas, resumen, clases `nxa-`) van
    en un bloque separado al final de `nexo_theme.css`; no se tocan las reglas existentes.
+9. **Descargar como evidencia.** En Revisión de accesos, debajo del resumen y su "Recalcular", un panel
+   "Descargar como evidencia" con dos botones (`Descargar CSV` primario, `Descargar JSON` secundario;
+   son enlaces con `download`, sin JavaScript) y una nota que dice qué incluye el archivo (todas las
+   personas, o solo las marcadas si la tabla está filtrada), que el CSV se abre en Excel y que la huella
+   va en el nombre. El archivo respeta el umbral y el filtro de la pantalla y los deja escritos
+   dentro. La huella SHA-256 del contenido revisado se muestra completa, en `.nxa-code` (parte
+   del bloque `nxa-`, se parte en líneas en pantallas angostas), en "Última revisión registrada".
+   No se agregaron estilos: los botones son `.nexo-btn` y `.nexo-btn-secondary` del tema.
 
 ### 9.4 Revisión contra clichés
 

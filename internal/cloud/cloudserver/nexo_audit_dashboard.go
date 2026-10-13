@@ -9,6 +9,7 @@ package cloudserver
 //	GET  /dashboard/admin/audit/alerts                         alertas (platform.audit.read)
 //	POST /dashboard/admin/audit/alerts/{id}/ack                reconocer (platform.audit.read + token.write)
 //	GET  /dashboard/admin/audit/access-review                  revisión de accesos (platform.audit.read)
+//	GET  /dashboard/admin/audit/access-review/export?format=   descarga CSV o JSON con huella (platform.audit.read)
 //	POST /dashboard/admin/audit/access-review/complete         registrar la revisión (platform.audit.read + token.write)
 //
 // Reutilizan los mismos servicios y funciones que la API JSON de
@@ -56,6 +57,7 @@ func (s *CloudServer) registerNexoAuditDashboard(mux *http.ServeMux) {
 	s.nexoRoute(mux, "GET", dashboard.NexoAuditPathAlerts, read, s.nexoAuditPanel(false, s.auditPanelAlerts))
 	s.nexoRoute(mux, "POST", dashboard.NexoAuditPathAlerts+"/{id}/ack", write, s.nexoAuditPanel(true, s.auditPanelAlertAck))
 	s.nexoRoute(mux, "GET", dashboard.NexoAuditPathReview, read, s.nexoAuditPanel(false, s.auditPanelReview))
+	s.nexoRoute(mux, "GET", dashboard.NexoAuditPathReview+"/export", read, s.nexoAuditPanel(false, s.auditPanelReviewExport))
 	s.nexoRoute(mux, "POST", dashboard.NexoAuditPathReview+"/complete", write, s.nexoAuditPanel(true, s.auditPanelReviewComplete))
 }
 
@@ -257,6 +259,7 @@ var auditActionGloss = map[string]string{
 	"nexo.audit_verify.read":               "Verificación de la integridad",
 	"nexo.alerts.read":                     "Consulta de las alertas",
 	"nexo.access_review.read":              "Consulta de la revisión de accesos",
+	"nexo.access_review.export":            "Descarga de la revisión de accesos",
 	"nexo.alert.ack":                       "Alerta reconocida",
 	"nexo.access_review.complete":          "Revisión de accesos registrada",
 	authz.ActionBindingGranted:             "Rol asignado",

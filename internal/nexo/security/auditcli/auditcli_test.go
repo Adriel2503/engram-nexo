@@ -69,3 +69,57 @@ func TestAuditCLIVerifyExportAndVerifyExport(t *testing.T) {
 		t.Fatalf("sin directorio: %d %s", code, errOut)
 	}
 }
+
+func TestVerifyReviewCommand(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 10, 13, 15, 30, 0, 0, time.UTC)
+	exp := evidence.NewReviewExport(evidence.AccessReview{GeneratedAt: at, InactiveDays: 90, People: []evidence.ReviewPerson{{PrincipalID: "1", DisplayName: "Carla", Kind: "human", Enabled: true, PlatformRole: "miembro"}}}, evidence.ReviewExportActor{PrincipalID: "5", Name: "Luis"}, false)
+	jsonBody, jsonSHA, err := exp.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	csvBody, csvSHA, err := exp.CSV()
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, b []byte) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	jsonPath := write(evidence.ReviewExportFilename(at, jsonSHA, "json"), jsonBody)
+	csvPath := write(evidence.ReviewExportFilename(at, csvSHA, "csv"), csvBody)
+	run := func(args ...string) (int, string) {
+		var out, errOut bytes.Buffer
+		code := auditcli.Run(append([]string{"verify-review"}, args...), &out, &errOut)
+		return code, out.String() + errOut.String()
+	}
+	for _, p := range []string{jsonPath, csvPath} {
+		if code, out := run(p); code != 0 || !strings.Contains(out, `"ok": true`) {
+			t.Errorf("%s: %d %s", p, code, out)
+		}
+	}
+	// Un archivo cambiado, un CSV renombrado y un archivo ajeno fallan.
+	bad := write("nexo-revision-accesos-20261013T153000Z-"+jsonSHA+".json", bytes.Replace(jsonBody, []byte("Carla"), []byte("Karla"), 1))
+	if code, out := run(bad); code != 1 || !strings.Contains(out, `"ok": false`) {
+		t.Errorf("JSON cambiado: %d %s", code, out)
+	}
+	badCSV := write("nexo-revision-accesos-20261013T153000Z-"+csvSHA+".csv", bytes.Replace(csvBody, []byte("Carla"), []byte("Karla"), 1))
+	if code, out := run(badCSV); code != 1 || !strings.Contains(out, `"ok": false`) {
+		t.Errorf("CSV cambiado: %d %s", code, out)
+	}
+	if code, _ := run(write("renombrado.csv", csvBody)); code != 1 {
+		t.Errorf("CSV sin huella en el nombre: %d", code)
+	}
+	if code, _ := run(write("notas.txt", []byte("x"))); code != 1 {
+		t.Errorf("tipo no soportado: %d", code)
+	}
+	if code, _ := run(); code != 2 {
+		t.Errorf("sin archivo: %d", code)
+	}
+	if code, _ := run(filepath.Join(dir, "no-existe.json")); code != 1 {
+		t.Errorf("archivo inexistente: %d", code)
+	}
+}

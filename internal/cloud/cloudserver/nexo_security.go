@@ -60,6 +60,8 @@ type nexoState struct {
 	monitor     *nexoMonitor
 	// Fase S5: registro de rutas Nexo con su capacidad (nexo_routes.go).
 	routes routes.Registry
+	// SG-07: pestaña Auditoría del menú, por sesión (nexo_audit_nav.go).
+	auditNav nexoAuditNavCache
 }
 
 type nexoSecurity struct {
@@ -119,7 +121,7 @@ func newNexoSecurityFromEnv() *nexoSecurity {
 // datos del token (NX-07).
 func (s *CloudServer) nexoHandler(next http.Handler) http.Handler {
 	trusted := nexoParseTrustedProxies(os.Getenv(NexoTrustedProxiesEnv))
-	return nexoClientContextMiddleware(trusted, s.nexoSecurityMiddleware(next))
+	return nexoClientContextMiddleware(trusted, s.nexoSecurityMiddleware(s.nexoAuditNavMiddleware(next)))
 }
 
 func (s *CloudServer) nexoSecurityMiddleware(next http.Handler) http.Handler {

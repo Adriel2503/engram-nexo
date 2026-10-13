@@ -77,7 +77,7 @@ func nexoNavTabs(activeTab string, isAdmin bool) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			if isAdmin || nexoAuditNavOn(ctx) {
+			if nexoAuditNavOn(ctx) {
 				templ_7745c5c3_Err = navTab("/dashboard/admin/audit", "Auditoría", "audit", activeTab).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

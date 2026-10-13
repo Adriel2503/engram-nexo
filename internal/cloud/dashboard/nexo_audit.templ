@@ -620,6 +620,9 @@ templ NexoAuditReviewPage(p NexoAuditReviewView) {
 				if p.Last.Summary != "" {
 					<p class="nx-hint">{ p.Last.Summary }</p>
 				}
+				if p.Last.Hash != "" {
+					<p class="nx-hint">Huella del contenido revisado (SHA-256): <code class="nxa-code">{ p.Last.Hash }</code></p>
+				}
 			} else {
 				<p class="nx-empty">Todavía no se registró ninguna revisión. Revisa la tabla de abajo y márcala como hecha.</p>
 			}
@@ -630,7 +633,7 @@ templ NexoAuditReviewPage(p NexoAuditReviewView) {
 					<label for="nxa-r-notes">Notas de la revisión <span class="nx-hint">opcional: qué encontraste y qué hiciste</span><textarea id="nxa-r-notes" name="notes" rows="3" maxlength="4000"></textarea></label>
 					<div class="nxa-buttons"><button type="submit">Marcar revisión como hecha</button></div>
 				</form>
-				<p class="nx-hint">Se guarda quién, cuándo, tus notas y una huella del contenido que viste (personas, roles y tokens). No cambia ningún acceso.</p>
+				<p class="nx-hint">Se guarda quién, cuándo, tus notas y la huella SHA-256 del contenido que viste (personas, roles y tokens). Esa huella también va dentro de los archivos que descargas abajo, en el campo review_digest. No cambia ningún acceso.</p>
 			} else {
 				<p class="nx-hint">Tu sesión no puede registrar la revisión: hace falta entrar con un token de escritura.</p>
 			}
@@ -669,6 +672,22 @@ templ NexoAuditReviewPage(p NexoAuditReviewView) {
 				<div class="nxa-buttons"><button type="submit" class="nexo-btn-secondary">Recalcular</button></div>
 			</form>
 			<p class="nx-hint">Reporte generado el <time datetime={ p.GeneratedISO }>{ p.Generated }</time> UTC.</p>
+		</section>
+		<section class="nx-panel" aria-labelledby="nxa-r-export">
+			<h2 class="nx-h2" id="nxa-r-export">Descargar como evidencia</h2>
+			<p>Guarda esta revisión en un archivo para anexarla al expediente trimestral. Dice quién la generó, cuándo y con qué filtros, e incluye una huella SHA-256 para comprobar después que no cambió.</p>
+			<div class="nxa-buttons">
+				<a class="nexo-btn" href={ templ.URL(p.ExportCSVURL) } download>Descargar CSV</a>
+				<a class="nexo-btn nexo-btn-secondary" href={ templ.URL(p.ExportJSONURL) } download>Descargar JSON</a>
+			</div>
+			<p class="nx-hint">
+				if p.OnlyFlagged {
+					El archivo incluye solo a las personas con marcas, igual que la tabla de abajo.
+				} else {
+					El archivo incluye a todas las personas y cuentas.
+				}
+				El CSV se abre en Excel. La huella va en el nombre del archivo; cada descarga queda en el registro de auditoría.
+			</p>
 		</section>
 		<section class="nx-panel" aria-labelledby="nxa-r-people">
 			<h2 class="nx-h2" id="nxa-r-people">Personas y cuentas</h2>

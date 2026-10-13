@@ -376,6 +376,20 @@ func (s *CloudServer) auditPanelReviewRender(w http.ResponseWriter, r *http.Requ
 		FlaggedURL: auditURL(dashboard.NexoAuditPathReview, url.Values{"inactive_days": {daysText}, "only": {"flags"}}),
 	}
 	page.Generated, page.GeneratedISO = auditTime(rep.GeneratedAt)
+	exportQuery := url.Values{"inactive_days": {daysText}}
+	if only {
+		exportQuery.Set("only", "flags")
+	}
+	for _, f := range []struct {
+		format string
+		dst    *string
+	}{{nexoReviewFormatCSV, &page.ExportCSVURL}, {nexoReviewFormatJSON, &page.ExportJSONURL}} {
+		q := url.Values{"format": {f.format}}
+		for k, v := range exportQuery {
+			q[k] = v
+		}
+		*f.dst = auditURL(dashboard.NexoAuditPathReview+"/export", q)
+	}
 	if rep.LastReview != nil {
 		l := auditReviewLast(now, *rep.LastReview)
 		page.Last = &l
@@ -429,7 +443,7 @@ func auditSummaryInt(m map[string]any, key string) (int, bool) {
 
 func auditReviewLast(now time.Time, rec evidence.ReviewRecord) dashboard.NexoReviewLast {
 	when, iso := auditTime(rec.OccurredAt)
-	out := dashboard.NexoReviewLast{When: when, WhenISO: iso, Age: auditAgo(now, rec.OccurredAt), By: auditFirst(rec.Reviewer, "desconocido"), Notes: auditTruncate(rec.Notes, 600)}
+	out := dashboard.NexoReviewLast{When: when, WhenISO: iso, Age: auditAgo(now, rec.OccurredAt), By: auditFirst(rec.Reviewer, "desconocido"), Notes: auditTruncate(rec.Notes, 600), Hash: rec.ReportSHA256}
 	var parts []string
 	for _, f := range []struct{ key, text string }{
 		{"people", "personas y cuentas"}, {"inactive", "inactivas"}, {"tokens_no_expiry", "tokens sin caducidad"}, {"service_accounts_stale", "cuentas de servicio sin uso"},

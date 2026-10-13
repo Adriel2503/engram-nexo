@@ -1092,6 +1092,8 @@ en 30 días.
 ```sh
 # Generar el reporte (umbral de inactividad: 90 días por defecto; de 1 a 3650)
 curl -fsS -H "$H" "$NEXO_URL/nexo/admin/access-review?inactive_days=90" > revision-$(date +%F).json
+# Para guardarlo como evidencia (CSV o JSON con huella SHA-256, ver 9.5): -OJ usa el nombre que propone el servidor
+curl -fsS -OJ -H "$H" "$NEXO_URL/nexo/admin/access-review?inactive_days=90&format=csv"
 # Registrar que se hizo la revisión (quién, cuándo, notas y hash del reporte)
 curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
   -d '{"notes":"Q4 2026: 3 tokens rotados, 2 personas deshabilitadas","inactive_days":90}' \
@@ -1128,8 +1130,16 @@ defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marc
 Todo lo de 9.1 a 9.3 también se hace desde el panel, sin terminal. Entre con el token que le dio el
 superadmin (el auditor puede entrar con un token `read` para mirar; reconocer alertas y registrar la
 revisión piden un token `write`). El menú muestra la pestaña **Auditoría** a quien tiene
-`platform.audit.read` (auditor, admin y superadmin); cualquier otra persona recibe 403. El acceso
-denegado queda en los eventos de roles (`authz.denied`).
+`platform.audit.read` (auditor, admin y superadmin), en todas las páginas del panel, y solo a esas
+personas; cualquier otra persona no la ve y, si abre la ruta, recibe 403. El acceso denegado queda en
+los eventos de roles (`authz.denied`).
+
+La pestaña sale según el rol de Nexo, no según el rol de Engram: un administrador de Engram con
+usuario administrado tiene el rol de plataforma `admin` y la ve; un administrador con el token
+heredado `ENGRAM_CLOUD_ADMIN` no tiene roles en Nexo, no la ve y las rutas le dan 403. La pestaña es
+solo un atajo: el servidor vuelve a comprobar el permiso en cada pantalla. Si se quita o se da el rol,
+la pestaña puede tardar hasta 30 segundos en cambiar (el acceso a las pantallas cambia al instante).
+Si el servidor no logra consultar los roles, la página carga igual y la pestaña no aparece.
 
 | Pantalla | Ruta | Para qué sirve |
 |---|---|---|
@@ -1138,10 +1148,11 @@ denegado queda en los eventos de roles (`authz.denied`).
 | Historial | `/dashboard/admin/audit/history?key=` | Versiones de una memoria: quién la cambió y cuándo. Se llega desde "Ver historial" en el registro o escribiendo la clave. No muestra el contenido |
 | Integridad | `/dashboard/admin/audit/integrity` | Botón "Verificar ahora": recorre la cadena de hashes y dice "La cadena está íntegra" o muestra la fila alterada y los huecos |
 | Alertas | `/dashboard/admin/audit/alerts` | Pendientes y todas (incluida `service_account_stale`), con "Reconocer" y nota opcional |
-| Revisión de accesos | `/dashboard/admin/audit/access-review` | Roles, tokens y marcas por persona, última revisión (fecha y autor) y "Marcar revisión como hecha" |
+| Revisión de accesos | `/dashboard/admin/audit/access-review` | Roles, tokens y marcas por persona, última revisión (fecha, autor y huella), "Descargar CSV" y "Descargar JSON" como evidencia y "Marcar revisión como hecha" |
 
 Cada pantalla usa las mismas funciones que la API y deja las mismas acciones de auditoría
-(`nexo.audit.read`, `nexo.alerts.read`, `nexo.alert.ack`, `nexo.access_review.complete`, ...):
+(`nexo.audit.read`, `nexo.alerts.read`, `nexo.alert.ack`, `nexo.access_review.complete`,
+`nexo.access_review.export`, ...):
 consultar el panel también queda registrado. El detalle de un evento muestra solo lo que la API ya
 expone y omite cualquier valor con forma de token, hash o cabecera `Authorization`. La hora va en UTC.
 
@@ -1154,11 +1165,91 @@ expone y omite cualquier valor con forma de token, hash o cabecera `Authorizatio
    (cuenta de servicio), `Token sin caducidad` y `Token nunca usado`. Las acciones (deshabilitar,
    revocar, ajustar roles) se hacen en sus pantallas o con la API; esta pantalla no cambia accesos.
 4. Revise "Rol de plataforma" y "Roles por proyecto y espacio": quien ya no corresponde, se ajusta.
-5. Vuelva a esta pantalla, escriba en las notas qué encontró y qué hizo (por ejemplo "3 tokens
-   rotados, 2 personas deshabilitadas, 1 cuenta de servicio sin uso confirmada con su responsable") y
-   pulse **Marcar revisión como hecha**. Se guarda quién, cuándo, las notas y una huella del
-   contenido que vio (personas, roles y tokens); la pantalla muestra "Revisión registrada".
-6. Cierre además las alertas pendientes de la pestaña Alertas y compruebe la pestaña Integridad.
+5. Después de hacer los ajustes, abra de nuevo la pantalla (sin "Solo con marcas", para que el
+   archivo incluya a todas las personas), pulse **Descargar CSV** (y **Descargar JSON** si el
+   expediente lo pide) y **guarde el archivo** con el expediente de la revisión. El nombre del
+   archivo lleva la huella SHA-256 (ver "Exportar la revisión y comprobar la huella").
+6. Escriba en las notas qué encontró y qué hizo (por ejemplo "3 tokens rotados, 2 personas
+   deshabilitadas, 1 cuenta de servicio sin uso confirmada con su responsable") y pulse **Marcar
+   revisión como hecha**. Se guarda quién, cuándo, las notas y la huella SHA-256 del contenido que vio
+   (personas, roles y tokens); la pantalla muestra "Revisión registrada" y la huella en "Última
+   revisión registrada". Anótela en el expediente junto al archivo.
+7. Cierre además las alertas pendientes de la pestaña Alertas y compruebe la pestaña Integridad.
+
+#### Exportar la revisión y comprobar la huella
+
+La exportación es evidencia para ISO/IEC 27001:2022 A.5.18 (derechos de acceso). Se baja desde los
+botones de la pantalla o con `GET /nexo/admin/access-review?format=csv|json` (la respuesta sin
+`format` no cambia). Es una lectura: la pueden hacer también las sesiones y los tokens de solo lectura;
+quien no tiene `platform.audit.read` recibe 403. Opciones de la URL: `inactive_days` (1 a 3650, por
+defecto 90) y `only=flags` (solo personas con marcas; el resumen sigue siendo el de todos). Los
+archivos nunca llevan el valor de un token ni su hash: solo el id, el nombre, el alcance y las
+fechas, como la pantalla.
+
+Cada descarga queda en la auditoría de seguridad como `nexo.access_review.export`, con el formato,
+el umbral, el filtro, el número de personas y la huella. Si no se puede registrar, no se entrega el
+archivo.
+
+| | CSV | JSON |
+|---|---|---|
+| Nombre | `nexo-revision-accesos-AAAAMMDDTHHMMSSZ-<huella>.csv` | `nexo-revision-accesos-AAAAMMDDTHHMMSSZ-<huella>.json` |
+| Huella | SHA-256 de los bytes del archivo, en el nombre y en la cabecera `X-Nexo-Content-SHA256` | Campo `content_sha256` del documento (y en el nombre y la cabecera) |
+| Qué cubre | El archivo completo, tal como se descargó | El documento sin el campo `content_sha256`, en forma canónica |
+
+**CSV.** UTF-8 con BOM, comas, saltos de línea CRLF y una fila de títulos: Excel lo abre con doble
+clic (si su Excel espera `;`, use Datos > Desde texto o CSV y elija la coma). Una sola hoja con una
+fila por cada rol de plataforma (siempre una por persona, aunque sea `miembro`), por cada rol en un
+proyecto o espacio, por cada permiso de proyecto de Engram y por cada token. La primera columna
+(`tipo`) dice cuál: `rol`, `permiso_engram` o `token`; las demás repiten los datos de la persona para
+poder filtrar y ordenar. Columnas: `tipo`, `persona_id`, `usuario`, `nombre`, `correo`, `clase`,
+`habilitada`, `rol_engram`, `rol_plataforma`, `ultima_actividad`, `dias_sin_uso`, `marcas` (códigos
+separados por espacio: `inactive`, `stale`, `disabled`, `token_no_expiry`, `token_never_used`),
+`ambito_tipo`, `ambito`, `rol`, `desde`, `otorgado_por` (filas `rol` y `permiso_engram`),
+`token_id`, `token_nombre`, `token_alcance`, `token_creado`, `token_creado_por`, `token_vence`,
+`token_sin_vencimiento`, `token_vencido`, `token_ultimo_uso` (filas `token`) y, al final, los datos de
+la exportación: `generado_en` (UTC), `generado_por`, `umbral_inactividad_dias` y `solo_con_marcas`.
+Las fechas van en UTC (`AAAA-MM-DDTHH:MM:SSZ`). Si el texto de una celda empieza con `=`, `+`, `-`,
+`@`, tabulador o retorno, el archivo antepone una comilla simple para que la hoja no lo ejecute como
+fórmula (inyección de fórmulas, OWASP).
+
+**JSON.** Un documento con las claves ordenadas: `report` (`access_review`), `control`,
+`format_version`, `generated_at` (UTC), `generated_by` (`principal_id` y `name`), `filters`
+(`inactive_days`, `only_flagged`), `policy` (`disable_inactive_days`, `service_account_stale_days`),
+`review_digest`, `summary`, `people` (cada persona con `scope_roles`, `engram_project_grants` y
+`tokens`) y `content_sha256`. `review_digest` es la misma huella que "Marcar revisión como hecha"
+guarda en `report_sha256`: si no cambió ningún acceso entre la descarga y el registro (incluido el
+último uso de un token), las dos coinciden y enlazan el archivo con la revisión. Si difieren, el
+archivo igual vale como evidencia del momento en que se generó; su huella queda además en la
+auditoría (`nexo.access_review.export`).
+
+**Cómo comprobar la huella.** Sirve para demostrar, meses después, que el archivo del expediente es el
+que descargó el servidor y no se editó.
+
+- Con el binario de Nexo (sirve para CSV y JSON, no usa la base y no hace falta la sesión del panel):
+  `engram nexo audit verify-review nexo-revision-accesos-AAAAMMDDTHHMMSSZ-<huella>.csv` (o `.json`).
+  Responde `"ok": true` si coincide, o `"ok": false` con la huella declarada y la calculada, y sale con
+  código 1. En un CSV la huella declarada es la del nombre del archivo: si se renombró, comprúebelo a
+  mano como se explica abajo.
+- A mano, CSV: calcule el SHA-256 del archivo y compárelo con el que lleva el nombre.
+  `sha256sum nexo-revision-accesos-*.csv` (Linux o macOS) o
+  `Get-FileHash -Algorithm SHA256 .\nexo-revision-accesos-*.csv` (PowerShell). Si cambia una coma,
+  la huella cambia.
+- A mano, JSON: quite `content_sha256`, escriba el resto en forma canónica (claves ordenadas en todos los
+  niveles, sin espacios ni salto de línea final, UTF-8 sin escapar `<`, `>` ni `&`) y calcule su
+  SHA-256; debe ser igual a `content_sha256`. Con Node.js:
+
+  ```sh
+  node -e "const fs=require('fs'),c=require('crypto');const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const h=d.content_sha256;delete d.content_sha256;const s=o=>Array.isArray(o)?'['+o.map(s).join(',')+']':o&&typeof o==='object'?'{'+Object.keys(o).sort().map(k=>JSON.stringify(k)+':'+s(o[k])).join(',')+'}':JSON.stringify(o);console.log(c.createHash('sha256').update(s(d)).digest('hex')===h?'huella correcta':'EL ARCHIVO CAMBIO')" revision.json
+  ```
+
+  Con `jq`: `jq -S -c 'del(.content_sha256)' revision.json | tr -d '\n' | sha256sum`. Con Python:
+  `json.dumps(d, sort_keys=True, separators=(',', ':'), ensure_ascii=False)` sobre el documento sin
+  `content_sha256`, codificado en UTF-8. Los caracteres de control de los textos (saltos de línea, por
+  ejemplo) se cambian por un espacio al exportar, para que todas las herramientas escriban lo mismo.
+
+La huella demuestra que el archivo no cambió desde que el servidor lo entregó; no demuestra quién lo
+guardó. Para eso sirve el registro de auditoría (`nexo.access_review.export` con la misma huella) y
+guardar el archivo en un lugar de solo lectura o con control de cambios.
 
 ## 10. Tareas periódicas recomendadas
 
@@ -1170,7 +1261,7 @@ expone y omite cualquier valor con forma de token, hash o cabecera `Authorizatio
 | Mensual | Renovar tokens que vencen en los próximos 30 días | Admin | 3.6 y `tokens_expiring_30d` |
 | Mensual | Revisar avisos de vencimiento y revisión de documentos y actualizar o retirar | Responsables | 7, 5.9 |
 | Mensual | Confirmar que la cadena de auditoría verifica y que la exportación firmada se copió fuera del host | Admin (con quien opera el servidor) | `GET /nexo/admin/audit/verify`; `servidor-produccion.md` §11.5 |
-| Trimestral | Revisión de accesos registrada | Admin y auditor | 9.3 (API) o 9.5 (panel) |
+| Trimestral | Revisión de accesos registrada, con el CSV o JSON descargado y guardado en el expediente | Admin y auditor | 9.3 (API) o 9.5 (panel, con la huella) |
 | Trimestral | Revisar miembros y responsables de cada espacio restringido | Responsables | 4.3 |
 | Trimestral | Revisar quién tiene rol de plataforma (dos superadmins, sin roles de más) | Superadmin | 2.4 |
 

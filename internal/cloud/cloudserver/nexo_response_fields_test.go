@@ -55,6 +55,7 @@ func nexoResponseTypes() map[string]any {
 		"POST /nexo/admin/alerts/{id}:ack":        evidence.AlertAck{},
 		"GET /nexo/admin/access-review":           evidence.AccessReview{},
 		"POST /nexo/admin/access-review:complete": evidence.ReviewRecord{},
+		"GET /nexo/admin/access-review?format=json": evidence.ReviewExport{}, // SG-07
 		"GET /nexo/authz/v1/me":                   nexoMeResponse{},
 		"GET /nexo/authz/v1/platform/members":     nexoPage[authz.Member]{},
 		"PUT|DELETE /nexo/authz/v1/*/members":     authz.BindingChange{},
