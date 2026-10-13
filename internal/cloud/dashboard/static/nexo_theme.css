@@ -2099,3 +2099,66 @@ body.nexo details.nxa-details > summary:focus-visible {
 	gap: 0.25rem;
 	min-width: 8rem;
 }
+
+/* ═══ Panel mejoras (feat/panel-mejoras) ════════════════════════════════════
+ * Bloque propio: selectores con flecha (global) y pantalla "Estado de la
+ * búsqueda" (clases nxs-). Diseño: docs/nexo/panel/design.md §11 y §12.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Selectores: la flecha visible en todo el panel ──────────────────────────
+ * body.nexo select ponía "background" (atajo) y borraba la flecha de Pico.
+ * Aquí vuelve, dibujada con SVG en línea (gris tinta; verde con foco o cursor
+ * encima). Los selectores compactos ajustan --nx-select-pad y
+ * --nx-select-arrow en lugar de repetir la regla.
+ */
+body.nexo select:not([multiple]):not([size]) {
+	-webkit-appearance: none;
+	appearance: none;
+	background-color: var(--nx-surface);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%234a5853' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 6l4.5 4.5L12.5 6'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right var(--nx-select-arrow, 0.75rem) center;
+	background-size: 1rem 1rem;
+	padding-right: var(--nx-select-pad, 2.5rem);
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+body.nexo select:not([multiple]):not([size]):hover,
+body.nexo select:not([multiple]):not([size]):focus {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%230e5e4b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 6l4.5 4.5L12.5 6'/%3E%3C/svg%3E");
+}
+
+body.nexo select:focus-visible {
+	outline: 3px solid var(--nx-green);
+	outline-offset: 2px;
+}
+
+body.nexo select:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+
+.nx-doc-side select {
+	--nx-select-pad: 2rem;
+	--nx-select-arrow: 0.5rem;
+}
+
+/* Alto de contacto cómodo y 16 px (iOS no amplía la página al enfocar). */
+@media (pointer: coarse), (max-width: 720px) {
+	body.nexo select {
+		min-height: 2.75rem;
+		font-size: 1rem;
+	}
+}
+
+/* Contraste alto del sistema: la flecha nativa. */
+@media (forced-colors: active) {
+	body.nexo select:not([multiple]):not([size]) {
+		-webkit-appearance: auto;
+		appearance: auto;
+		background-image: none;
+		padding-right: 0.75rem;
+	}
+}
+
