@@ -838,6 +838,17 @@ engram nexo kb reindex --vectors --requeue-dead
 Por la API: `GET /nexo/kb/v1/admin/index` (campo `vector`) y
 `POST /nexo/kb/v1/admin/index:reindex?kind=vector[&requeue_dead=1&version=N]`.
 
+**Verlo en el panel (superadmin).** La pestaña **Estado de la búsqueda** (`/dashboard/kb/search-status`)
+muestra lo mismo sin usar la terminal, en solo lectura: el modo por defecto (texto o texto y significado),
+el proveedor, el modelo y las dimensiones, si la clave está configurada (nunca la clave) y de qué variable
+sale, si pgvector está disponible y su versión, las versiones del índice (activa, en construcción y
+retiradas, con sus fechas), el avance (secciones con vector sobre el total, pendientes, cambios sin leer),
+las secciones que no se pudieron vectorizar con sus últimos errores y el comando para reencolarlas, las
+últimas evaluaciones (Hit@5, MRR, sin respuesta) y los pesos y umbrales en uso. Pide el mismo rol que la
+API (`platform.settings`): un administrador sin el rol de superadmin ve un 403 que lo explica. La frase de
+arriba resume el estado: "al día", "con pendientes", "construyéndose" o "solo texto" con el motivo.
+El bloque "Reordenamiento (R3)" dice "No configurado" hasta que ese reordenamiento exista.
+
 | Señal | Qué significa | Qué hacer |
 |---|---|---|
 | `pending` o `feed_lag` altos durante mucho tiempo | El proveedor no responde o la cuota se agotó | Revisar el log (`vectorización en pausa`); el indexador reintenta solo |

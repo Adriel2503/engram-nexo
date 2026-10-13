@@ -246,6 +246,10 @@ NEXO_KB_EMBED_API_KEY=<clave>
    activo` y la búsqueda pasa a ser híbrida.
 5. Las publicaciones nuevas se vectorizan en segundos. Hasta entonces se encuentran por texto, y la
    respuesta lo avisa (`index_lag`).
+6. Para ver todo esto sin leer el log, el superadmin abre en el panel **Estado de la búsqueda**
+   (`/dashboard/kb/search-status`): modo por defecto, proveedor y modelo, si la clave está configurada
+   (nunca se muestra), pgvector, versiones del índice, avance, secciones que fallaron y últimas
+   evaluaciones. Manual de administración, sección 5.12.
 
 **Cambiar de proveedor, modelo o dimensión.** Cambie las variables y reinicie. Se construye un
 índice nuevo en segundo plano mientras la búsqueda sigue con el anterior (o solo por texto, si

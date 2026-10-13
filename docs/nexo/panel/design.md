@@ -400,3 +400,113 @@ Etiquetas visibles en cada campo, `scope="col"` en los encabezados, `<caption>` 
 (`nx-sr`), foco visible heredado del tema, veredicto con `role="status"` (o `role="alert"` si falla),
 formularios de reconocimiento dentro de `<details>` accesibles con teclado, contraste AA con los chips
 del tema, y sin dependencia de JavaScript.
+
+## 11. Estado de la búsqueda (rama `feat/panel-mejoras`)
+
+Pantalla de solo lectura para quien administra la plataforma: responde "¿cómo está buscando Nexo hoy y está
+al día el índice por significado?" sin entrar a la base ni a la CLI. Mismo lenguaje visual que Conocimiento y
+Auditoría (papel gris frío, tinta verde oscura, chips, líneas finas); las clases nuevas llevan el prefijo
+`nxs-` y viven en un bloque propio al final de `nexo_theme.css`.
+
+### 11.1 Ruta, capacidad y datos
+
+| Elemento | Decisión |
+|---|---|
+| Ruta | `GET /dashboard/kb/search-status`. Cuelga de `/dashboard/kb/`, que `nexoIsNexoPath` ya reconoce como ruta Nexo (sin tocar la prueba). Se registra con `s.nexoRoute(..., "platform.settings", ...)` |
+| Capacidad | `platform.settings` (superadmin). Es la misma que exige `GET /nexo/kb/v1/admin/index` (estado del índice que usa `--wait-index`) y `POST .../admin/index:reindex`: la pantalla no abre una vía distinta de la API y la CLI, y el superadmin puede limitarla a ciertas redes (`NEXO_SUPERADMIN_ALLOWED_CIDRS`). Un administrador sin ese rol recibe 403 con el motivo y el intento queda como `authz.denied` |
+| Servicio | `kbservice.SearchStatus` junta el estado que ya expone la API (versiones y cola del índice vectorial, estado del índice de texto) con lo que la pantalla necesita además: modo por defecto, proveedor sin clave, versiones retiradas con fechas, total de secciones, últimas cartas muertas, últimas evaluaciones y parámetros. Solo lecturas; sin tablas ni migraciones |
+| Menú | Una pestaña "Estado de la búsqueda" para los administradores, junto a Cuentas de servicio |
+| La clave | Nunca se muestra. La pantalla dice "Configurada" o "No configurada" y de qué variable sale (`NEXO_KB_EMBED_API_KEY`, `NEXO_KB_EMBED_API_KEY_FILE` o la del proveedor); el valor ni la ruta del archivo pasan por la plantilla. Los mensajes de error del proveedor se limpian otra vez (valor de la clave, `key=`, `Bearer`, formas de clave) y se recortan a 300 caracteres |
+
+### 11.2 Wireframe
+
+```
+Estado de la búsqueda
+Cómo responde hoy el buscador ... Esta pantalla solo muestra datos: no cambia nada.
+
+| La búsqueda usa texto y significado.                                    |  <- veredicto (verde, azul o ámbar)
+| Faltan 5 secciones o cambios por vectorizar; mientras tanto ...         |
+| =========------  Versión 2 (activa): 3 de 5 secciones con vector (60 %) |  <- barra de avance
+| ===-------------  Versión 3 (en construcción): 1 de 5 ... (20 %)        |
+
+Configuración            Modo por defecto  [Texto y significado]
+                         Índice de texto   [Necesita reindexar]  engram nexo kb reindex
+                         Proveedor  gemini   NEXO_KB_EMBEDDER      Modelo, Dimensiones
+                         Clave del proveedor  [Configurada]  Se lee de la variable NEXO_KB_EMBED_API_KEY
+                         pgvector  [Disponible]  Versión 0.8.7, esquema public
+Versiones del índice     tabla: versión, estado, modelo, dimensiones, creada, activada, retirada (UTC)
+Avance de la indexación  por versión: pendientes, espera más antigua, en proceso, con fallos,
+                         cambios sin leer (retraso del feed), cartas muertas
+Secciones que no se pudieron vectorizar
+                         N secciones ...  `engram nexo kb reindex --vectors --requeue-dead`
+                         últimos errores del proveedor (solo el mensaje)
+Últimas evaluaciones     fecha, buscador, preguntas, Hit@5, MRR, sin respuesta, conjunto
+Parámetros en uso        RRF (k y pesos), umbrales, consulta por significado, indexador (con su variable)
+Reordenamiento (R3)      [No configurado]   <- lugar reservado
+```
+
+El elemento memorable es el veredicto con su barra: una frase plana, en la serif de lectura, que dice qué
+buscador responde hoy (solo texto, construyendo, texto y significado al día o con pendientes). Lo demás es
+lista y tabla, callado. El color solo marca estado (verde: al día; azul: informa; ámbar: requiere atención).
+
+### 11.3 Cómo agregar el bloque de R3 (reordenamiento)
+
+El bloque existe y dice "No configurado". Cuando R3 se integre:
+
+1. Llenar `dashboard.NexoSearchRerank` en `searchStatusRerank` (`cloudserver/nexo_search_status.go`) con
+   `Configured: true` y las filas de etiqueta y valor (proveedor, modelo, candidatos que reordena, clave
+   configurada sin mostrarla). Si el servicio de R3 expone su estado, agregar el campo a
+   `kbservice.SearchStatus`.
+2. Nada más: la plantilla `nexoSearchRerank` ya dibuja las filas y la nota.
+
+Para cualquier otro bloque nuevo: un campo en `NexoSearchStatusPage` y una llamada en
+`nexo_search_status.templ`.
+
+### 11.4 Revisión contra clichés y accesibilidad
+
+- Sin tablero de números grandes con degradado: el veredicto es una frase y la barra es un `<progress>` nativo.
+  Las cifras de avance son pares etiqueta y valor con una línea fina, no tarjetas.
+- Sin mayúsculas sostenidas, sin "01 / 02", sin flechas en botones, sin iconos, sin movimiento.
+- `role="status"` en el veredicto, `<progress>` con `aria-label`, `<caption>` oculto y `scope="col"` en las tablas,
+  títulos de sección enlazados con `aria-labelledby`, foco heredado del tema, tablas en `.nx-scroll`
+  (a 360 px la página no se mueve), pares etiqueta y valor que se apilan por debajo de 600 px.
+
+## 12. Selectores, menú y textos que faltaban en español
+
+### 12.1 Selectores con flecha
+
+Los selectores del tema parecían campos de texto: `body.nexo select` usa el atajo `background`, que borra la
+flecha (`background-image`) que Pico ponía. El arreglo es global, en el bloque final de `nexo_theme.css`:
+
+- Se quita la apariencia nativa y se dibuja una flecha con un SVG en línea (gris tinta; verde con el cursor
+  encima o con foco). La separación se ajusta con `--nx-select-pad` y `--nx-select-arrow` (el selector de rol
+  de cada fila de miembros usa valores más chicos).
+- Foco visible: contorno de 3 px verde con separación (`:focus-visible`), igual que el resto del tema.
+- Móvil y pantallas táctiles: alto mínimo de 2,75 rem y 16 px de letra (iOS no amplía la página al enfocar).
+- Contraste alto del sistema (`forced-colors`): vuelve la flecha nativa.
+- El tema solo tiene modo claro (`data-theme="light"` fijo), así que no hay variante oscura.
+- Selectores revisados: rol de miembros (alta y cada fila), alcance del token de una cuenta de servicio,
+  filtros del registro de auditoría, "Cómo buscar", visibilidad al crear un espacio, tipo de fuente de la
+  subida, y los del panel de Engram (proyecto de Memorias, rol y alcance de usuarios, resultado de la
+  auditoría de Engram).
+
+### 12.2 Menú
+
+Con diez pestañas, las últimas quedaban fuera de la vista (el menú se desplazaba en horizontal sin barra
+visible). Desde 721 px las pestañas se reparten en dos filas; en móvil sigue el desplazamiento.
+
+### 12.3 Textos de Go en español (OP-06, resto)
+
+- El "Never" de las fechas (`formatTimePtr`, `formatTimestampStr`) y "No content captured." pasan por `nx()`.
+- `EmptyState` (títulos y mensajes de "no encontrado" y "no disponible") pasa sus dos textos por `nx()`;
+  `renderStoreError` traduce el título, el mensaje y el rótulo "DEGRADED". Los textos con datos pegados
+  ("<contexto> unavailable", "User X is currently disabled.") se resuelven con patrones en `nexoTextPattern`.
+- Los mensajes de texto plano de los handlers de `/dashboard/` (`http.Error` en inglés, a veces con el error de
+  la base pegado) se traducen al responder, sin editar esos handlers: un middleware de Nexo
+  (`nexo_panel_errors.go`) retiene el cuerpo de un 4xx o 5xx de texto plano y lo pasa por `NexoErrorText`
+  (`dashboard/nexo_errors_es.go`). Un error interno (5xx) nunca muestra el detalle: queda en el log y la
+  persona ve "Ocurrió un error interno. Vuelve a intentarlo; si se repite, avisa al administrador."
+- Los mensajes que solo existen en el panel de Nexo (conocimiento, cuentas de servicio, sesión de solo lectura)
+  se escribieron en español en su propio código.
+- Pruebas: `TestNexoGoTextsAreTranslated` y `TestNexoErrorTextCoversEngramMessages` recorren los archivos de
+  Engram y fallan si una cadena fija no tiene traducción.
