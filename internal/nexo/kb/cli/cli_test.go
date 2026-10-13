@@ -14,13 +14,14 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/httpapi"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/kbtest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/routes"
 )
 
 // server levanta /nexo/kb/v1 con un middleware de prueba: el token
 // "tok-<principal>" identifica al principal (en producción lo hace withAuth).
 func server(t *testing.T, env *kbtest.Env) *httptest.Server {
 	mux := http.NewServeMux()
-	httpapi.Register(mux, func(*http.Request) (*service.Service, error) { return env.KB, nil }, func(next http.HandlerFunc) http.HandlerFunc {
+	httpapi.RegisterRoutes(new(routes.Registry).Registrar(mux), func(*http.Request) (*service.Service, error) { return env.KB, nil }, func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !strings.HasPrefix(tok, "tok-") {

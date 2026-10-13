@@ -59,12 +59,12 @@ import (
 func (s *CloudServer) registerNexoKBDashboard(mux *http.ServeMux) {
 	// Panel con la marca, los textos y el tema de Nexo IA (dashboard/nexo_brand.go).
 	dashboard.EnableNexoBrand()
-	mux.HandleFunc("GET /dashboard/kb", s.requireDashboardSession(s.nexoKBPage(s.kbHome)))
-	mux.HandleFunc("POST /dashboard/kb/spaces", s.requireDashboardSession(s.nexoKBPage(s.kbCreateSpace)))
-	mux.HandleFunc("GET /dashboard/kb/spaces/{slug}", s.requireDashboardSession(s.nexoKBPage(s.kbSpace)))
-	mux.HandleFunc("POST /dashboard/kb/spaces/{slug}/upload", s.requireDashboardSession(s.nexoKBPage(s.kbUpload)))
-	mux.HandleFunc("GET /dashboard/kb/spaces/{slug}/doc", s.requireDashboardSession(s.nexoKBPage(s.kbDocument)))
-	mux.HandleFunc("POST /dashboard/kb/spaces/{slug}/retire", s.requireDashboardSession(s.nexoKBPage(s.kbRetire)))
+	s.nexoRoute(mux, "GET", "/dashboard/kb", "identity", s.requireDashboardSession(s.nexoKBPage(s.kbHome)))
+	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces", "platform.scope.create+platform.scope.assign_owner", s.requireDashboardSession(s.nexoKBPage(s.kbCreateSpace)))
+	s.nexoRoute(mux, "GET", "/dashboard/kb/spaces/{slug}", "space.read", s.requireDashboardSession(s.nexoKBPage(s.kbSpace)))
+	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/upload", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbUpload)))
+	s.nexoRoute(mux, "GET", "/dashboard/kb/spaces/{slug}/doc", "space.read", s.requireDashboardSession(s.nexoKBPage(s.kbDocument)))
+	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/retire", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbRetire)))
 }
 
 type kbPageHandler func(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity)

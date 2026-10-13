@@ -43,17 +43,17 @@ const nexoAuditActionAuthzEventsRead = "nexo.authz_events.read"
 const nexoAuthzPrefix = "/nexo/authz/v1"
 
 func (s *CloudServer) registerNexoAuthzRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET "+nexoAuthzPrefix+"/me", s.nexoAuthzRoute(s.handleNexoAuthzMe))
-	mux.HandleFunc("GET "+nexoAuthzPrefix+"/platform/members", s.nexoAuthzRoute(s.handleNexoAuthzPlatformMembers))
-	mux.HandleFunc("PUT "+nexoAuthzPrefix+"/platform/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzSetPlatformMember))
-	mux.HandleFunc("DELETE "+nexoAuthzPrefix+"/platform/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzDeletePlatformMember))
-	mux.HandleFunc("POST "+nexoAuthzPrefix+"/scopes", s.nexoAuthzRoute(s.handleNexoAuthzCreateScope))
-	mux.HandleFunc("PATCH "+nexoAuthzPrefix+"/scopes/{type}/{key}", s.nexoAuthzRoute(s.handleNexoAuthzUpdateScope))
-	mux.HandleFunc("POST "+nexoAuthzPrefix+"/scopes/{type}/{keyAction}", s.nexoAuthzRoute(s.handleNexoAuthzScopeAction))
-	mux.HandleFunc("GET "+nexoAuthzPrefix+"/scopes/{type}/{key}/members", s.nexoAuthzRoute(s.handleNexoAuthzScopeMembers))
-	mux.HandleFunc("PUT "+nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzSetScopeMember))
-	mux.HandleFunc("DELETE "+nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzDeleteScopeMember))
-	mux.HandleFunc("GET "+nexoAuthzPrefix+"/events", s.withAuth(s.handleNexoAuthzEvents))
+	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/me", "self.read", s.nexoAuthzRoute(s.handleNexoAuthzMe))
+	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/platform/members", "platform.directory.read", s.nexoAuthzRoute(s.handleNexoAuthzPlatformMembers))
+	s.nexoRoute(mux, "PUT", nexoAuthzPrefix+"/platform/members/{principal}", "platform.admins.manage", s.nexoAuthzRoute(s.handleNexoAuthzSetPlatformMember))
+	s.nexoRoute(mux, "DELETE", nexoAuthzPrefix+"/platform/members/{principal}", "platform.admins.manage", s.nexoAuthzRoute(s.handleNexoAuthzDeletePlatformMember))
+	s.nexoRoute(mux, "POST", nexoAuthzPrefix+"/scopes", "platform.scope.create+platform.scope.assign_owner", s.nexoAuthzRoute(s.handleNexoAuthzCreateScope))
+	s.nexoRoute(mux, "PATCH", nexoAuthzPrefix+"/scopes/{type}/{key}", "project.configure|space.configure", s.nexoAuthzRoute(s.handleNexoAuthzUpdateScope))
+	s.nexoRoute(mux, "POST", nexoAuthzPrefix+"/scopes/{type}/{keyAction}", "platform.scope.archive|platform.scope.recover", s.nexoAuthzRoute(s.handleNexoAuthzScopeAction))
+	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/scopes/{type}/{key}/members", "project.read|space.read|platform.directory.read", s.nexoAuthzRoute(s.handleNexoAuthzScopeMembers))
+	s.nexoRoute(mux, "PUT", nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", "project.members.manage|space.members.manage", s.nexoAuthzRoute(s.handleNexoAuthzSetScopeMember))
+	s.nexoRoute(mux, "DELETE", nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", "project.members.manage|space.members.manage", s.nexoAuthzRoute(s.handleNexoAuthzDeleteScopeMember))
+	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/events", "platform.audit.read", s.withAuth(s.handleNexoAuthzEvents))
 	s.registerNexoTokenRoutes(mux) // NX-07 (S3-03): emisión y listado de tokens con caducidad y alcance
 }
 

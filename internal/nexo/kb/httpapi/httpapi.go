@@ -43,6 +43,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/routes"
 )
 
 // Prefix es la raíz versionada de la API (RNF-K8).
@@ -62,27 +63,32 @@ type api struct {
 	maxBytes int64
 }
 
-// Register registra las rutas en el mux.
-func Register(mux *http.ServeMux, svc Resolver, wrap Middleware) {
+// RegisterRoutes registra las rutas con su capacidad declarada (NX-07 S5,
+// registro de rutas: internal/nexo/routes). El servidor pasa el registrador
+// de su registro (CloudServer.nexo.routes); las pruebas, uno propio
+// (new(routes.Registry).Registrar(mux)).
+func RegisterRoutes(route routes.Func, svc Resolver, wrap Middleware) {
 	a := &api{svc: svc, maxBytes: 32 << 20}
 	if n, err := strconv.ParseInt(strings.TrimSpace(os.Getenv(EnvMaxRequestBytes)), 10, 64); err == nil && n > 0 {
 		a.maxBytes = n
 	}
-	h := func(pattern string, fn handler) { mux.HandleFunc(pattern, wrap(a.route(fn))) }
-	h("GET "+Prefix+"/spaces", a.listSpaces)
-	h("POST "+Prefix+"/spaces", a.createSpace)
-	h("GET "+Prefix+"/spaces/{slug}", a.getSpace)
-	h("PATCH "+Prefix+"/spaces/{slug}", a.updateSpace)
-	h("POST "+Prefix+"/spaces/{slugAction}", a.spaceAction)
-	h("GET "+Prefix+"/spaces/{slug}/events", a.events)
-	h("POST "+Prefix+"/spaces/{slug}/documents:batch", a.publishBatch)
-	h("GET "+Prefix+"/spaces/{slug}/documents", a.listDocuments)
-	h("GET "+Prefix+"/spaces/{slug}/documents/{docKey}", a.getDocument)
-	h("GET "+Prefix+"/spaces/{slug}/documents/{docKey}/versions", a.listVersions)
-	h("GET "+Prefix+"/spaces/{slug}/documents/{docKey}/sections/{anchor}", a.getSection)
-	h("POST "+Prefix+"/spaces/{slug}/documents/{docKeyAction}", a.documentAction)
-	h("GET "+Prefix+"/search", a.search)
-	h("GET "+Prefix+"/sections", a.sectionByQuery)
+	h := func(method, path, capability string, fn handler) {
+		route(method, Prefix+path, capability, wrap(a.route(fn)))
+	}
+	h("GET", "/spaces", routes.Identity, a.listSpaces)
+	h("POST", "/spaces", "platform.scope.create+platform.scope.assign_owner", a.createSpace)
+	h("GET", "/spaces/{slug}", "space.read", a.getSpace)
+	h("PATCH", "/spaces/{slug}", "space.configure", a.updateSpace)
+	h("POST", "/spaces/{slugAction}", "platform.scope.archive", a.spaceAction)
+	h("GET", "/spaces/{slug}/events", "space.audit.read|platform.audit.read", a.events)
+	h("POST", "/spaces/{slug}/documents:batch", "space.publish", a.publishBatch)
+	h("GET", "/spaces/{slug}/documents", "space.read", a.listDocuments)
+	h("GET", "/spaces/{slug}/documents/{docKey}", "space.read", a.getDocument)
+	h("GET", "/spaces/{slug}/documents/{docKey}/versions", "space.read", a.listVersions)
+	h("GET", "/spaces/{slug}/documents/{docKey}/sections/{anchor}", "space.read", a.getSection)
+	h("POST", "/spaces/{slug}/documents/{docKeyAction}", "space.publish", a.documentAction)
+	h("GET", "/search", "space.read", a.search)
+	h("GET", "/sections", "space.read", a.sectionByQuery)
 	a.register2b(h) // entrega 2b (routes2b.go)
 }
 

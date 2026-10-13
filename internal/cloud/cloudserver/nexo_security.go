@@ -32,6 +32,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/constants"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/routes"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -57,6 +58,8 @@ type nexoState struct {
 	// inactivos, retención), nexo_evidence.go.
 	monitorOnce sync.Once
 	monitor     *nexoMonitor
+	// Fase S5: registro de rutas Nexo con su capacidad (nexo_routes.go).
+	routes routes.Registry
 }
 
 type nexoSecurity struct {

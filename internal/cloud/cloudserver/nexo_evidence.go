@@ -57,11 +57,11 @@ const (
 )
 
 func (s *CloudServer) registerNexoEvidenceRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /nexo/admin/audit/verify", s.nexoAuthzRoute(s.handleNexoChainVerify))
-	mux.HandleFunc("GET /nexo/admin/alerts", s.nexoAuthzRoute(s.handleNexoAlerts))
-	mux.HandleFunc("POST /nexo/admin/alerts/{idAction}", s.nexoAuthzRoute(s.handleNexoAlertAction))
-	mux.HandleFunc("GET /nexo/admin/access-review", s.nexoAuthzRoute(s.handleNexoAccessReview))
-	mux.HandleFunc("POST /nexo/admin/access-review:complete", s.nexoAuthzRoute(s.handleNexoAccessReviewComplete))
+	s.nexoRoute(mux, "GET", "/nexo/admin/audit/verify", "platform.audit.read", s.nexoAuthzRoute(s.handleNexoChainVerify))
+	s.nexoRoute(mux, "GET", "/nexo/admin/alerts", "platform.audit.read", s.nexoAuthzRoute(s.handleNexoAlerts))
+	s.nexoRoute(mux, "POST", "/nexo/admin/alerts/{idAction}", "platform.audit.read+token.write", s.nexoAuthzRoute(s.handleNexoAlertAction))
+	s.nexoRoute(mux, "GET", "/nexo/admin/access-review", "platform.audit.read", s.nexoAuthzRoute(s.handleNexoAccessReview))
+	s.nexoRoute(mux, "POST", "/nexo/admin/access-review:complete", "platform.audit.read+token.write", s.nexoAuthzRoute(s.handleNexoAccessReviewComplete))
 }
 
 // nexoRequireAudit exige platform.audit.read (y, con write, un token write).
