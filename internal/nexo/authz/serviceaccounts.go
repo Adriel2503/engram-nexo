@@ -237,7 +237,7 @@ func (s *Service) ListServiceAccounts(ctx context.Context, actor Identity, q Ser
 	if err != nil {
 		return nil, "", err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []ServiceAccount{}
 	for rows.Next() {
 		a, err := scanServiceAccount(rows)
@@ -276,7 +276,7 @@ func (s *Service) fillServiceAccountBindings(ctx context.Context, items []Servic
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var pid, st, key, role string
 		if err := rows.Scan(&pid, &st, &key, &role); err != nil {

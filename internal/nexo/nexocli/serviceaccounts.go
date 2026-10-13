@@ -53,7 +53,7 @@ var saAPI = func(dataDir, server string) (*client.API, error) {
 
 func runServiceAccounts(args []string, dataDir string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprint(stdout, saUsage)
+		_, _ = fmt.Fprint(stdout, saUsage)
 		return 0
 	}
 	cmd, rest := args[0], args[1:]
@@ -74,16 +74,16 @@ func runServiceAccounts(args []string, dataDir string, stdout, stderr io.Writer)
 	case "token":
 		err = saTokenCmd(rest, dataDir, stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "comando desconocido: %s\n\n%s", cmd, saUsage)
+		_, _ = fmt.Fprintf(stderr, "comando desconocido: %s\n\n%s", cmd, saUsage)
 		return 2
 	}
 	if err != nil {
 		var ue saUsageError
 		if errors.As(err, &ue) {
-			fmt.Fprintln(stderr, ue.msg)
+			_, _ = fmt.Fprintln(stderr, ue.msg)
 			return 2
 		}
-		fmt.Fprintln(stderr, "error:", err)
+		_, _ = fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
 	return 0
@@ -220,17 +220,17 @@ func saList(args []string, dataDir string, stdout io.Writer) error {
 		return saPrintJSON(stdout, page)
 	}
 	if len(page.Items) == 0 {
-		fmt.Fprintln(stdout, "No hay cuentas de servicio.")
+		_, _ = fmt.Fprintln(stdout, "No hay cuentas de servicio.")
 		return nil
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "CUENTA\tID\tESTADO\tRESPONSABLE\tROLES\tDESCRIPCION")
+	_, _ = fmt.Fprintln(tw, "CUENTA\tID\tESTADO\tRESPONSABLE\tROLES\tDESCRIPCION")
 	for _, a := range page.Items {
 		roles := []string{}
 		for _, b := range a.Bindings {
 			roles = append(roles, b.Role+"@"+b.Scope.Type+":"+b.Scope.Key)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a), strings.Join(roles, ","), a.Description)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a), strings.Join(roles, ","), a.Description)
 	}
 	return tw.Flush()
 }
@@ -255,23 +255,23 @@ func saShow(args []string, dataDir string, stdout io.Writer) error {
 	if *f.asJSON {
 		return saPrintJSON(stdout, a)
 	}
-	fmt.Fprintf(stdout, "Cuenta %s (id %s), %s. Responsable: %s.\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a))
+	_, _ = fmt.Fprintf(stdout, "Cuenta %s (id %s), %s. Responsable: %s.\n", a.Slug, a.PrincipalID, saState(a.Enabled), saOwner(a))
 	if a.Description != "" {
-		fmt.Fprintf(stdout, "Descripción: %s\n", a.Description)
+		_, _ = fmt.Fprintf(stdout, "Descripción: %s\n", a.Description)
 	}
 	if len(a.Bindings) == 0 {
-		fmt.Fprintln(stdout, "Roles: ninguno (asígnelo con engram nexo sa grant).")
+		_, _ = fmt.Fprintln(stdout, "Roles: ninguno (asígnelo con engram nexo sa grant).")
 	} else {
 		for _, b := range a.Bindings {
-			fmt.Fprintf(stdout, "Rol: %s en %s %s\n", b.Role, b.Scope.Type, b.Scope.Key)
+			_, _ = fmt.Fprintf(stdout, "Rol: %s en %s %s\n", b.Role, b.Scope.Type, b.Scope.Key)
 		}
 	}
 	if len(a.Tokens) == 0 {
-		fmt.Fprintln(stdout, "Tokens: ninguno.")
+		_, _ = fmt.Fprintln(stdout, "Tokens: ninguno.")
 		return nil
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "TOKEN\tNOMBRE\tALCANCE\tVENCE\tESTADO\tULTIMO USO\tULTIMA ACCION (IP, CLIENTE)")
+	_, _ = fmt.Fprintln(tw, "TOKEN\tNOMBRE\tALCANCE\tVENCE\tESTADO\tULTIMO USO\tULTIMA ACCION (IP, CLIENTE)")
 	for _, t := range a.Tokens {
 		state := "activo"
 		switch {
@@ -288,7 +288,7 @@ func saShow(args []string, dataDir string, stdout io.Writer) error {
 		if t.LastSeen != nil {
 			last = fmt.Sprintf("%s %s %s (%s)", t.LastSeen.At.Local().Format("2006-01-02 15:04"), t.LastSeen.IP, t.LastSeen.UserAgent, t.LastSeen.Source)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Name, t.Scope, vence, state, saWhen(t.LastUsedAt), last)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, t.Name, t.Scope, vence, state, saWhen(t.LastUsedAt), last)
 	}
 	return tw.Flush()
 }
@@ -321,8 +321,8 @@ func saCreate(args []string, dataDir string, stdout, stderr io.Writer) error {
 	if *f.asJSON {
 		return saPrintJSON(stdout, a)
 	}
-	fmt.Fprintf(stdout, "Cuenta de servicio %s creada (id %s), responsable %s.\n", a.Slug, a.PrincipalID, saOwner(a))
-	fmt.Fprintf(stderr, "Siguiente paso: engram nexo sa grant %s --space <espacio> --role publicador (lo hace el responsable del espacio) y engram nexo sa token issue %s.\n", a.Slug, a.Slug)
+	_, _ = fmt.Fprintf(stdout, "Cuenta de servicio %s creada (id %s), responsable %s.\n", a.Slug, a.PrincipalID, saOwner(a))
+	_, _ = fmt.Fprintf(stderr, "Siguiente paso: engram nexo sa grant %s --space <espacio> --role publicador (lo hace el responsable del espacio) y engram nexo sa token issue %s.\n", a.Slug, a.Slug)
 	return nil
 }
 
@@ -354,7 +354,7 @@ func saUpdate(args []string, dataDir string, stderr io.Writer) error {
 	if err := c.Do(context.Background(), "PATCH", saPath(pos[0]), body, &a); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "Cuenta %s actualizada: responsable %s.\n", a.Slug, saOwner(a))
+	_, _ = fmt.Fprintf(stderr, "Cuenta %s actualizada: responsable %s.\n", a.Slug, saOwner(a))
 	return nil
 }
 
@@ -380,11 +380,11 @@ func saSetEnabled(cmd string, args []string, dataDir string, stderr io.Writer) e
 	}
 	switch {
 	case !res.Changed:
-		fmt.Fprintf(stderr, "La cuenta %s ya estaba %s.\n", res.ServiceAccount.Slug, saState(res.ServiceAccount.Enabled))
+		_, _ = fmt.Fprintf(stderr, "La cuenta %s ya estaba %s.\n", res.ServiceAccount.Slug, saState(res.ServiceAccount.Enabled))
 	case res.ServiceAccount.Enabled:
-		fmt.Fprintf(stderr, "Cuenta %s habilitada: sus tokens vigentes vuelven a funcionar.\n", res.ServiceAccount.Slug)
+		_, _ = fmt.Fprintf(stderr, "Cuenta %s habilitada: sus tokens vigentes vuelven a funcionar.\n", res.ServiceAccount.Slug)
 	default:
-		fmt.Fprintf(stderr, "Cuenta %s deshabilitada: todos sus tokens se rechazan desde la siguiente petición.\n", res.ServiceAccount.Slug)
+		_, _ = fmt.Fprintf(stderr, "Cuenta %s deshabilitada: todos sus tokens se rechazan desde la siguiente petición.\n", res.ServiceAccount.Slug)
 	}
 	return nil
 }
@@ -414,13 +414,13 @@ func saGrant(cmd string, args []string, dataDir string, stderr io.Writer) error 
 		if err := c.Do(context.Background(), "DELETE", path, nil, nil); err != nil {
 			return err
 		}
-		fmt.Fprintf(stderr, "Rol de %s en %s %s quitado.\n", pos[0], scopeType, key)
+		_, _ = fmt.Fprintf(stderr, "Rol de %s en %s %s quitado.\n", pos[0], scopeType, key)
 		return nil
 	}
 	if err := c.Do(context.Background(), "PUT", path, map[string]string{"role": *role}, nil); err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "%s es %s en %s %s.\n", pos[0], *role, scopeType, key)
+	_, _ = fmt.Fprintf(stderr, "%s es %s en %s %s.\n", pos[0], *role, scopeType, key)
 	return nil
 }
 
@@ -475,9 +475,9 @@ func saTokenCmd(args []string, dataDir string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if res.Changed {
-			fmt.Fprintf(stderr, "Token %s revocado.\n", pos[1])
+			_, _ = fmt.Fprintf(stderr, "Token %s revocado.\n", pos[1])
 		} else {
-			fmt.Fprintf(stderr, "El token %s ya estaba revocado.\n", pos[1])
+			_, _ = fmt.Fprintf(stderr, "El token %s ya estaba revocado.\n", pos[1])
 		}
 		return nil
 	}
@@ -507,22 +507,22 @@ func saTokenCmd(args []string, dataDir string, stdout, stderr io.Writer) error {
 	if res.Token.ExpiresAt != nil {
 		vence = "vence " + res.Token.ExpiresAt.Local().Format("2006-01-02")
 	}
-	fmt.Fprintf(stderr, "Token %s (%s, alcance %s, %s).\n", res.Token.ID, res.Token.Name, res.Token.Scope, vence)
+	_, _ = fmt.Fprintf(stderr, "Token %s (%s, alcance %s, %s).\n", res.Token.ID, res.Token.Name, res.Token.Scope, vence)
 	if res.OldToken != nil {
 		switch {
 		case res.OldToken["error"] != nil:
-			fmt.Fprintf(stderr, "Aviso: el token anterior %v no se pudo cerrar: revóquelo con engram nexo sa token revoke.\n", res.OldToken["id"])
+			_, _ = fmt.Fprintf(stderr, "Aviso: el token anterior %v no se pudo cerrar: revóquelo con engram nexo sa token revoke.\n", res.OldToken["id"])
 		case res.OldToken["revoked"] == true:
-			fmt.Fprintf(stderr, "El token anterior %v quedó revocado.\n", res.OldToken["id"])
+			_, _ = fmt.Fprintf(stderr, "El token anterior %v quedó revocado.\n", res.OldToken["id"])
 		default:
-			fmt.Fprintf(stderr, "El token anterior %v vale hasta %v.\n", res.OldToken["id"], res.OldToken["expires_at"])
+			_, _ = fmt.Fprintf(stderr, "El token anterior %v vale hasta %v.\n", res.OldToken["id"], res.OldToken["expires_at"])
 		}
 	}
 	if *out != "" {
-		fmt.Fprintf(stderr, "Token guardado en %s. Se muestra una sola vez: cárguelo como secreto del CI y borre el archivo.\n", *out)
+		_, _ = fmt.Fprintf(stderr, "Token guardado en %s. Se muestra una sola vez: cárguelo como secreto del CI y borre el archivo.\n", *out)
 		return nil
 	}
-	fmt.Fprintln(stderr, "Se muestra una sola vez: cárguelo como secreto del CI (por ejemplo NEXO_TOKEN).")
-	fmt.Fprintln(stdout, res.RawToken)
+	_, _ = fmt.Fprintln(stderr, "Se muestra una sola vez: cárguelo como secreto del CI (por ejemplo NEXO_TOKEN).")
+	_, _ = fmt.Fprintln(stdout, res.RawToken)
 	return nil
 }

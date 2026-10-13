@@ -251,7 +251,7 @@ func waitVectorIndex(c *Client, stdout io.Writer) error {
 		if time.Now().After(deadline) {
 			return exitError{1, fmt.Sprintf("--wait-index: el índice vectorial sigue con %d secciones pendientes", pending)}
 		}
-		fmt.Fprintf(stdout, "esperando el índice vectorial: %d secciones pendientes\n", pending)
+		_, _ = fmt.Fprintf(stdout, "esperando el índice vectorial: %d secciones pendientes\n", pending)
 		time.Sleep(10 * time.Second)
 	}
 }

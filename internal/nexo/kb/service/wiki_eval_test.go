@@ -102,7 +102,7 @@ func newCachedEmbedder(t testing.TB, e embed.Embedder, path string) *cachedEmbed
 	if err != nil {
 		return c
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {

@@ -290,7 +290,7 @@ func (s *Store) VectorIndexes(ctx context.Context) ([]VectorIndex, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []VectorIndex
 	for rows.Next() {
 		vi, err := scanVectorIndex(rows)
@@ -515,7 +515,7 @@ func (s *Store) vectorTexts(ctx context.Context, sectionIDs []string) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]string{}
 	for rows.Next() {
 		var id, hp, body, title, pt string
