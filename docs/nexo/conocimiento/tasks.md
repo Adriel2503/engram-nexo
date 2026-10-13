@@ -1,6 +1,6 @@
 # Espacios de conocimiento (NX-10): tareas
 
-Estado: borrador para revisión. Fecha: 2026-10-12. Rama: `feat/conocimiento` (desde `develop`).
+Estado: borrador para revisión. Fecha: 2026-10-12 (actualizado el 2026-10-13). Rama: `feat/conocimiento-nucleo` (desde `develop`).
 Documentos: `requirements.md`, `design.md`; roles en `docs/nexo/roles/` (NX-05, con sus propias
 tareas en `docs/nexo/roles/tasks.md`).
 
@@ -10,6 +10,45 @@ de Engram solo enganches de una línea marcados `// NX-05` o `// NX-10`; tests c
 
 Dependencia: la etapa R1 de roles (motor `internal/nexo/authz`, plataforma y API `/nexo/authz/v1`)
 va antes de la fase C.
+
+## Estado (entrega 2b, tanda 1, 2026-10-13, sin commit)
+
+Decisiones del usuario del 2026-10-13: subida de archivos sueltos como vía principal (git opcional),
+una API para CLI y panel, sin originales (volver a subir para reprocesar), KP-10 descartado, política
+de secretos pendiente. Detalle y desviaciones D-K2b-1..D-K2b-21 en `design.md` §18.
+
+| ID | Estado | Notas |
+|---|---|---|
+| U-01 Subida (HU-29) | Hecho | `POST /spaces/{slug}/uploads` (archivos, carpeta, zip), defensas de tamaño, entradas, tipo, zip-slip y zip bomb; CLI `upload`; panel `/dashboard/kb` |
+| U-02 Word | Hecho | `ingest/docx` en Go puro (títulos, párrafos, listas, tablas, procedencia) |
+| U-03 Wiki de Azure DevOps (IN-08, KP-11) | Hecho | `source` + conversor `ado-md`; `[TO_REMOVE]` retiradas, `≤-AAAA` vencidas, `[TO_TIDY]` etiquetada |
+| C-07 Propuestas (KP-08) | Hecho | Conflicto 409 con `force`, vigencia futura, descarte con motivo, retiro; proponentes no ven ajenas; CA-K07, CA-K08 |
+| C-08 Rutas | Hecho | Se agregan subida, propuestas, `/changes`, `/sync`, `/eval-runs`, `publish-runs`, `admin/index` |
+| C-09 Feed `/sync` (KP-07) | Hecho (servidor) | Vigentes y programadas con vigencias; la copia local que lo consume es de la tanda 2 |
+| RC-27 Qué cambió | Hecho | `/changes` y `engram nexo kb changes`, relojes `valid` y `recorded` |
+| KP-09 Avisos | Hecho | `kb_doc_expiring`, `kb_doc_review_due` en `nexo_alerts` (capa conocimiento) |
+| KP-01, KP-02 | Hecho | Tope de poda (25 %, `confirm`); `nexo_kb_publish_runs` |
+| RC-08 Enlaces | Hecho | `link` permanente al panel y `source_url` |
+| C-10 / R0 | Hecho (borrador) | `eval` por clases y métricas portadas (Hit@5, Recall@5, MRR, nDCG, MAP, sin respuesta), `nexo_kb_eval_runs`, prueba de calidad en CI (`eval/quality_test.go`), 50 preguntas borrador sobre la wiki (a validar por 3-4 devs) |
+| R1 | Hecho | RC-03 (con reindexado seguro), RC-04, RC-05, RC-06, RC-07, RC-09, RC-10, RC-22, IN-07 (`quote`); todo desactivable con `NEXO_KB_R1` |
+| SG-09 | Parcial | Detección ampliada; la política (rechazar o enmascarar) sigue pendiente de decisión: hoy se rechaza |
+| D-01, D-02, D-03 (`get`, `import-transversal`), D-04, F-04 | Pendiente (tanda 2) | Copia local, MCP, plantilla de GitHub Actions (opcional), skill v0.3 |
+
+Medición de calidad (wiki de arquitectura, 50 preguntas borrador, `design.md` §18.3):
+
+| Clase | Línea base Hit@5 / MRR | R1 Hit@5 / MRR |
+|---|---|---|
+| normal (15) | 46,7 % / 0,255 | 80,0 % / 0,522 |
+| exact (8) | 87,5 % / 0,875 | 100,0 % / 0,938 |
+| paraphrase (7) | 28,6 % / 0,119 | 0,0 % / 0,000 |
+| no_answer (8), acierto | 0 % | 50 % |
+| temporal (8) | 62,5 % / 0,601 | 100,0 % / 0,817 |
+| changes (4) | 0 % | 100 % |
+| total con respuesta | 50,0 % / 0,392 | 76,2 % / 0,616 |
+
+La paráfrasis queda en 0 % con el umbral (3 falsos "no hay"): es la condición de §17.3 para pasar a
+R2 (vectores). La prueba de CI usa un corpus sintético (`eval/testdata/mini`) con umbral Hit@5 0,80 y
+"no hay respuesta" 0,66, y compara con la última corrida aceptada en `nexo_kb_eval_runs`.
 
 ## Estado (entrega 2a, 2026-10-12, rama `feat/conocimiento-nucleo`)
 

@@ -152,7 +152,7 @@ func TestCLIPublishSearchEval(t *testing.T) {
 	}
 	t.Log(strings.SplitN(out, "\n", 2)[0])
 	code, _, errOut = run(t, "kb", "eval", evalFile, "--retriever", "local-bm25")
-	if code != 2 || !strings.Contains(errOut, "2b") {
+	if code != 2 || !strings.Contains(errOut, "tanda 2") {
 		t.Fatalf("local-bm25 aún no: %d %s", code, errOut)
 	}
 	// Sin token.

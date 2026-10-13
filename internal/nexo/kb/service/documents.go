@@ -270,6 +270,10 @@ type SearchRequest struct {
 	At       *time.Time
 	KnownAt  *time.Time
 	Limit    int
+	// NX-10 2b: modo (fts por defecto, exact para literales o expresión
+	// regular, RC-22) y secciones vecinas como contexto (RC-10).
+	Mode      string
+	Neighbors bool
 }
 
 // Search busca en los espacios visibles (o en los pedidos que sean visibles).
@@ -280,6 +284,21 @@ func (s *Service) Search(ctx context.Context, id authz.Identity, req SearchReque
 	if err != nil {
 		return search.Result{}, err
 	}
-	return s.searcher.Search(ctx, search.Query{Text: req.Q, Category: strings.ToLower(strings.TrimSpace(req.Category)),
-		Tag: strings.ToLower(strings.TrimSpace(req.Tag)), Limit: req.Limit}, ids, req.At, req.KnownAt)
+	res, err := s.searcher.Search(ctx, search.Query{Text: req.Q, Category: strings.ToLower(strings.TrimSpace(req.Category)),
+		Tag: strings.ToLower(strings.TrimSpace(req.Tag)), Limit: req.Limit, Mode: req.Mode, Neighbors: req.Neighbors}, ids, req.At, req.KnownAt)
+	if err != nil || !req.Neighbors {
+		return res, err
+	}
+	// RC-10: secciones vecinas de la misma versión (ya autorizadas: misma
+	// versión que un resultado que pasó los filtros).
+	for i := range res.Hits {
+		ns, err := store.NeighborSections(ctx, s.db, res.Hits[i].SectionID)
+		if err != nil {
+			return search.Result{}, err
+		}
+		for _, n := range ns {
+			res.Hits[i].Neighbors = append(res.Hits[i].Neighbors, search.Neighbor{Anchor: n.Anchor, HeadingPath: n.HeadingPath, Position: n.Position, Body: n.Body})
+		}
+	}
+	return res, nil
 }

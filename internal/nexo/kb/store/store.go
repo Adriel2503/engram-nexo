@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
@@ -30,6 +31,7 @@ type Store struct {
 	modeMu     sync.Mutex
 	modeLoaded bool
 	fold       bool
+	index      IndexOptions // NX-10 2b (R1)
 }
 
 // New crea el almacén sobre la base de Engram Cloud.
@@ -425,6 +427,64 @@ type SectionWrite struct {
 	RecordedFrom                   time.Time
 	IsCurrent                      bool
 	Sections                       []ingest.SectionDraft
+	// NX-10 2b (RC-03): título del documento y ruta de títulos de la carpeta;
+	// con IndexOptions.DocContext se indexan con peso A junto a los títulos
+	// de la sección.
+	Title      string
+	PathTitles []string
+}
+
+// IndexOptions son las opciones del índice de texto (R1). Cambiarlas es una
+// versión nueva del índice pgfts (nexo_kb_index_versions) y exige reindexar
+// (Store.Reindex) para que las secciones anteriores las reflejen.
+type IndexOptions struct {
+	// DocContext (RC-03): título del documento y ruta de títulos de la
+	// carpeta antepuestos al texto indexado de cada sección (peso A).
+	DocContext bool `json:"doc_context"`
+}
+
+// SetIndexOptions fija las opciones del índice (antes de escribir).
+func (s *Store) SetIndexOptions(o IndexOptions) {
+	s.modeMu.Lock()
+	s.index = o
+	s.modeMu.Unlock()
+}
+
+// IndexOpts devuelve las opciones del índice en uso.
+func (s *Store) IndexOpts() IndexOptions {
+	s.modeMu.Lock()
+	defer s.modeMu.Unlock()
+	return s.index
+}
+
+// MaxIndexedBodyBytes acota el texto de una sección que entra al tsvector
+// (Postgres rechaza un tsvector de más de 1 MB: una sección gigante, como un
+// bloque de código o JSON enorme, hacía fallar la publicación del documento).
+// El cuerpo se guarda completo; solo el índice usa el prefijo.
+const MaxIndexedBodyBytes = 256 << 10
+
+func capIndexed(s string) string {
+	if len(s) <= MaxIndexedBodyBytes {
+		return s
+	}
+	cut := MaxIndexedBodyBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// IndexedTitles es el texto de peso A de una sección.
+func IndexedTitles(o IndexOptions, title string, pathTitles, headingPath []string) string {
+	parts := []string{}
+	if o.DocContext {
+		parts = append(parts, pathTitles...)
+		if t := strings.TrimSpace(title); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	parts = append(parts, headingPath...)
+	return strings.Join(parts, " ")
 }
 
 const pathSep = "\x1f"
@@ -439,7 +499,10 @@ func (s *Store) InsertSections(ctx context.Context, q Querier, w SectionWrite) e
 	ids, anchors, paths, bodies, locs, extr := make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n)
 	idxTitles, idxBodies, foldTitles, foldBodies := make([]string, n), make([]string, n), make([]string, n), make([]string, n)
 	ords, toks := make([]int64, n), make([]int64, n)
+	hashes := make([]string, n)
+	opts := s.IndexOpts()
 	for i, sec := range w.Sections {
+		hashes[i] = ingest.SHA256Hex(sec.Body)
 		ids[i] = NewID()
 		anchors[i] = sec.Anchor
 		paths[i] = strings.Join(sec.HeadingPath, pathSep)
@@ -451,7 +514,7 @@ func (s *Store) InsertSections(ctx context.Context, q Querier, w SectionWrite) e
 		locs[i] = string(raw)
 		extr[i] = sec.Extraction
 		ords[i], toks[i] = int64(sec.Ordinal), int64(sec.TokenCount)
-		idxTitles[i], idxBodies[i] = strings.Join(sec.HeadingPath, " "), sec.Body
+		idxTitles[i], idxBodies[i] = IndexedTitles(opts, w.Title, w.PathTitles, sec.HeadingPath), capIndexed(sec.Body)
 		foldTitles[i], foldBodies[i] = ingest.Fold(idxTitles[i]), ingest.Fold(sec.Body)
 	}
 	ut, err := s.UnaccentVector(ctx, "x.it", "x.ft")
@@ -464,15 +527,16 @@ func (s *Store) InsertSections(ctx context.Context, q Querier, w SectionWrite) e
 	}
 	_, err = q.ExecContext(ctx, `
 		INSERT INTO nexo_kb_sections (id, space_id, document_id, version_id, ordinal, anchor, heading_path, body, token_count,
-			source_location, extraction, category, tags, valid_from, valid_until, recorded_from, recorded_until, is_current, tsv)
+			source_location, extraction, category, tags, valid_from, valid_until, recorded_from, recorded_until, is_current, tsv, body_sha256)
 		SELECT x.id::uuid, $1::uuid, $2::uuid, $3::uuid, x.ord, x.anchor,
 			CASE WHEN x.path = '' THEN '{}'::text[] ELSE string_to_array(x.path, E'\x1f') END,
 			x.body, x.tok, x.loc::jsonb, x.extr, $4, $5::text[], $6, $7, $8, NULL, $9,
-			setweight(to_tsvector('`+TSConfig+`', x.it) || `+ut+`, 'A') || setweight(to_tsvector('`+TSConfig+`', x.ib) || `+ub+`, 'B')
-		FROM unnest($10::text[], $11::bigint[], $12::text[], $13::text[], $14::text[], $15::bigint[], $16::text[], $17::text[], $18::text[], $19::text[], $20::text[], $21::text[])
-			AS x(id, ord, anchor, path, body, tok, loc, extr, it, ib, ft, fb)`,
+			setweight(to_tsvector('`+TSConfig+`', x.it) || `+ut+`, 'A') || setweight(to_tsvector('`+TSConfig+`', x.ib) || `+ub+`, 'B'),
+			x.bh
+		FROM unnest($10::text[], $11::bigint[], $12::text[], $13::text[], $14::text[], $15::bigint[], $16::text[], $17::text[], $18::text[], $19::text[], $20::text[], $21::text[], $22::text[])
+			AS x(id, ord, anchor, path, body, tok, loc, extr, it, ib, ft, fb, bh)`,
 		w.SpaceID, w.DocumentID, w.VersionID, w.Category, nonNil(w.Tags), w.ValidFrom, nullTime(w.ValidUntil), w.RecordedFrom, w.IsCurrent,
-		ids, ords, anchors, paths, bodies, toks, locs, extr, idxTitles, idxBodies, foldTitles, foldBodies)
+		ids, ords, anchors, paths, bodies, toks, locs, extr, idxTitles, idxBodies, foldTitles, foldBodies, hashes)
 	return err
 }
 

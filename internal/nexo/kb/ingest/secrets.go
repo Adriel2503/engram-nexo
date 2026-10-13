@@ -16,6 +16,11 @@ type secretPattern struct {
 	re   *regexp.Regexp
 }
 
+var kvPasswordRe = regexp.MustCompile(`(?i)(?:^|[;"'\s])(?:password|pwd)\s*=\s*([^;"'\s]{4,})`)
+
+// connKeysRe: otra clave típica de una cadena de conexión en la misma línea.
+var connKeysRe = regexp.MustCompile(`(?i)(?:server|data source|host|database|initial catalog|user id|uid|username|user)\s*=`)
+
 // Solo patrones de alta confianza: un lineamiento puede hablar de
 // contraseñas sin contener una. Los marcadores de ejemplo (<...>, ${...},
 // ***, xxx) en cadenas de conexión no cuentan.
@@ -29,6 +34,14 @@ var secretPatterns = []secretPattern{
 	{"engram_token", regexp.MustCompile(`\begc_[A-Za-z0-9_-]{24,}\b`)},
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
 	{"connection_string_password", regexp.MustCompile(`\b[a-z][a-z0-9+.-]{1,20}://[^\s:/@]+:([^\s@/]{3,})@[^\s/]+`)},
+	// NX-10 2b (SG-09, ampliación de la detección; la política ante una
+	// detección no cambia: se rechaza, decisión pendiente rechazar/enmascarar).
+	// Cadenas de conexión clave=valor (ADO.NET, ODBC): Password=..., Pwd=...
+	// (ver kvPasswordRe: exige otra clave de la cadena en la línea).
+	{"connection_string_password", kvPasswordRe},
+	// Encabezados con credencial: Authorization: Bearer <token>, api-key: <clave>.
+	{"bearer_token", regexp.MustCompile(`(?i)\bbearer\s+([A-Za-z0-9._~+/=-]{20,})`)},
+	{"api_key_header", regexp.MustCompile(`(?i)\b(?:x-)?api[-_]?key\s*[:=]\s*["']?([A-Za-z0-9._~+/=-]{16,})`)},
 }
 
 // DetectSecrets devuelve los secretos evidentes encontrados (sin el valor).
@@ -40,7 +53,13 @@ func DetectSecrets(text string) []SecretFinding {
 			if m == nil {
 				continue
 			}
-			if p.kind == "connection_string_password" && isPlaceholder(m[1]) {
+			if len(m) > 1 && m[1] != "" && isPlaceholder(m[1]) {
+				continue
+			}
+			// SG-09: Password=/Pwd= solo cuenta dentro de una cadena de conexión
+			// (otra clave como Server= o User Id= en la misma línea); así no se
+			// confunde con código ("Password = request.Password").
+			if p.re == kvPasswordRe && !connKeysRe.MatchString(line) {
 				continue
 			}
 			out = append(out, SecretFinding{Kind: p.kind, Line: i + 1})

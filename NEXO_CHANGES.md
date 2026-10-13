@@ -207,6 +207,25 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `internal/nexo/security/lockout.go` (A1), `tokens.go` (huella en el contenedor del contexto), `dbaccounts.go` (`nexo_audit_chain_checkpoints` en `EvidenceTables`, `OwnerManagedTables`, `DefinerFunctions`), `internal/nexo/authz/migrate.go` y `internal/nexo/kb/store/migrate.go` (los triggers de solo inserción de `nexo_authz_events` y `nexo_kb_events` admiten el `DELETE` de la depuración segura), `internal/nexo/authz/events.go` (acción `principal.disabled_inactive`), `cloudstore/nexo_migrations.go` (llama a `evidence.Migrate`), `cloudserver/nexo_security.go` (agrupador en el contexto, huella del rechazo, estado del monitor), `cloudserver/nexo_admin_routes.go` (registra las rutas de S4), `cloudserver/nexo_activity.go` (arranca el monitor). Tests ajustados: `cloudserver/nexo_security_test.go` (D-S2-8 cuenta filas y resúmenes), `cloudstore/nexo_security_test.go` (tabla de evidencia ficticia), `internal/nexo/security/lockout_test.go`, `internal/nexo/authz/pg_test.go` (`TestPGAuthorizationCostWith100kBindings` con `NEXO_AUTHZ_PERF=1`).
 
+### NX-10 · Espacios de conocimiento, entrega 2b tanda 1 (subida, formatos, gobierno, R0 y R1)
+
+**Especificación.** `docs/nexo/conocimiento/` (`design.md` §17 y desviaciones D-K2b-1..D-K2b-21 en §18, `tasks.md`, `requirements.md` ajustado por las decisiones del 2026-10-13). Requisitos de producto: `nexo_ia/01-requisitos/Nexo_IA_Requisitos_e_Historias.md` (HU-29, HU-30, HU-33, HU-35..HU-39, RN-14, RN-15).
+
+**Motivo.** El flujo real es que el responsable de un espacio sube archivos sueltos o una carpeta (md, Word, wiki exportada) desde el panel o con un comando; git no es requisito. La calidad de la búsqueda se mide con un conjunto de preguntas (R0) antes de mejorarla sin modelos (R1).
+
+**Qué hace.**
+- **Subida** (HU-29): `POST /nexo/kb/v1/spaces/{slug}/uploads` (multipart: archivos sueltos, carpeta con rutas relativas o un zip) con `space.publish` y token write, reutilizando la publicación por lotes (idempotencia, versiones, poda, dry-run). Defensas: tamaño por archivo, por subida y descomprimido; número de entradas; tipo por contenido; zip-slip; zip bomb; nombres saneados; límite de peticiones existente. CLI `engram nexo kb upload` y página del panel.
+- **Fuentes y conversores**: `internal/nexo/kb/source` (fuentes `dir` y `azure-devops-wiki` por `.order`: títulos desde el nombre decodificado, ruta de carpetas, orden, páginas vacías saltadas, `[TO_REMOVE]` retiradas, `≤-AAAA` vencidas, `[TO_TIDY]` con etiqueta, adjuntos no indexados); conversor `ado-md` (sin `[[_TOC_]]`, `:::` como código, tablas HTML a Markdown); conversor Word `.docx` en Go puro (`archive/zip` + `encoding/xml`, sin dependencias nuevas).
+- **Gobierno y temporalidad**: propuestas y revisión con conflicto de versión y fecha de entrada en vigencia (C-07, KP-08); feed `/sync` con vigentes y programadas (C-09, KP-07); "qué cambió desde X" `/changes` (RC-27); avisos `kb_doc_expiring` y `kb_doc_review_due` en `nexo_alerts` (KP-09); tope de la poda (KP-01); `nexo_kb_publish_runs` (KP-02); enlace permanente y `source_url` en cada resultado (RC-08).
+- **R0**: `eval` con clases, Hit@5, Recall@5, MRR, nDCG@3/10, MAP y acierto de "no hay respuesta" (métricas portadas de WeKnora, MIT, ver `THIRD_PARTY_NOTICES.md`); `nexo_kb_eval_runs` y `POST/GET /eval-runs`; prueba de calidad en CI sobre un corpus sintético (`eval/quality_test.go`).
+- **R1** (desactivable por `NEXO_KB_R1`): título y ruta en el texto indexado (RC-03, con reindexado seguro por versión de índice), tablas por filas (RC-04), hash por sección (RC-05), sinónimos y siglas (RC-06), umbral de cobertura (RC-07), diversidad (RC-09), vecinas (RC-10), modo `exact` (RC-22), `quote` (IN-07). Detección de secretos ampliada (SG-09: cadenas clave=valor, `Bearer`, `api-key`); la política ante una detección no cambia (se rechaza).
+
+**Archivos nuevos.** `internal/nexo/kb/source/{source,ado,zip}.go`; `internal/nexo/kb/ingest/{ado,htmltable}.go`; `internal/nexo/kb/ingest/docx/docx.go` (+ `testdata/lineamiento-ejemplo.docx`); `internal/nexo/kb/store/{migrate2b,runs,changes,proposals,reindex}.go`; `internal/nexo/kb/search/{exact,synonyms}.go`; `internal/nexo/kb/service/{upload,proposals,changes,evalrun,r1,spaces2b}.go`; `internal/nexo/kb/httpapi/routes2b.go`; `internal/nexo/kb/cli/{eval,upload}.go`; `internal/nexo/kb/eval/metrics.go` (portado de WeKnora, aviso MIT en la cabecera); `internal/nexo/security/evidence/alerts_kb.go`; `internal/cloud/cloudserver/nexo_kb_dashboard.go`; `THIRD_PARTY_NOTICES.md`. Tests: `source/source_test.go`, `ingest/ingest2b_test.go`, `ingest/docx/docx_test.go`, `search/search2b_test.go`, `service/service2b_pg_test.go`, `service/wiki_eval_test.go` (medición sobre la wiki, solo con `NEXO_KB_WIKI_DIR`), `eval/quality_test.go` (+ `eval/testdata/mini/`, `preguntas-mini.yaml`), `cloudserver/nexo_kb_dashboard_test.go`.
+
+**Archivos Nexo modificados.** `kb/domain/domain.go` (origen con colección, ruta de títulos, `source_url`, orden; acciones y códigos nuevos), `kb/ingest/{converter,sectioner,secrets}.go` (límite de entrada binaria, `ado-md` registrado, tablas por filas, anclas sin numeración, SG-09), `kb/store/{migrate,store}.go` (llama a `migrate2b`; `body_sha256`, texto indexado con contexto y tope de 256 KB por sección para el `tsvector`), `kb/search/{search,pgfts}.go` (umbral, diversidad, modo, enlace, cobertura, sinónimos, cita), `kb/service/{service,publish,documents}.go` (publicación común a lotes y subidas, retiro y vencimiento sugeridos por la fuente, tope de poda, vecinas), `kb/httpapi/httpapi.go` (registra las rutas nuevas; `mode`, `neighbors` y enlace absoluto en `/search`), `kb/cli/cli.go` (comandos `upload`, `changes`, `reindex`; `--mode`), `kb/eval/eval.go` (clases, métricas, marcas `@base`, comparación con la última corrida aceptada), `security/dbaccounts.go` (`nexo_kb_publish_runs` y `nexo_kb_eval_runs` como evidencia), `security/evidence/alerts.go` (reglas de la capa conocimiento), `cloudserver/nexo_kb_bridge.go` (registra también las páginas del panel). **Sin enganches nuevos en archivos de Engram** (la página del panel se registra desde `nexo_kb_bridge.go`; la barra de navegación no se tocó para no regenerar `components_templ.go`: el panel se abre en `/dashboard/kb` y desde los enlaces de las citas).
+
+**Paso de actualización.** Con R1 por defecto (`doc_context` activo), una base con secciones de 2a necesita un reindexado: `engram nexo kb reindex` (superadmin) o `POST /nexo/kb/v1/admin/index:reindex`. Las secciones nuevas ya se indexan con la composición nueva.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -291,6 +310,17 @@ Archivos nuevos fuera de `internal/`: `deploy/nexo/Dockerfile`, `deploy/nexo/Doc
 | `NEXO_KB_RANK_CANDIDATES` (NX-10) | `20000` | Tope de secciones candidatas por búsqueda antes de rankear (mínimo 100) |
 | `NEXO_KB_DISABLE_UNACCENT` (NX-10) | vacío | `1` al crear la configuración de búsqueda: no usar la extensión `unaccent` (las tildes se pliegan en la aplicación) |
 | `NEXO_KB_PERF_SECTIONS` | — | Solo tests: activa la prueba de rendimiento de búsqueda con esa cantidad de secciones |
+| `NEXO_KB_UPLOAD_MAX_BYTES` (NX-10 2b) | `268435456` (256 MB) | Cuerpo máximo de una subida multipart (los zip pasan a un archivo temporal; nunca se descomprimen a disco) |
+| `NEXO_KB_UPLOAD_MAX_FILES` (NX-10 2b) | `2000` | Archivos indexables por subida |
+| `NEXO_KB_UPLOAD_MAX_FILE_BYTES` (NX-10 2b) | `20971520` (20 MB) | Tamaño máximo por archivo (y entrada de los conversores binarios, docx) |
+| `NEXO_KB_UPLOAD_MAX_UNZIPPED` (NX-10 2b) | `67108864` (64 MB) | Suma de lo descomprimido indexable de un zip (zip bomb: además, relación máxima 100:1 en entradas de más de 1 MB) |
+| `NEXO_KB_UPLOAD_MAX_ENTRIES` (NX-10 2b) | `10000` | Entradas de un zip |
+| `NEXO_KB_PRUNE_MAX_PERCENT`, `NEXO_KB_PRUNE_MIN_DOCS` (NX-10 2b, KP-01) | `25`, `5` | La poda no retira más de ese porcentaje de los documentos activos del origen (por encima de esa cantidad mínima) sin `prune.confirm` / `--confirm-prune` |
+| `NEXO_KB_R1` (NX-10 2b) | vacía: todas las mejoras de R1 | `off`, `all` o lista (`doc_context,split_tables,synonyms,threshold,diversity,quote`). Cambiar `doc_context` exige reindexar |
+| `NEXO_KB_MIN_COVERAGE` (NX-10 2b, RC-07) | `0.3` | Umbral de cobertura ponderada para responder "no existe un estándar oficial" |
+| `NEXO_KB_MAX_PER_DOC` (NX-10 2b, RC-09) | `2` | Máximo de secciones de un mismo documento por respuesta |
+| `NEXO_KB_PUBLIC_URL` (NX-10 2b, RC-08) | vacía: host de la petición | URL pública de Nexo para los enlaces permanentes de las citas |
+| `NEXO_KB_WIKI_DIR`, `NEXO_KB_EVAL_SET`, `NEXO_KB_EVAL_OVERLAY`, `NEXO_KB_EVAL_OUT`, `NEXO_KB_EVAL_DUMP`, `NEXO_KB_EVAL_BASELINE` | — | Solo tests: medición R0/R1 sobre un corpus real (`TestEvalWikiCorpus`); el corpus nunca se versiona |
 | `NEXO_AUDIT_DEDUP_SECONDS` (NX-07 S4, A2) | `600` | Ventana del resumen de rechazos de autenticación repetidos (misma huella, IP y motivo); `0` = una fila por rechazo |
 | `NEXO_AUDIT_VERIFY_MINUTES` (NX-07 S4) | `60` | Verificación periódica de la cadena de hashes (alerta `audit_chain_broken`); `0` = solo a pedido |
 | `NEXO_ALERT_RULES` (NX-07 S4) | vacía: reglas por defecto | JSON por regla (`enabled`, `threshold`, `window_seconds`, `cooldown_seconds`, `severity`) u `off` |
@@ -332,6 +362,11 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `nexo_kb_changes` (NX-10) | Feed de cambios por `seq` (lo consume la copia local en 2b) |
 | `nexo_kb_proposals` (NX-10) | Tabla de propuestas (la lógica llega en 2b) |
 | `nexo_kb_index_versions` (NX-10) | Índices derivados y su configuración (`pgfts` v1, modo de tildes) |
+| `nexo_kb_sections.body_sha256` (NX-10 2b, RC-05) | Hash del cuerpo de cada sección (filas de 2a: NULL, se calcula al vuelo); índices `(space_id, recorded_from)`, `(space_id, valid_from)` y `(document_id) WHERE recorded_until IS NULL` |
+| `nexo_kb_proposals` (NX-10 2b) | Columnas `valid_from`, `valid_until` (KP-08), `tags`, `reviewed_by_email`, `proposed_by_ip` |
+| `nexo_kb_publish_runs` (NX-10 2b, KP-02) | Una fila por lote, subida o aprobación (quién, origen, resumen, rechazados, poda); solo inserción (trigger y tabla de evidencia de NX-07) |
+| `nexo_kb_eval_runs` (NX-10 2b, RC-28) | Corridas de evaluación (motor, configuración y su hash, conjunto, métricas totales y por clase, resultado por pregunta, aceptada, commit, autor); solo inserción |
+| `nexo_kb_index_versions` (NX-10 2b) | El reindexado registra `pgfts` v2 (`building` -> `active`, la anterior `retired`) con `doc_context` en su configuración |
 | Configuraciones de búsqueda (NX-10) | `nexo_es` (copia de `spanish`) y, si la extensión `unaccent` existe o se puede crear (en `public`), `nexo_es_unaccent`. Si no se puede crear, la migración sigue sin ella (aviso en el log) |
 | `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events` (NX-07 S4) | Columnas `nexo_chain_seq BIGINT`, `nexo_prev_hash BYTEA`, `nexo_hash BYTEA` (filas previas: NULL); índice único parcial `uq_<tabla>_nexo_chain_seq`; funciones `nexo_chain_canon_<tabla>` y `nexo_chain_link_<tabla>`; trigger `zz_nexo_chain_<tabla>` (`BEFORE INSERT`); función `nexo_chain_ts` |
 | `nexo_audit_chain_anchors` (NX-07 S4) | Anclas de la cadena (`genesis` al migrar, `purge` en cada depuración); solo de la dueña (la aplicación lee) |
@@ -374,6 +409,10 @@ go test -race -count=1 ./internal/nexo/security/
 # NX-07 S4: RNF-S3 (1 millón de eventos encadenados) y prueba de tiempos de NX-05, cada una sola
 $env:NEXO_CHAIN_PERF_EVENTS = "1000000"; go test -count=1 -v -timeout 20m -run TestChainVerifyPerf ./internal/nexo/security/evidence/
 $env:NEXO_AUTHZ_PERF = "1"; go test -count=1 -v -run TestPGAuthorizationCostWith100kBindings ./internal/nexo/authz/
+# NX-10 2b: medición R0/R1 sobre la wiki real (fuera del fork; el corpus no se versiona)
+$env:NEXO_KB_WIKI_DIR = '<carpeta de la wiki>'; $env:NEXO_KB_EVAL_SET = '<preguntas-wiki.yaml>'; $env:NEXO_KB_EVAL_OVERLAY = '<eval/overlay>'
+go test -count=1 -v -run TestEvalWikiCorpus ./internal/nexo/kb/service/   # NEXO_KB_EVAL_BASELINE=1 y NEXO_KB_R1=off: línea base
+# En Windows, si Defender bloquea un binario de prueba ("Acceso denegado"): go test -c -o <carpeta>\x.exe <paquete> y ejecutarlo desde la carpeta del paquete
 # Panel: regenerar las plantillas siempre con la versión fijada en go.mod (templ v0.3.1001)
 go tool templ generate -path ./internal/cloud/dashboard
 ```

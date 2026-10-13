@@ -84,8 +84,8 @@ func TestTwoAccountsVersionsAndEventsAreInsertOnly(t *testing.T) {
 			protected = append(protected, table)
 		}
 	}
-	if len(protected) != 2 {
-		t.Fatalf("security.EvidenceTables incluye versiones y eventos de NX-10: %v", protected)
+	if len(protected) != 4 { // versiones, eventos y, desde 2b, ejecuciones de publicación y corridas de evaluación
+		t.Fatalf("security.EvidenceTables incluye versiones, eventos, publish_runs y eval_runs de NX-10: %v", protected)
 	}
 	if n := env.Count(`SELECT COUNT(*) FROM nexo_kb_versions`); n != 2 {
 		t.Fatalf("versiones = %d", n)

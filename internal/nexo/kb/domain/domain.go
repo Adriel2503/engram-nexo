@@ -54,6 +54,21 @@ const (
 	ActionDocumentRetired    = "document.retired"
 	ActionDocumentSuperseded = "document.superseded"
 	ActionAuthzDenied        = "authz.denied"
+	// Entrega 2b.
+	ActionProposalCreated   = "proposal.created"
+	ActionProposalApproved  = "proposal.approved"
+	ActionProposalDiscarded = "proposal.discarded"
+	ActionProposalWithdrawn = "proposal.withdrawn"
+	ActionPublishRun        = "publish.run" // resumen de un lote o una subida (KP-02)
+	ActionEvalRun           = "eval.run"    // corrida de evaluación registrada (RC-28)
+)
+
+// Estados de una propuesta (C-07).
+const (
+	ProposalOpen      = "open"
+	ProposalApproved  = "approved"
+	ProposalDiscarded = "discarded"
+	ProposalWithdrawn = "withdrawn"
 )
 
 // Clases de cambio de nexo_kb_changes (feed de la copia local, 2b).
@@ -71,6 +86,7 @@ const (
 	ResultUnchanged = "unchanged"
 	ResultRejected  = "rejected"
 	ResultRetired   = "retired" // poda
+	ResultSkipped   = "skipped" // 2b: página vacía o archivo no indexable (aviso)
 )
 
 var slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}$`)
@@ -123,17 +139,28 @@ type Origin struct {
 	Approver string `json:"approver,omitempty"`
 	CIRun    string `json:"ci_run,omitempty"`
 	Filename string `json:"filename,omitempty"`
-	// ProposalID se usa en 2b (origen "propuesta").
+	// ProposalID: origen "propuesta" (2b, C-07).
 	ProposalID string `json:"proposal_id,omitempty"`
+	// NX-10 2b. Source: nombre de la colección subida (zip o carpeta) que la
+	// poda usa como referencia de los archivos subidos; PathTitles: ruta de
+	// títulos de la carpeta (RC-03); SourceURL: enlace a la fuente (RC-08);
+	// Order: posición según .order de la wiki.
+	Source     string   `json:"source,omitempty"`
+	PathTitles []string `json:"path_titles,omitempty"`
+	SourceURL  string   `json:"source_url,omitempty"`
+	Order      int      `json:"order,omitempty"`
 }
 
-// Ref devuelve la referencia usada por la poda: el repositorio para git, el
-// nombre de archivo para upload.
+// Ref devuelve la referencia usada por la poda: el repositorio para git; para
+// upload, la colección subida (Source) o, si no viene, el nombre de archivo.
 func (o Origin) Ref() string {
 	switch o.Kind {
 	case OriginGit:
 		return o.Repo
 	case OriginUpload:
+		if o.Source != "" {
+			return o.Source
+		}
 		return o.Filename
 	}
 	return ""
@@ -280,6 +307,10 @@ const (
 	CodeVersion       = "version_not_found"
 	CodeAnchor        = "anchor_not_found"
 	CodeInvalidCursor = "invalid_cursor"
+	// Entrega 2b.
+	CodeVersionConflict = "version_conflict" // la propuesta vio otra versión (409)
+	CodeProposalState   = "proposal_state"   // la propuesta ya no está abierta (409)
+	CodePruneCap        = "prune_cap"        // la poda superaría el tope (KP-01)
 )
 
 // IsKind informa si err es un error de dominio de la clase k.

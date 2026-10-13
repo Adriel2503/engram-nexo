@@ -83,6 +83,7 @@ func Register(mux *http.ServeMux, svc Resolver, wrap Middleware) {
 	h("POST "+Prefix+"/spaces/{slug}/documents/{docKeyAction}", a.documentAction)
 	h("GET "+Prefix+"/search", a.search)
 	h("GET "+Prefix+"/sections", a.sectionByQuery)
+	a.register2b(h) // entrega 2b (routes2b.go)
 }
 
 type handler func(w http.ResponseWriter, r *http.Request, svc *service.Service, id authz.Identity)
@@ -522,10 +523,17 @@ func (a *api) search(w http.ResponseWriter, r *http.Request, svc *service.Servic
 		}
 	}
 	res, err := svc.Search(r.Context(), id, service.SearchRequest{Q: q.Get("q"), Spaces: spaces, Category: q.Get("category"), Tag: q.Get("tag"),
-		At: at, KnownAt: known, Limit: limit})
+		At: at, KnownAt: known, Limit: limit, Mode: q.Get("mode"), Neighbors: isTrue(q.Get("neighbors"))})
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if base := BaseURL(r); base != "" { // RC-08: enlace absoluto
+		for i := range res.Hits {
+			if res.Hits[i].Link != "" {
+				res.Hits[i].Link = base + res.Hits[i].Link
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, res)
 }

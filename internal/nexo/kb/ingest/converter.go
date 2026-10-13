@@ -80,14 +80,21 @@ type Limits struct {
 	Timeout        time.Duration // 0 = DefaultLimits
 	MaxOutputBytes int           // Markdown normalizado
 	MaxBlocks      int
+	// MaxBinaryInputBytes es el tope de entrada de los formatos binarios
+	// (docx). NX-10 2b.
+	MaxBinaryInputBytes int64
 }
 
-// DefaultLimits: 2 MB de entrada y de salida (design §8), 10 s, 20 000 bloques.
-var DefaultLimits = Limits{MaxInputBytes: 2 << 20, Timeout: 10 * time.Second, MaxOutputBytes: 2 << 20, MaxBlocks: 20000}
+// DefaultLimits: 2 MB de entrada y de salida (design §8), 10 s, 20 000
+// bloques; 20 MB de entrada para formatos binarios (2b).
+var DefaultLimits = Limits{MaxInputBytes: 2 << 20, Timeout: 10 * time.Second, MaxOutputBytes: 2 << 20, MaxBlocks: 20000, MaxBinaryInputBytes: 20 << 20}
 
 func (l Limits) withDefaults() Limits {
 	if l.MaxInputBytes <= 0 {
 		l.MaxInputBytes = DefaultLimits.MaxInputBytes
+	}
+	if l.MaxBinaryInputBytes <= 0 {
+		l.MaxBinaryInputBytes = DefaultLimits.MaxBinaryInputBytes
 	}
 	if l.Timeout <= 0 {
 		l.Timeout = DefaultLimits.Timeout
@@ -128,8 +135,14 @@ func DefaultRegistry() *Registry {
 	r := NewRegistry()
 	r.Register(MarkdownConverter{})
 	r.Register(TextConverter{})
+	r.Register(ADOMarkdownConverter{}) // NX-10 2b (IN-08): solo por formato explícito "ado-md"
 	return r
 }
+
+// textFormats son los formatos de texto: el resto (docx; luego xlsx, pdf,
+// pptx) son binarios y usan Limits.MaxBinaryInputBytes como tope de entrada
+// (un .docx con imágenes pesa más que su texto). El tope de salida es el mismo.
+var textFormats = map[string]bool{domain.FormatMarkdown: true, domain.FormatText: true, FormatADOMarkdown: true}
 
 // Register agrega (o reemplaza) un conversor.
 func (r *Registry) Register(c Converter) {
@@ -172,12 +185,16 @@ func (r *Registry) Supported(name string) bool {
 // Convert aplica los límites y el conversor elegido.
 func (r *Registry) Convert(ctx context.Context, format string, in Input, lim Limits) (Result, error) {
 	lim = lim.withDefaults()
-	if int64(len(in.Data)) > lim.MaxInputBytes {
-		return Result{}, domain.Errorf(domain.KindTooLarge, domain.CodeTooLarge, "input is %d bytes; the limit is %d", len(in.Data), lim.MaxInputBytes)
-	}
 	c, ok := r.Lookup(format, in.MIME, in.Name)
 	if !ok {
-		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeUnsupported, "unsupported format for %q (K1 accepts .md and .txt)", in.Name)
+		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeUnsupported, "unsupported format for %q (accepted: .md, .txt and .docx)", in.Name)
+	}
+	maxIn := lim.MaxInputBytes
+	if !textFormats[c.Format()] {
+		maxIn = lim.MaxBinaryInputBytes
+	}
+	if int64(len(in.Data)) > maxIn {
+		return Result{}, domain.Errorf(domain.KindTooLarge, domain.CodeTooLarge, "input is %d bytes; the limit is %d", len(in.Data), maxIn)
 	}
 	cctx, cancel := context.WithTimeout(ctx, lim.Timeout)
 	defer cancel()

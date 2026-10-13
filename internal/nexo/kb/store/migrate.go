@@ -254,6 +254,9 @@ func Migrate(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("kb migrate: %w", err)
 		}
 	}
+	if err := migrate2b(ctx, tx); err != nil { // entrega 2b (migrate2b.go)
+		return err
+	}
 	unaccent, err := ensureTextSearchConfig(ctx, tx)
 	if err != nil {
 		return fmt.Errorf("kb migrate: text search: %w", err)

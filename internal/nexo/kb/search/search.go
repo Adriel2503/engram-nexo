@@ -13,6 +13,7 @@ package search
 import (
 	"context"
 	"log"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -43,6 +44,9 @@ type Query struct {
 	Category string
 	Tag      string
 	Limit    int
+	// NX-10 2b: modo (fts o exact, RC-22) y secciones vecinas (RC-10).
+	Mode      string
+	Neighbors bool
 }
 
 // Filter son los filtros comunes. Solo este paquete los construye.
@@ -92,6 +96,57 @@ type Hit struct {
 	Match          string                `json:"match"` // all_terms | some_terms
 	Retriever      string                `json:"retriever"`
 	Citation       string                `json:"citation"`
+	// NX-10 2b (RC-08): enlace permanente a la sección en Nexo (la API lo
+	// completa con la URL pública) y enlace a la fuente original si se
+	// declaró (front matter source_url o la wiki de origen).
+	Link      string `json:"link,omitempty"`
+	SourceURL string `json:"source_url,omitempty"`
+	// Coverage (RC-07): fracción ponderada por rareza de los términos de la
+	// consulta que contiene la sección (1 = todos; -1 = el motor no la
+	// calcula).
+	Coverage float64 `json:"coverage"`
+	// Neighbors (RC-10): secciones anterior y siguiente, si se pidieron.
+	Neighbors []Neighbor `json:"neighbors,omitempty"`
+}
+
+// Neighbor es una sección vecina (contexto).
+type Neighbor struct {
+	Anchor      string   `json:"anchor"`
+	HeadingPath []string `json:"heading_path"`
+	Position    string   `json:"position"` // previous | next
+	Body        string   `json:"body"`
+}
+
+// SearcherOptions son las opciones comunes a todo motor (R1).
+type SearcherOptions struct {
+	// MinCoverage (RC-07): umbral de cobertura; un resultado por debajo se
+	// descarta y, si no queda ninguno, la respuesta es "no hay estándar
+	// oficial". 0 = sin umbral. Los motores que no calculan cobertura (-1)
+	// no se filtran.
+	MinCoverage float64 `json:"min_coverage"`
+	// MaxPerDoc (RC-09): máximo de secciones de un mismo documento en la
+	// respuesta (diversidad). 0 = sin tope.
+	MaxPerDoc int `json:"max_per_doc"`
+}
+
+// Relevance registra la decisión del umbral (RC-21: umbral aplicado, mejor
+// puntaje y cuántos resultados lo superaron).
+type Relevance struct {
+	MinCoverage  float64 `json:"min_coverage"`
+	BestCoverage float64 `json:"best_coverage"`
+	Above        int     `json:"above"`
+	Below        int     `json:"below"`
+}
+
+// SectionPath es la ruta del panel de Nexo que muestra una sección (RC-08):
+// la versión fija el contenido citado (enlace permanente).
+func SectionPath(space, docKey, anchor string, version int) string {
+	v := url.Values{}
+	v.Set("doc", docKey)
+	if version > 0 {
+		v.Set("v", itoa(version))
+	}
+	return "/dashboard/kb/spaces/" + url.PathEscape(space) + "/doc?" + v.Encode() + "#" + url.PathEscape(anchor)
 }
 
 // Retriever es un motor de búsqueda (pgfts hoy; BM25 local, híbrido o grafo
@@ -109,7 +164,10 @@ type Result struct {
 	At        time.Time `json:"at"`
 	KnownAt   time.Time `json:"known_at"`
 	Retriever string    `json:"retriever"`
-	Dropped   int       `json:"-"`
+	Mode      string    `json:"mode"`
+	// Relevance: decisión del umbral (solo con umbral activo).
+	Relevance *Relevance `json:"relevance,omitempty"`
+	Dropped   int        `json:"-"`
 }
 
 // NoResultsMessage es el aviso explícito de HU-06.
@@ -117,9 +175,16 @@ const NoResultsMessage = "No existe un estándar oficial publicado sobre este te
 
 // Searcher aplica los filtros comunes alrededor de un Retriever.
 type Searcher struct {
-	r   Retriever
-	now func() time.Time
+	r    Retriever
+	now  func() time.Time
+	opts SearcherOptions
 }
+
+// SetOptions fija las opciones comunes (R1).
+func (s *Searcher) SetOptions(o SearcherOptions) { s.opts = o }
+
+// Options devuelve las opciones comunes.
+func (s *Searcher) Options() SearcherOptions { return s.opts }
 
 // NewSearcher crea el buscador sobre un Retriever.
 func NewSearcher(r Retriever) *Searcher { return &Searcher{r: r, now: time.Now} }
@@ -156,24 +221,58 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 			f.knownAt = now // el registro no conoce el futuro
 		}
 	}
-	res := Result{At: f.at, KnownAt: f.knownAt, Retriever: s.r.Name(), Hits: []Hit{}}
+	q.Mode = strings.ToLower(strings.TrimSpace(q.Mode))
+	switch q.Mode {
+	case "":
+		q.Mode = ModeFTS
+	case ModeFTS, ModeExact:
+	default:
+		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "mode must be fts or exact")
+	}
+	res := Result{At: f.at, KnownAt: f.knownAt, Retriever: s.r.Name(), Mode: q.Mode, Hits: []Hit{}}
 	if len(f.spaceIDs) > 0 {
-		hits, err := s.r.Search(ctx, q, f)
+		// Con umbral o diversidad se piden más candidatos para completar el
+		// límite después de filtrar.
+		want := q.Limit
+		rq := q
+		if s.opts.MinCoverage > 0 || s.opts.MaxPerDoc > 0 {
+			rq.Limit = min(q.Limit*3, MaxLimit)
+		}
+		hits, err := s.r.Search(ctx, rq, f)
 		if err != nil {
 			return Result{}, err
+		}
+		perDoc := map[string]int{}
+		var rel *Relevance
+		if s.opts.MinCoverage > 0 && q.Mode == ModeFTS {
+			rel = &Relevance{MinCoverage: s.opts.MinCoverage}
 		}
 		for _, h := range hits {
 			if !f.Allows(h) {
 				res.Dropped++
 				continue
 			}
-			if len(res.Hits) == q.Limit {
-				break
+			if rel != nil && h.Coverage >= 0 {
+				rel.BestCoverage = max(rel.BestCoverage, h.Coverage)
+				if h.Coverage < s.opts.MinCoverage {
+					rel.Below++
+					continue
+				}
+				rel.Above++
 			}
+			if len(res.Hits) == want {
+				continue // se sigue contando el umbral
+			}
+			if s.opts.MaxPerDoc > 0 && perDoc[h.DocumentID] >= s.opts.MaxPerDoc {
+				continue
+			}
+			perDoc[h.DocumentID]++
 			h.Retriever = s.r.Name()
 			h.Citation = Citation(h)
+			h.Link = SectionPath(h.Space, h.DocKey, h.Anchor, h.Version)
 			res.Hits = append(res.Hits, h)
 		}
+		res.Relevance = rel
 		if res.Dropped > 0 {
 			log.Printf("[nexo] kb: el motor %s devolvió %d resultados fuera de los filtros de tiempo o permisos; se descartaron", s.r.Name(), res.Dropped)
 		}
@@ -249,6 +348,13 @@ func LocationLabel(l domain.SourceLocation) string {
 	}
 	if v := rng("diapositiva", "diapositivas", "slide_start", "slide_end"); v != "" {
 		parts = append(parts, v)
+	}
+	// NX-10 2b: Word (párrafos y tablas).
+	if v := rng("párrafo", "párrafos", "paragraph_start", "paragraph_end"); v != "" {
+		parts = append([]string{v}, parts...)
+	}
+	if t, ok := l["table"]; ok && num(t) > 0 {
+		parts = append([]string{"tabla " + itoa(num(t))}, parts...)
 	}
 	if len(parts) == 0 {
 		if v := rng("línea", "líneas", "line_start", "line_end"); v != "" {

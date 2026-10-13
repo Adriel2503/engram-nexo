@@ -616,7 +616,8 @@ no discriminan). Si la medición con datos reales lo exige, el paso siguiente es
 Decisión (2026-10-12): la calidad de la recuperación es el valor principal del conocimiento para los
 desarrolladores y se trata como un frente propio, al mismo nivel que el gobierno y la seguridad. Se
 complementa §14 (arquitectura de indexación) con la estrategia completa. Insumos: comparación con
-Onyx y Utopia en `nexo_ia/05-investigacion/analisis/Onyx_vs_Utopia_conocimiento.md`.
+Onyx y Utopia en `nexo_ia/05-investigacion/analisis/Onyx_vs_Utopia_conocimiento.md` y análisis de
+WeKnora en `nexo_ia/05-investigacion/analisis/WeKnora_conocimiento.md` (§17.5 a §17.9).
 
 ### 17.1 Etapas del pipeline de recuperación
 
@@ -642,8 +643,8 @@ política de Real Plaza. Esto resuelve la decisión pendiente de §14.7 por defe
 
 | Paso | Contenido | Condición |
 |---|---|---|
-| R0 | Conjunto de evaluación real (50+ preguntas, con preguntas sin respuesta) y prueba de calidad en CI | Con los primeros lineamientos reales; requiere que los devs escriban preguntas |
-| R1 | Sin modelos: tablas por filas, contexto del documento en el texto indexado, hash por sección, sinónimos del glosario, diversidad por documento, secciones vecinas, umbral "no hay estándar", enlace permanente | Entrega 2b |
+| R0 | Conjunto de evaluación real (50+ preguntas): sin respuesta, de término exacto y temporales (`at`, `known_at`). El acierto se compara por ancla de sección y cada corrida se guarda en una tabla. Base: la wiki de arquitectura (§17.8). Prueba de calidad en CI | Con los primeros lineamientos reales. Los devs validan las preguntas borrador |
+| R1 | Sin modelos: tablas por filas, contexto del documento en el texto indexado, hash por sección, sinónimos del glosario, diversidad por documento, secciones vecinas, umbral "no hay estándar", enlace permanente, búsqueda exacta y por expresión regular (RC-22), cita textual en `source_location` (IN-07, solo `quote`) | Entrega 2b |
 | R2 | Híbrido: pgvector, modelo de embeddings local, RRF | Si R0 muestra fallos en paráfrasis o sinónimos tras R1 |
 | R3 | Reordenamiento local sobre los 50 mejores | Si R2 mejora candidatos pero no el orden |
 | R4 | Varias formulaciones desde el asistente (herramienta MCP acepta varias consultas) | Con la entrega 3 |
@@ -673,5 +674,261 @@ extracción de hechos con LLM en la ingesta.
 Vacío pendiente de decisión: la etapa K3 preveía adjuntos descargables, pero D-K11 no guarda
 originales. Opciones: ofrecer adjuntos solo cuando se active `BlobStore`, o guardar únicamente
 diagramas e imágenes pequeñas.
+
+### 17.5 Ajustes de R0 y R1 (acordados con el usuario el 2026-10-13)
+
+Insumo: análisis de WeKnora en `nexo_ia/05-investigacion/analisis/WeKnora_conocimiento.md`. Los
+códigos entre paréntesis son los de `docs/nexo/mejoras-y-referencias.md`.
+
+**R0, medición (RC-01, RC-25, RC-28).**
+
+- El acierto se compara por **ancla de sección** (`doc_key` + `anchor`; con `version` si la pregunta
+  es temporal), nunca por coincidencia de texto. WeKnora compara por subcadena y cuenta como acierto
+  cualquier fragmento que repita una frase.
+- El conjunto `eval/preguntas.yaml` incluye cinco clases de pregunta, y las métricas se informan por
+  clase:
+  - con respuesta;
+  - sin respuesta (deben dar `no_results`);
+  - de término exacto: nombres de componentes, códigos y siglas;
+  - temporales: `at` pasado, `known_at`, documento reemplazado, versión programada y documento
+    retirado;
+  - de paráfrasis.
+- Métricas: Recall@5, MRR, nDCG@3 y nDCG@10, MAP, acierto de "no hay respuesta" y, en las temporales,
+  acierto de la versión.
+- Cada corrida se guarda en `nexo_kb_eval_runs`:
+  - `id`, `ran_at`, `retriever` y `mode`;
+  - `index_version` y `config_sha256` (motor, pesos, umbrales, modelos);
+  - `question_set_sha256`;
+  - métricas totales y por clase, en JSONB;
+  - resultado por pregunta, en JSONB;
+  - quién la ejecutó y el commit.
+
+  Se guarda en el servidor para ver la evolución entre cambios. La prueba de CI (RC-02) compara contra
+  la última corrida aceptada.
+- Base del conjunto: la wiki de arquitectura (§17.8). Las preguntas generadas como borrador
+  (`status: draft`) solo cuentan cuando 3 o 4 devs las validan (`status: validated`). Un borrador nunca
+  es la verdad de referencia.
+
+**R1, sin modelos.** Se agregan dos piezas:
+
+- Búsqueda exacta o por expresión regular (RC-22), descrita en §17.7.
+- `quote` en `source_location` (IN-07, solo esa parte): la cita textual de la sección, de 300
+  caracteres como máximo, para que el asistente cite sin pedir la sección completa. `source_hash` y
+  `partial` quedan para K2.
+
+**Regla del reordenamiento (RC-21).**
+
+- El reordenamiento **nunca rebaja el umbral** de "no hay estándar" ni conserva el mejor resultado
+  cuando nadie supera el umbral: en ese caso la respuesta es `no_results: true` (HU-06).
+- Si el modelo falla o se excede de tiempo, se devuelve el orden híbrido con `rerank: "skipped"` y el
+  motivo.
+- Cada respuesta registra el umbral aplicado, el mejor puntaje y cuántos resultados lo superaron (para
+  la evaluación).
+
+**Cola de vectorización (RC-20).** Se diseña ahora; se implementa en R2.
+
+| Elemento | Diseño |
+|---|---|
+| Tabla `nexo_kb_index_jobs` | `id BIGSERIAL`, `index_version`, `space_id`, `document_id`, `section_id`, `op` (`upsert`, `drop`), `body_sha256`, `enqueued_at`, `claimed_at`, `claimed_by`, `fail_count`, `last_error`. Índice único parcial (`index_version`, `section_id`) para los trabajos pendientes, que deduplica |
+| Productor | Un proceso por versión de índice activa lee `nexo_kb_changes` desde su último `seq` (guardado en `nexo_kb_index_versions`) y encola las secciones de cada versión publicada, tanto vigentes como históricas (§14.3 regla 1). Una versión de índice nueva encola todo: primero lo vigente, después lo histórico |
+| Consumo | `SELECT ... FOR UPDATE SKIP LOCKED LIMIT n` con `claimed_at`. Un trabajo tomado hace más que el umbral de abandono se puede volver a tomar. Funciona con varias réplicas y sin Redis |
+| Trabajo | Si ya existe un vector con el mismo `body_sha256` en esa versión de índice, se reutiliza (RC-05). Si no, el vector se calcula por lotes, con reintentos exponenciales. Como las secciones son inmutables, nunca hay trabajo superado por contenido; solo se descarta el de una versión de índice retirada |
+| Fallos | Tras 5 intentos, el trabajo pasa a `nexo_kb_index_dead`, con la carga y el error, para volver a encolarlo a mano. Se emite la alerta `kb_index_dead_letter` en `nexo_alerts` (S4) |
+| Ventana | Una sección sin vector se encuentra solo por texto. La respuesta híbrida indica `index_lag` (trabajos pendientes del espacio). `engram nexo kb eval --wait-index` espera a que la cola del espacio esté vacía |
+| Observación | Pendientes, en curso, fallidos y antigüedad del más viejo, por versión de índice. Una alerta salta si la antigüedad supera un umbral |
+
+**Consulta a Real Plaza (OP-05), antes de R2.** Hay que confirmar con Real Plaza:
+
+- el proveedor y la versión de Postgres de producción;
+- si permite `CREATE EXTENSION vector` y en qué versión: se necesita 0.8 o superior por
+  `hnsw.iterative_scan`;
+- si permite índices con `CONCURRENTLY` en las ventanas de mantenimiento.
+
+La migración de R2 comprueba `pg_available_extension_versions` y, si falta la extensión, deja el
+híbrido desactivado sin fallar.
+
+### 17.6 Temporalidad en la recuperación
+
+La bitemporalidad ya está implementada (E2a: `valid_*`, `recorded_*`, `at`, `known_at`, reemplazo;
+D-I3). Esto es lo que falta para que el desarrollador la aproveche:
+
+| Código | Qué | Etapa |
+|---|---|---|
+| RC-25 | Preguntas temporales en R0 (§17.5) | R0 |
+| KP-07 | La copia local guarda `valid_from` y `valid_until` de cada sección e incluye las versiones programadas. Filtra por vigencia **al consultar** con el reloj local. Sin conexión no responde reglas vencidas, y una versión programada entra sola en su fecha, aunque no haya sincronización. La respuesta indica "según la copia del <fecha>" | E2b |
+| RC-26 | `nexo_search` (MCP y API) acepta `at`. Cada resultado muestra "vigente desde", "vigente hasta", "reemplaza a <documento, versión>" y, si existe, "versión programada desde <fecha>" | E2b |
+| KP-08 | Una propuesta puede traer su fecha de entrada en vigencia (`valid_from`, y `valid_until` opcional). Al aprobarla se crea la versión con esa vigencia, y quien revisa la puede ajustar | E2b |
+| RC-27 | Consulta "qué cambió desde X": `GET /nexo/kb/v1/changes?since=&until=&spaces=` (también como herramienta MCP). Lista, por espacio y documento, las secciones agregadas, modificadas (misma ancla con otro hash de cuerpo) y retiradas entre dos fechas, calculadas desde las versiones existentes. Respeta los permisos y elige el reloj (vigencia o registro) | R1 |
+| KP-09 | Alertas al responsable en `nexo_alerts` (S4): `kb_doc_expiring` (`valid_until` dentro de N días) y `kb_doc_review_due` (sin versión nueva en `settings.review_every_days` del espacio). El evaluador de S4 las calcula; no cambian el contenido | E2b / K6 |
+| RC-19 | En R2, el filtro temporal tiene el mismo problema que el filtro por espacio con HNSW: lo vigente hoy es una fracción de la tabla y una consulta con `at` lo es todavía más. La consulta vectorial usa el mismo patrón (`ef_search` ampliado, `iterative_scan`) y un índice parcial `WHERE is_current` para el caso por defecto. Las consultas históricas usan recorrido exacto cuando el conjunto filtrado es pequeño. La prueba de recall cubre ambos filtros | R2 |
+| KP-04 | Una contradicción entre una memoria de proyecto y un estándar se evalúa contra la regla **vigente en la fecha de la decisión** (`at` = fecha de la memoria) y contra la de hoy, e informa los dos casos: "contradecía cuando se decidió" y "contradice hoy" | Después de R2 |
+| RC-18 | El grafo temporal (R5) queda al final; solo si R0 muestra preguntas de varios saltos sin resolver | R5 |
+
+### 17.7 Puntos de extensión: adaptadores, modos y modelos
+
+Tres familias de extensiones. Cada una se registra por nombre, se activa por configuración (variable
+de entorno del servidor o `settings` del espacio) y se acepta solo si mejora la medición de R0 sin
+empeorar el acierto de "no hay respuesta" (§17.3). La configuración activa queda en
+`nexo_kb_index_versions.config` y en cada corrida de `nexo_kb_eval_runs`.
+
+**(a) Adaptadores de fuente y conversores.** Contrato común: bloques con procedencia (§15.1).
+
+| Pieza | Contrato | Implementaciones |
+|---|---|---|
+| `Source` (de dónde salen los documentos) | `Walk(ctx) -> []SourceDocument{DocKey, Title, PathPrefix []string, Format, Bytes, Origin, SourceURL, Hints}`. `Hints` lleva el estado sugerido: retirado, vencido o vacío | `dir` (directorio de un repositorio, el actual), `azure-devops-wiki` (IN-08), `proposal` |
+| `Converter` (cómo se lee un formato) | `Convert(ctx, bytes, meta) -> {Markdown, Blocks, Meta}` con `Location` por bloque; se registra en `ingest.Registry` por tipo MIME o extensión (§15.2) | `markdown`, `text` (hoy); `ado-markdown`, `html` (tablas HTML a Markdown, sin ejecutar nada); `docx`, `xlsx` (K2); `pdf`, `pptx` (K3) |
+| Paso común | Detector de secretos (SG-09), límites de §15.2, `Sectioner` | Igual para todas las fuentes |
+
+`Source` y `Converter` son independientes: la wiki de Azure DevOps es una fuente cuyos archivos
+pasan por el conversor `ado-markdown`, y un `.docx` subido a mano usa la fuente `dir` con el
+conversor `docx`. Configuración en `nexo-kb.yaml`: `source: azure-devops-wiki`, organización,
+proyecto y wiki para construir `SourceURL` (RC-08).
+
+**(b) Modos de búsqueda.** Todos van detrás de `Retriever` y conservan los filtros comunes
+obligatorios (§14.3 regla 4).
+
+| Modo | Qué hace | Etapa |
+|---|---|---|
+| `fts` | FTS en español en dos etapas (actual, D-I2..D-I5) | Hecho |
+| `exact` | Literales o expresión regular (RE2 de Go, tiempo lineal, sin retroceso): extrae los literales, preselecciona con FTS `simple` o `ILIKE` sobre las secciones visibles y filtra con la expresión. Pensado para componentes, códigos y siglas (RC-22) | R1 |
+| `hybrid` | `fts` + vectores con RRF, umbral y diversidad (RC-11, RC-19) | R2 |
+| `changes` | No ordena por relevancia: lista diferencias entre fechas (RC-27). Usa una interfaz aparte, `ChangeLister`, con los mismos filtros | R1 |
+
+Parámetro `mode` en la API y en `nexo_search`; el valor por defecto se configura por espacio.
+
+**(c) Modelos intercambiables.**
+
+- `Embedder{Model(), Dim(), Embed(ctx, []string)}` y `Reranker{Model(), Score(ctx, query, passages)}`.
+- La implementación por defecto es local: un servicio de inferencia en el mismo despliegue (§17.2).
+- Una API externa exige `NEXO_KB_ALLOW_EXTERNAL_MODELS=1`, se registra en `nexo_kb_index_versions` y
+  deja un evento (los documentos salen de la empresa). Solo con aprobación de la política de Real
+  Plaza.
+
+### 17.8 Corpus real para R0: wiki de arquitectura (Azure DevOps)
+
+Ubicaciones:
+- Copia de trabajo, sin `.git`: `nexo_ia/06-pruebas/conocimiento/corpus/Wiki-Arquitectura.wiki`.
+- Original con historial, de solo lectura: `Documents/Wiki-Arquitectura.wiki`. Tiene unos 4 300
+  commits, de 2021-11 a 2026-09, de 12 autores.
+
+Perfil medido:
+
+| Rasgo | Cantidad | Tratamiento (IN-08) |
+|---|---|---|
+| Páginas `.md` | 232, de las cuales 33 están vacías (páginas contenedoras) | Las vacías se saltan con aviso en el resultado del lote |
+| Palabras | Unas 180 000 | — |
+| `[[_TOC_]]` | 150 páginas | Se quita |
+| Tablas Markdown | 66 páginas | Se parten por filas con la cabecera repetida (RC-04) |
+| `<table>` HTML | 12 páginas | Se convierten a Markdown (`html`), sin interpretar nada más |
+| Bloques de código | 127 páginas | Sin partir |
+| `::: mermaid` | 1 | Se trata como bloque de código `mermaid` |
+| Imágenes en `/.attachments` | Unas 1 100 en 133 páginas, más 29 zip y 1 pdf | Se conserva la referencia; no se indexan hasta IN-05; los zip se ignoran con aviso |
+| Nombres de archivo codificados | `%2D`, `%7C`; el guion equivale a un espacio | El título sale del nombre decodificado |
+| Jerarquía | Carpeta con página homónima; orden en `.order` | La carpeta es la ruta de títulos (`PathPrefix`) y `.order` fija el orden |
+| Títulos numerados (`1.2.1.`) | Frecuentes | La numeración se quita del ancla y se conserva en el título |
+| Carpetas `[TO_REMOVE]` (39), `≤-2022` (34), `[TO_TIDY]` (3) | Obsoletas o por ordenar | Se publican y quedan retiradas o vencidas (KP-11), no se omiten |
+| Credenciales de demostración | En unas 15 páginas | Caso de prueba de SG-09. Nunca se copian ni se citan en documentos ni en preguntas |
+
+Uso en R0:
+
+- Las preguntas borrador se generan desde este corpus y se marcan `draft` hasta que 3 o 4 devs las
+  validen.
+- Las preguntas temporales y de cambios se arman con versiones nuevas de algunas páginas (carpeta
+  `eval/overlay`, cargada después de la marca `@base`) y con las carpetas `≤-2022` (vencidas). La
+  importación del historial git de la wiki (KP-10) se **descartó** el 2026-10-13: el flujo real es
+  subir archivos sueltos; el historial de la wiki no es requisito y obligaba a decidir otro reloj de
+  registro.
+
+### 17.9 Ajustes de requisitos que esta sección implica (resueltos el 2026-10-13)
+
+| Requisito | Conflicto | Resolución |
+|---|---|---|
+| RF-17 ("sin partir tablas") | RC-04 parte las tablas largas por filas | **Reformulado** en requirements: "sin partir filas de tabla ni bloques de código; una tabla mayor que el tamaño objetivo se parte por filas repitiendo la cabecera". Implementado (`SplitTables`, D-K2b-6) |
+| RF-40 (copia local con "secciones vigentes") y §6.4 (feed con la versión actual) | KP-07 necesita también las versiones programadas y las vigencias | **Ajustado**: el feed `/sync` entrega lo vigente y lo programado con sus vigencias y la copia filtra al consultar (feed implementado en la tanda 1; la copia local, en la tanda 2) |
+| RN-K4 (el servidor rechaza) y HU-17 c1 ("se omite o se enmascara") | SG-09 propone rechazar o enmascarar | **Decisión pendiente del usuario.** Se mantiene el comportamiento actual (rechazar). La detección se amplió (D-K2b-14) sin cambiar la política |
+| §14.4 `recorded_from` = publicación en Nexo | KP-10 importaría versiones con las fechas reales de la wiki | **Sin efecto**: KP-10 descartado; `recorded_from` sigue siendo la publicación en Nexo |
+| Requisitos §10 (grafo fuera de alcance) frente a R5 y §14.6 etapa 6 | Contradicción ya existente | **Resuelto**: el grafo temporal es la **etapa final** de la escalera (R5), no fuera de alcance; requirements §9 y §10 actualizados |
+| Requisitos §9 K5 ("búsqueda semántica") frente a R2/R3 | Dos nombres para lo mismo | **Unificado**: K5 = R2 (híbrido) + R3 (reordenamiento) |
+| Requisitos §9 K4 (alcance de tokens, NX-06) frente a SG-08 | Se solapan | **Resuelto**: SG-08 queda dentro de K4 |
+| Rama de trabajo | Los documentos decían `feat/conocimiento` | **Corregido**: la rama real es `feat/conocimiento-nucleo` |
+
+## 18. Entrega 2b, tanda 1: implementación y desviaciones
+
+Fecha: 2026-10-13. Rama `feat/conocimiento-nucleo` (sobre `develop` ab6f04c, con S1..S4), sin commit.
+Decisiones del usuario del 2026-10-13 que mandan sobre las secciones anteriores: (1) el responsable
+sube archivos sueltos o una carpeta; git es opcional y la plantilla de GitHub Actions pasa a la tanda
+2; (2) una sola API de subida para la CLI y el panel; (3) no se guardan originales (D-K11): mejorar un
+conversor exige **volver a subir** el archivo; (4) KP-10 descartado; (5) política de secretos
+pendiente; (6) ajustes de §17.9.
+
+### 18.1 Qué se implementó
+
+| Bloque | Implementación |
+|---|---|
+| Subida (HU-29) | `POST /nexo/kb/v1/spaces/{slug}/uploads` (multipart; campos `file`/`zip` y opciones `dry_run`, `prune`, `confirm_prune`, `source`, `collection`, `wiki_url`, `category`, `owner`, `tags`, `change_note`). La autorización (`space.publish` con token write) se decide **antes** de leer el cuerpo. Pipeline: lectura segura (`source.ReadZip`, `CleanPath`, `Sniff`) -> fuente (`dir` o `azure-devops-wiki`) -> conversores -> `publishAll` (el mismo de los lotes) -> `nexo_kb_publish_runs` |
+| Defensas | Cuerpo 256 MB (`MaxBytesReader`; zip a archivo temporal, borrado al terminar); 20 MB por archivo; 64 MB descomprimido indexable; 10 000 entradas; relación 100:1 en entradas > 1 MB; tamaño declarado y leído; solo se descomprimen las entradas indexables; zip-slip (rutas absolutas, `..`, unidades, control); entradas cifradas y no regulares se saltan; tipo por contenido (UTF-8 sin NUL para texto, `PK` para docx); límite de peticiones del grupo `nexo` |
+| CLI | `engram nexo kb upload` (archivos, carpeta comprimida en memoria con su nombre como raíz, o zip), `changes`, `reindex`, `eval` ampliado, `search --mode` |
+| Panel | `/dashboard/kb` (espacios, crear espacio si `platform.scope.create`), `/dashboard/kb/spaces/{slug}` (documentos, subida si `space.publish`, ejecuciones), resultado de la subida, documento con versiones y secciones ancladas (destino de los enlaces de las citas), retirar. Sesión del panel revalidada; CSRF; alcance del token heredado |
+| Word | `ingest/docx`: estilos de título en inglés y español y `outlineLvl`, párrafos, listas con numeración, tablas a GFM, procedencia `paragraph_start/end` y `table`, `row_start/end`; límites de entradas, tamaño, relación y elementos XML; sin dependencias nuevas |
+| Wiki de Azure DevOps (IN-08) | Ver §17.8 y D-K2b-3..5 |
+| Propuestas (C-07, KP-08) | Crear (`space.propose`), listar (propias; todas las del espacio con `space.review`), leer (autor o revisor; 404 para el resto), aprobar con conflicto de versión 409 salvo `force` y vigencia ajustable, descartar con motivo, retirar (autor). La aprobación publica en la misma transacción que cierra la propuesta, con origen `proposal`, autor y aprobador |
+| Feed `/sync` (C-09, KP-07) | Espacios visibles con rol; cambios desde `seq` con el estado final de cada documento (versión actual y secciones vigentes **y programadas** con su vigencia) o `remove`; `has_more`, `resync_required` |
+| Qué cambió (RC-27) | `GET /changes?since=&until=&spaces=&clock=valid|recorded`: secciones agregadas, modificadas (misma ancla, otro hash) y retiradas, con fecha y enlace |
+| Avisos (KP-09) | Reglas `kb_doc_expiring` (ventana de 30 días o `settings.expiry_warn_days`) y `kb_doc_review_due` (`settings.review_every_days`) en el evaluador de S4, capa `conocimiento`, una alerta por documento y estado |
+| Poda (KP-01) y ejecuciones (KP-02) | Tope del 25 % (más de 5 documentos) sin `confirm`; `nexo_kb_publish_runs` y `GET /spaces/{slug}/publish-runs` |
+| Enlaces (RC-08) | `link` permanente (panel, versión fija, ancla) en cada resultado y cambio; `source_url` del front matter o de la wiki |
+| R0 | Ver §18.3 |
+| R1 | `NEXO_KB_R1`; RC-03, RC-04, RC-05, RC-06, RC-07, RC-09, RC-10, RC-22, IN-07 (`quote`); reindexado seguro (`admin/index:reindex`) |
+
+### 18.2 Desviaciones
+
+| ID | Tema | Diseño | Implementado | Motivo |
+|---|---|---|---|---|
+| D-K2b-1 | Ruta de subida | §7 solo tenía `documents:batch` | `POST /spaces/{slug}/uploads` multipart, que reutiliza la publicación por lotes sin el tope de 200 por pedido (tope propio de 2 000 archivos) | Decisión del usuario: una API para CLI y panel |
+| D-K2b-2 | Referencia de la poda en subidas | `origin_ref` = nombre de archivo | `Origin.Source` = colección (nombre del zip o de la carpeta, o `collection`); la poda de subidas usa esa referencia | Un archivo suelto no identifica el conjunto que se poda |
+| D-K2b-3 | `doc_key` de archivos subidos | Ruta relativa sin extensión | Cada segmento de la ruta pasa a slug (sin tildes, minúsculas, `≤-2022` -> `2022`, `[TO_REMOVE]` -> `to-remove`), recortado a 200 con sufijo estable | Las rutas reales (tildes, `%7C`, corchetes) no son `doc_key` válidos; el front matter `id` sigue mandando |
+| D-K2b-4 | Título de una página de la wiki | El front matter o el primer `#` | El nombre de archivo decodificado (`%2D`, `%7C`, guion = espacio) manda sobre el primer título | En la wiki el primer `#` suele ser "1. Descripción" |
+| D-K2b-5 | Carpetas `[TO_REMOVE]` y `≤-AAAA` (KP-11) | Publicar retiradas o vencidas | `[TO_REMOVE]`: se publican y se retiran en la misma transacción (`recorded_from = recorded_until`: nunca rigieron en Nexo); `≤-AAAA`: vigentes desde `2021-11-01` (inicio de la wiki, convención) hasta el 1 de enero de `AAAA+1`, encontrables con `at` en esas fechas. Reenviarlas es idempotente | Que se vean como no vigentes sin perderlas |
+| D-K2b-6 | Tablas por filas (RC-04) | En el corte del `Sectioner` | Opción `SplitTables`: una tabla mayor que el tamaño objetivo se parte en bloques que repiten cabecera y separador, con `line_start/line_end` o `row_start/row_end` por parte; las partes son `-p2`, `-p3`... | Mismo mecanismo de partes que 2a; el evaluador acepta el prefijo del ancla |
+| D-K2b-7 | Anclas | Slug de los títulos | Además se quita la numeración del título ("1.2.1. ", "3) ") en el ancla (no en el título), en todos los formatos | IN-08; renumerar no cambia el ancla. Cambia las anclas de títulos numerados en versiones nuevas de documentos de 2a |
+| D-K2b-8 | Índice de una sección enorme | — | El `tsvector` se calcula sobre los primeros 256 KB del cuerpo (el cuerpo se guarda completo) | Error real de 2a con la wiki: un `tsvector` > 1 MB hacía fallar la publicación |
+| D-K2b-9 | Umbral "no hay estándar" (RC-07) | Umbral de relevancia | Cobertura ponderada por rareza: cada palabra de la consulta (con sus sinónimos) pesa ln(1 + N/(df+1)) en las secciones vigentes de los espacios visibles; un resultado por debajo de `NEXO_KB_MIN_COVERAGE` (0,3) se descarta; sin resultados, `no_results`. Lo aplica el `Searcher` (común a todo motor que informe cobertura) en el modo `fts`; la respuesta trae `relevance` (umbral, mejor cobertura, encima y debajo, RC-21) | El puntaje de `ts_rank` no es comparable entre consultas. Costo medido: falsos "no hay" en paráfrasis (§18.3) |
+| D-K2b-10 | Sinónimos (RC-06) | Expansión de la consulta | Diccionario base ES/EN y glosario del espacio (líneas "TÉRMINO (SIGLA):", "SIGLA: nombre", "A = B"), en caché 5 min, **solo en la segunda pasada** (cualquier término) | No estrechar una búsqueda que ya encuentra todas las palabras |
+| D-K2b-11 | Diversidad (RC-09) | MMR | Tope simple de 2 secciones por documento (`NEXO_KB_MAX_PER_DOC`); el Searcher pide el triple de candidatos | Sin modelos; medido como mejora en temporales |
+| D-K2b-12 | `quote` (IN-07) | En `source_location` | Se calcula al consultar (300 caracteres sin la línea de título) y se agrega a `source_location` de la respuesta; no se guarda | Vale para las secciones de 2a sin reindexar |
+| D-K2b-13 | Modo `exact` (RC-22) | FTS `simple` o `ILIKE` + filtro | `ILIKE` sobre el literal (o el literal más largo obligatorio de la expresión, mínimo 3 caracteres) en las secciones visibles con los filtros comunes, 2 000 candidatos, filtro RE2 en Go, orden por apariciones | La expresión del usuario nunca llega a Postgres. A gran escala `ILIKE` recorre las secciones del espacio: si hace falta, índice trigram detrás del mismo modo |
+| D-K2b-14 | SG-09 | Ampliar la detección | Se agregaron `Password=`/`Pwd=` **dentro de una cadena de conexión** (otra clave como `Server=` o `User Id=` en la línea), `Bearer <token>` y `api-key:`; con marcadores de ejemplo excluidos. No se agregaron pares usuario/contraseña en prosa ni control de entropía. La política no cambia (rechazo) | La versión sin contexto marcaba código como `Password = request.Password` (5 páginas de la wiki); medido: 3 rechazos en la wiki (antes 1) |
+| D-K2b-15 | Evento de una ejecución | — | `publish.run` en `nexo_kb_events` solo si la ejecución cambió algo y no es dry-run; la fila de `nexo_kb_publish_runs` se escribe siempre | RF-11: reenviar sin cambios no deja eventos |
+| D-K2b-16 | Panel | Pantallas (K6) | Páginas propias registradas desde `nexo_kb_bridge.go` con HTML escapado sobre `dashboard.Layout`; **sin pestaña nueva** en la navegación (evita regenerar `components_templ.go`, que cambiaba ~400 líneas por renumeración); CSRF = HMAC de la cookie con la clave de sesiones del panel, en el formulario o (subida multipart) en la consulta, más comprobación de `Origin`; CSP estricta en estas páginas | Diff mínimo en Engram; la subida multipart no puede leer el formulario antes de validar |
+| D-K2b-17 | Feed `/sync` | Cambios desde `seq` | Un documento por página con su estado final; `seq` avanza al máximo del feed cuando no hay más; `resync_required` solo si `since` supera el máximo (no hay compactación todavía) | Riesgo conocido: un cambio con `seq` menor confirmado después de leer el máximo podría saltarse; la copia local de la tanda 2 debe releer una ventana de solape |
+| D-K2b-18 | "Qué cambió" | Elige el reloj | `clock=valid` (por defecto): lo que regía en cada fecha según lo publicado hoy; `clock=recorded`: lo publicado y vigente en cada fecha. Una versión con `valid_from` declarado en el pasado no es un cambio en el reloj de vigencia | Coherente con la bitemporalidad de D-I3 |
+| D-K2b-19 | RF-34 (descartadas parecidas) | El asistente consulta descartes del espacio | No implementado | Contradice "un proponente no ve propuestas ajenas" (decisión previa) |
+| D-K2b-20 | Reindexado (RC-03) | Indexadores alimentados por el feed | Reindexado síncrono por API (`platform.settings`) en lotes de 50 documentos con transacciones cortas, versión `building` -> `active`; no automático | Suficiente para el volumen actual; la cola de R2 (§17.5) lo reemplaza |
+| D-K2b-21 | Registro de corridas (RC-28) | — | `POST /eval-runs` exige `space.publish` en cada espacio medido (o `platform.audit.read` con token write); `GET /eval-runs` para quien ve algún espacio | Quien mantiene el conocimiento acepta la referencia del CI |
+
+### 18.3 Medición R0 y R1 (wiki de arquitectura, 50 preguntas borrador)
+
+Conjunto: `nexo_ia/06-pruebas/conocimiento/eval/preguntas-wiki.yaml` (BORRADOR, a validar por 3 o 4
+devs), 15 normales, 8 de término exacto, 7 de paráfrasis, 8 sin respuesta, 8 temporales y 4 de
+cambios. Carga: 161 documentos vigentes (35 retirados de `[TO_REMOVE]`, 33 páginas vacías saltadas,
+3 rechazadas por secretos), unas 2 150 secciones; las preguntas temporales y de cambios usan 4
+páginas con versión nueva cargadas después de `@base`.
+
+| Clase | Línea base Hit@5 / MRR | R1 Hit@5 / MRR |
+|---|---|---|
+| normal (15) | 46,7 % / 0,255 | 80,0 % / 0,522 |
+| exact (8) | 87,5 % / 0,875 | 100,0 % / 0,938 (modo exact) |
+| paraphrase (7) | 28,6 % / 0,119 | 0,0 % / 0,000 |
+| no_answer (8): acierto | 0 % | 50 % |
+| temporal (8) | 62,5 % / 0,601 | 100,0 % / 0,817 |
+| changes (4) | 0 % (no existía) | 100 % |
+| total con respuesta | 50,0 % / 0,392 (nDCG@10 0,430, MAP 0,386) | 76,2 % / 0,616 (nDCG@10 0,654, MAP 0,618) |
+
+Aporte de cada mejora (todas las demás activas, umbral 0,3): sin `doc_context` 73,8 %; sin
+`synonyms` 69,0 %; sin `diversity` 73,8 %; sin `split_tables` 76,2 % (neutra en este conjunto: se
+mantiene porque es requisito, RF-17 y HU-29 c2). El umbral sube el acierto de "no hay respuesta" de 0
+a 50 % y deja 3 falsos "no hay" y la clase paráfrasis en 0 %: es exactamente el caso que R2 (vectores)
+debe resolver; según la regla de §17.3, R0 ya muestra la condición para pasar a R2. Detalle y tablas
+por mejora en `nexo_ia/06-pruebas/conocimiento/RESULTADOS.md`.
 
 

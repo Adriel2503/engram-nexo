@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -60,7 +61,20 @@ type Service struct {
 	blobs    kb.BlobStore
 	limits   Limits
 	sections ingest.SectionerOptions
+	upload   UploadLimits // NX-10 2b
+	r1       R1Options
+	r1Set    *R1Options
 }
+
+// WithUploadLimits fija los límites de subida (NX-10 2b).
+func WithUploadLimits(l UploadLimits) Option { return func(s *Service) { s.upload = l } }
+
+// WithR1 fija las opciones de R1 (en lugar de las del entorno).
+func WithR1(o R1Options) Option {
+	return func(s *Service) { s.r1Set = &o }
+}
+
+func logf(format string, args ...any) { log.Printf(format, args...) }
 
 // Option configura el servicio.
 type Option func(*Service)
@@ -88,11 +102,20 @@ func WithSectionerOptions(o ingest.SectionerOptions) Option {
 // New crea el servicio sobre la base de Engram Cloud y el servicio de roles.
 func New(db *sql.DB, roles *authz.Service, opts ...Option) *Service {
 	st := store.New(db)
-	s := &Service{db: db, st: st, roles: roles, eng: roles.Engine(), reg: ingest.DefaultRegistry(),
-		blobs: kb.NoopBlobStore{}, limits: LimitsFromEnv(), sections: ingest.DefaultSectionerOptions}
+	s := &Service{db: db, st: st, roles: roles, eng: roles.Engine(), reg: DefaultRegistry(),
+		blobs: kb.NoopBlobStore{}, limits: LimitsFromEnv(), sections: ingest.DefaultSectionerOptions, upload: UploadLimitsFromEnv()}
 	s.searcher = search.NewSearcher(search.NewPGFTS(st))
+
 	for _, o := range opts {
 		o(s)
+	}
+	if s.r1Set != nil { // NX-10 2b: opciones de R1 (r1.go)
+		s.ApplyR1(*s.r1Set)
+	} else {
+		applyR1FromEnv(s)
+	}
+	if s.limits.Convert.MaxBinaryInputBytes == 0 {
+		s.limits.Convert.MaxBinaryInputBytes = s.upload.MaxFileBytes
 	}
 	return s
 }

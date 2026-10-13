@@ -1,6 +1,9 @@
 # Espacios de conocimiento: requisitos
 
-Estado: borrador para revisión. Fecha: 2026-10-12. Rama: `feat/conocimiento`.
+Estado: borrador para revisión. Fecha: 2026-10-12 (ajustado el 2026-10-13 por las decisiones del
+usuario: subida de archivos sueltos, KP-10 descartado, §17.9 del diseño). Rama: `feat/conocimiento-nucleo`.
+Requisitos de producto: `nexo_ia/01-requisitos/Nexo_IA_Requisitos_e_Historias.md` (v2; HU-29, HU-30,
+HU-33, HU-35..HU-39, RN-14, RN-15).
 Identificador del cambio: **NX-10** (espacios de conocimiento). Base: Engram 3.3.2 + trazabilidad
 NX-01..NX-04 (`develop`, `d0a0e62`). Roles: `docs/nexo/roles/` (NX-05).
 
@@ -82,13 +85,13 @@ de rol.
 
 - **RF-10.** Un publicador publica un documento en un espacio con: `doc_key` (identidad estable dentro del espacio), título, categoría (estándar, convención, lineamiento, glosario, regla de negocio, catálogo; ampliable por espacio), responsable, vigente desde (por defecto, la publicación), vigente hasta (opcional), contenido Markdown y origen. Cubre HU-29.
 - **RF-11.** Publicar el mismo `doc_key` con contenido distinto crea una versión nueva; con contenido idéntico (mismo hash) no crea versión ni evento. Publicar es idempotente.
-- **RF-12.** Publicar acepta lotes (un directorio de un repositorio en un solo pedido), con resultado por documento: creado, actualizado, sin cambios o rechazado y por qué.
+- **RF-12.** Publicar acepta lotes, con resultado por documento: creado, actualizado, sin cambios o rechazado y por qué. (Ajuste 2026-10-13, HU-29.) La vía principal es **subir archivos sueltos, una carpeta o un zip** desde el panel o con `engram nexo kb upload`, por una sola API usada por ambos; publicar desde un repositorio git con CI es opcional. Una carpeta exportada de una wiki de Azure DevOps respeta su jerarquía y publica como retiradas las páginas obsoletas.
 - **RF-13.** Con la opción de poda, los documentos del espacio cuyo origen es el mismo repositorio y que ya no vienen en el lote quedan **retirados** (no borrados). Los documentos de otros orígenes no se tocan.
 - **RF-14.** Un publicador retira un documento (deja de estar vigente) o lo reemplaza por otro; el reemplazado indica cuál lo reemplaza. Cubre HU-30 y HU-08.
 - **RF-15.** Toda versión guarda quién la publicó (persona y token, NX-01) y su origen: para git, repositorio, rama, commit, ruta y, si el CI lo informa, autor y aprobador del cambio; para archivos subidos, nombre y hash.
 - **RF-16.** Las versiones son inmutables. Nada se borra físicamente por la API; el historial completo queda consultable (HU-20 c2).
-- **RF-17.** El servidor corta cada versión en secciones por títulos, conservando la ruta de títulos, sin partir tablas ni bloques de código, con un tamaño objetivo configurable; cada sección es citable por un ancla estable.
-- **RF-18.** Formatos: primera entrega Markdown y texto plano. Word, Excel, PowerPoint y PDF con texto se convierten a Markdown antes de publicar (etapas posteriores, sección 9). Un PDF escaneado se rechaza con un mensaje claro.
+- **RF-17.** El servidor corta cada versión en secciones por títulos, conservando la ruta de títulos, **sin partir filas de tabla ni bloques de código; una tabla mayor que el tamaño objetivo se parte por filas repitiendo la cabecera** (reformulado el 2026-10-13, RC-04), con un tamaño objetivo configurable; cada sección es citable por un ancla estable.
+- **RF-18.** Formatos: Markdown, texto plano y **Word (.docx)** (entrega 2b), además de páginas de wiki de Azure DevOps. Excel (K2), PowerPoint y PDF con texto (K3) se convierten a Markdown antes de publicar. Un PDF escaneado se rechaza con un mensaje claro. Como no se guardan los originales (D-K11), aprovechar una mejora de un conversor exige volver a subir el archivo.
 
 ### Consulta
 
@@ -108,7 +111,7 @@ de rol.
 
 ### Copia local y sin conexión
 
-- **RF-40.** El cliente mantiene una copia local de solo lectura con las secciones vigentes de los espacios visibles para su usuario, actualizada de forma incremental.
+- **RF-40.** El cliente mantiene una copia local de solo lectura con las secciones vigentes **y las programadas, con sus vigencias,** de los espacios visibles para su usuario, actualizada de forma incremental; la copia filtra por vigencia al consultar con el reloj local (ajustado el 2026-10-13, KP-07).
 - **RF-41.** Si un espacio deja de ser visible (cambio de rol, espacio restringido o archivado), su contenido desaparece de la copia local en la siguiente actualización.
 - **RF-42.** Sin conexión, la búsqueda usa la copia local y la respuesta indica la fecha de la última actualización (HU-28, RU-13).
 - **RF-43.** La copia local no se puede editar ni se vuelve a subir.
@@ -163,16 +166,22 @@ de rol.
 | Etapa | Incluye |
 |---|---|
 | **K1 (esta especificación)** | Espacios con roles (NX-05); documentos Markdown y texto con versiones, secciones y vigencia; publicación por API y CLI (lotes, idempotencia, poda); búsqueda y lectura; copia local y herramientas MCP; propuestas y revisión; eventos; migración del proyecto `nexo-transversal` a un espacio |
-| K2 | Conversores Word y Excel |
+| K2 | Conversor Excel (Word se adelantó a la entrega 2b) |
 | K3 | PDF con texto y PowerPoint; adjuntos (diagramas) descargables |
-| K4 | Alcance y caducidad de tokens (NX-06, etapa R4 de roles) |
-| K5 | Búsqueda semántica o híbrida (embeddings en el servidor), tras decidir de dónde salen los embeddings |
-| K6 | Pantallas del panel para espacios, documentos y revisión |
+| K4 | Alcance y caducidad de tokens (NX-06, etapa R4 de roles), **incluido SG-08** (tokens limitados a espacios y herramientas) |
+| K5 | Búsqueda semántica o híbrida = **R2 (híbrido con vectores) + R3 (reordenamiento)** del diseño §17.3, cuando R0 lo justifique |
+| K6 | Pantallas del panel para espacios, documentos y revisión (la subida, los documentos y el retiro llegaron en la entrega 2b) |
+| Etapa final | Grafo temporal derivado de las secciones (R5 del diseño §17.3), solo si R0 muestra preguntas de varios saltos sin resolver |
+
+Entrega 2b (2026-10-13): tanda 1 con subida de archivos sueltos y Word, wiki de Azure DevOps,
+propuestas, feed `/sync`, "qué cambió", avisos, medición R0 y mejoras R1; tanda 2 con copia local,
+herramientas MCP, `get` e `import-transversal`, plantilla de GitHub Actions (opcional) y skill v0.3.
 
 ## 10. Fuera de alcance
 
 - Cambios en el almacenamiento de la capa de proyectos de Engram, workspaces con varios repositorios (HU-09, HU-14) y la memoria de trabajo. (Los roles sobre proyectos se especifican en `docs/nexo/roles/`.)
-- OCR, grafo, ontología y extracción automática de hechos.
+- OCR, ontología y extracción automática de hechos como fuente de verdad. (El grafo temporal derivado no está fuera de alcance: es la etapa final de la escalera de recuperación, §9.)
+- Importar el historial git de una wiki como versiones (KP-10, descartado el 2026-10-13: el flujo es subir archivos; el historial de la wiki no es requisito).
 - Edición colaborativa en línea de documentos (se edita en el origen: repositorio o propuesta).
 
 ## 11. Decisiones
@@ -196,4 +205,17 @@ Aprobadas por el usuario el 2026-10-12, tal como se proponen:
   origen. Ratificada el 2026-10-12 con la condición de que el diseño permita guardarlo más adelante
   sin migrar contenido: columna `source_blob_ref` reservada e interfaz `BlobStore` con una
   implementación que hoy no guarda nada, para poder activar el almacenamiento y reconvertir o
-  reindexar desde el original cuando mejore un conversor.
+  reindexar desde el original cuando mejore un conversor. Mantenida el 2026-10-13: mientras no se
+  guarden originales, aprovechar la mejora de un conversor exige **volver a subir** el archivo.
+
+Decididas por el usuario el 2026-10-13:
+
+- D-K12. El responsable o publicador sube archivos sueltos o una carpeta; git/GitHub no es requisito
+  (la plantilla de GitHub Actions pasa a opcional, tanda 2). Una sola API de subida para la CLI y el
+  panel.
+- D-K13. KP-10 (importar el historial git de la wiki) descartado.
+
+Pendientes:
+
+- Política ante un secreto detectado (SG-09): rechazar (comportamiento actual, RN-K4) o enmascarar
+  con una opción explícita y un evento. Hasta decidir, se rechaza.

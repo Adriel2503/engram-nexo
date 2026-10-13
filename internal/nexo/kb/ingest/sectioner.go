@@ -3,6 +3,7 @@ package ingest
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -34,10 +35,64 @@ type SectionerOptions struct {
 	// bloques, fuerzan una sección nueva (una sección no mezcla hojas ni
 	// diapositivas; las páginas sí se mezclan y quedan como rango).
 	SplitKeys []string
+	// SplitTables (NX-10 2b, RC-04): una tabla mayor que TargetTokens se
+	// parte por filas repitiendo la cabecera; nunca se parte una fila. Los
+	// bloques de código siguen enteros.
+	SplitTables bool `json:"split_tables"`
 }
 
 // DefaultSectionerOptions: unas 350 palabras por sección.
 var DefaultSectionerOptions = SectionerOptions{TargetTokens: 350, SplitKeys: []string{"sheet", "slide"}}
+
+// SplitTableRows parte un bloque de tabla en bloques de filas que repiten la
+// cabecera (las dos primeras líneas en Markdown: cabecera y separador), cada
+// uno de como máximo target palabras (o una sola fila si esa fila ya lo
+// supera). La procedencia se ajusta: líneas del archivo (md) o filas (docx,
+// xlsx: row_start/row_end, donde la fila 1 es la cabecera).
+func SplitTableRows(b Block, target int) []Block {
+	lines := strings.Split(b.Text, "\n")
+	if b.Kind != BlockTable || len(lines) < 4 || CountTokens(b.Text) <= target {
+		return []Block{b}
+	}
+	header := lines[:2]
+	headTok := CountTokens(strings.Join(header, "\n"))
+	rows := lines[2:]
+	lineStart, hasLines := b.Location["line_start"]
+	_, hasRows := b.Location["row_start"]
+	var out []Block
+	start := 0
+	for start < len(rows) {
+		end, tok := start, headTok
+		for end < len(rows) {
+			t := CountTokens(rows[end])
+			if end > start && tok+t > target {
+				break
+			}
+			tok += t
+			end++
+		}
+		nb := b
+		nb.Text = strings.Join(append(append([]string{}, header...), rows[start:end]...), "\n")
+		loc := domain.SourceLocation{}
+		for k, v := range b.Location {
+			loc[k] = v
+		}
+		if hasLines {
+			ls := toInt(lineStart)
+			loc["line_start"], loc["line_end"] = ls+2+start, ls+2+end-1
+		}
+		if hasRows {
+			// La fila 1 es la cabecera: las de datos empiezan en 2.
+			base := toInt(b.Location["row_start"])
+			loc["row_start"], loc["row_end"] = base+1+start, base+1+end-1
+		}
+		loc["table_part"] = len(out) + 1
+		nb.Location = loc
+		out = append(out, nb)
+		start = end
+	}
+	return out
+}
 
 // Section corta los bloques en secciones: cada título abre una sección nueva;
 // una sección que solo tiene su título (seguida de un subtítulo) no se emite,
@@ -45,6 +100,17 @@ var DefaultSectionerOptions = SectionerOptions{TargetTokens: 350, SplitKeys: []s
 func Section(blocks []Block, opts SectionerOptions) []SectionDraft {
 	if opts.TargetTokens <= 0 {
 		opts.TargetTokens = DefaultSectionerOptions.TargetTokens
+	}
+	if opts.SplitTables {
+		var expanded []Block
+		for _, b := range blocks {
+			if b.Kind == BlockTable {
+				expanded = append(expanded, SplitTableRows(b, opts.TargetTokens)...)
+				continue
+			}
+			expanded = append(expanded, b)
+		}
+		blocks = expanded
 	}
 	var out []SectionDraft
 	used := map[string]int{}
@@ -228,9 +294,21 @@ func anchorFor(path []string) string {
 	}
 	parts := make([]string, 0, len(path))
 	for _, p := range path {
-		parts = append(parts, Slugify(p))
+		parts = append(parts, Slugify(stripNumbering(p)))
 	}
 	return strings.Join(parts, ".")
+}
+
+// headingNumberRe: numeración al inicio de un título ("1.", "1.2.1.", "3)",
+// "2 -"). NX-10 2b (IN-08): se quita del ancla (renumerar no cambia el
+// ancla) y se conserva en el título.
+var headingNumberRe = regexp.MustCompile(`^\s*(?:\d+(?:\.\d+)+\.?|\d+[.)])\s*[-–:]?\s+`)
+
+func stripNumbering(s string) string {
+	if t := headingNumberRe.ReplaceAllString(s, ""); strings.TrimSpace(t) != "" {
+		return t
+	}
+	return s
 }
 
 var foldChain = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)

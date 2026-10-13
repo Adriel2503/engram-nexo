@@ -55,6 +55,7 @@ var AllRules = []string{
 	RuleAuthzDeniedBurst, RuleAuthFailuresBurst, RulePlatformRoleChanged, RuleSharedTokenUsed,
 	RuleExpiredTokenUsed, RuleRevokedTokenUsed, RuleInvalidTokenRepeated, RuleAuditChainBroken,
 	RuleLoggingStalled, RuleInactiveDisabled, RuleAuditExportFailed,
+	RuleKBDocExpiring, RuleKBReviewDue, // NX-10 2b (KP-09, alerts_kb.go)
 }
 
 // RuleConfig es la configuración de una regla.
@@ -84,6 +85,10 @@ func DefaultRules() RuleSet {
 		RuleLoggingStalled:       {Enabled: false, Threshold: 1, Window: 30 * time.Minute, Cooldown: 24 * time.Hour, Severity: SeverityHigh},
 		RuleInactiveDisabled:     {Enabled: true, Threshold: 1, Severity: SeverityWarning},
 		RuleAuditExportFailed:    {Enabled: true, Threshold: 1, Cooldown: 6 * time.Hour, Severity: SeverityHigh},
+		// NX-10 2b (KP-09): ventana de aviso de vencimiento (window_seconds) y
+		// revisión según settings.review_every_days de cada espacio.
+		RuleKBDocExpiring: {Enabled: true, Threshold: 1, Window: 30 * 24 * time.Hour, Severity: SeverityInfo},
+		RuleKBReviewDue:   {Enabled: true, Threshold: 1, Severity: SeverityInfo},
 	}
 }
 
@@ -143,7 +148,11 @@ func ParseRules(raw string) (RuleSet, error) {
 		default:
 			return DefaultRules(), fmt.Errorf("%s: %s: severity debe ser info, warning, high o critical", AlertRulesEnv, name)
 		}
-		if r.Threshold < 1 || r.Window < 0 || r.Cooldown < 0 || r.Window > 7*24*time.Hour {
+		maxWindow := 7 * 24 * time.Hour
+		if name == RuleKBDocExpiring {
+			maxWindow = 366 * 24 * time.Hour // NX-10 2b: aviso de vencimiento en días
+		}
+		if r.Threshold < 1 || r.Window < 0 || r.Cooldown < 0 || r.Window > maxWindow {
 			return DefaultRules(), fmt.Errorf("%s: %s: threshold >= 1, window_seconds y cooldown_seconds >= 0", AlertRulesEnv, name)
 		}
 		rules[name] = r
@@ -574,6 +583,11 @@ func EvaluateOnce(ctx context.Context, db *sql.DB, rules RuleSet, now time.Time)
 		if err != nil {
 			return nil, true, err
 		}
+		alerts = append(alerts, got...)
+	}
+	if got, err := runKBRules(ctx, tx, rules); err != nil { // NX-10 2b (KP-09)
+		return nil, true, err
+	} else {
 		alerts = append(alerts, got...)
 	}
 	if err := tx.Commit(); err != nil {

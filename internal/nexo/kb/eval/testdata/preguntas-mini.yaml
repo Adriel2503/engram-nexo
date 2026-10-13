@@ -1,0 +1,23 @@
+# Conjunto sintético versionable para la prueba de calidad en CI (RC-02). No es la
+# wiki real: documentos de ejemplo en testdata/mini. Clases como el conjunto R0.
+version: 2
+name: mini-sintetico
+status: validated
+spaces: [mini]
+questions:
+  - {id: niveles, class: normal, status: validated, question: "¿Qué nivel de log uso para errores recuperables?", expected: [{doc: backend/logging, anchor: logging-en-microservicios.niveles-de-log}]}
+  - {id: correlacion, class: normal, status: validated, question: "cómo se propaga el identificador de correlación", expected: [{doc: backend/logging, anchor: logging-en-microservicios.correlacion}]}
+  - {id: reintentos, class: normal, status: validated, question: "cuántos reintentos hacemos en llamadas http", expected: [{doc: backend/reintentos, anchor: reintentos-http.politica}]}
+  - {id: tablas-singular, class: normal, status: validated, question: "los nombres de tabla van en singular o plural", expected: [{doc: datos/nomenclatura, anchor: nomenclatura-de-base-de-datos.tablas}]}
+  - {id: pk, class: normal, status: validated, question: "cómo se llama la llave primaria", expected: [{doc: datos/nomenclatura, anchor: nomenclatura-de-base-de-datos.llave-primaria}]}
+  - {id: bff, class: normal, status: validated, question: "el microfrontend puede llamar directo al microservicio", expected: [{doc: frontend, anchor: microfrontends.comunicacion-con-el-backend}]}
+  - {id: prefijo-vista, class: exact, status: validated, mode: exact, question: "vw_", expected: [{doc: datos/nomenclatura, anchor: nomenclatura-de-base-de-datos.prefijos-de-objetos}]}
+  - {id: polly, class: exact, status: validated, mode: exact, question: "/Polly.*reintentos/", expected: [{doc: backend/reintentos, anchor: reintentos-http.politica}]}
+  - {id: header, class: exact, status: validated, mode: exact, question: "X-Correlation-Id", expected: [{doc: backend/logging, anchor: logging-en-microservicios.correlacion}]}
+  - {id: para-logs-secretos, class: paraphrase, status: validated, question: "puedo escribir el password del usuario en el log", expected: [{doc: backend/logging, anchor: logging-en-microservicios.datos-sensibles}]}
+  - {id: para-retry, class: paraphrase, status: validated, question: "retry policy for external calls", expected: [{doc: backend/reintentos}]}
+  - {id: na-kubernetes, class: no_answer, status: validated, question: "cuántas réplicas de Kubernetes por pod usamos"}
+  - {id: na-tailwind, class: no_answer, status: validated, question: "convención de clases Tailwind"}
+  - {id: na-figma, class: no_answer, status: validated, question: "dónde están los diseños en Figma"}
+  - {id: na-kafka, class: no_answer, status: validated, question: "convención de nombres de los tópicos de Kafka", note: "comparte 'nombres' con la nomenclatura de tablas: sin umbral devuelve algo"}
+  - {id: na-graphql, class: no_answer, status: validated, question: "cómo nombrar los tipos del esquema GraphQL", note: "comparte 'esquema' y 'nombrar' con otros textos"}

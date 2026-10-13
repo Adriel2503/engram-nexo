@@ -30,7 +30,6 @@ import (
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloudconfig"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
-	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 )
@@ -44,8 +43,14 @@ Comandos:
                                           Publica archivos .md y .txt (directorios recursivos)
   search [--space S]... [--category C] [--tag T] [--at FECHA] [--known-at FECHA]
          [--limit N] [--json] <consulta>  Busca en los espacios visibles
-  eval <preguntas.yaml> [--retriever pgfts] [--k 5] [--json]
-                                          Mide Recall@5 y MRR contra el servidor
+  upload --space S [--dry-run] [--prune [--confirm-prune]] [--source auto|dir|azure-devops-wiki]
+         [--collection N] [--wiki-url URL] [--category C] [--owner O] <archivos | carpeta | zip>
+                                          Sube archivos sueltos (.md, .txt, .docx), una carpeta o un zip
+  changes --since FECHA [--until FECHA] [--space S]... [--clock valid|recorded]
+                                          Secciones agregadas, modificadas y retiradas (RC-27)
+  eval <preguntas.yaml> [--k 5] [--validated-only] [--record [--accept]] [--min-hit 0.8] [--json]
+                                          Mide la búsqueda por clase (Hit@5, Recall@5, MRR, nDCG, MAP, sin respuesta)
+  reindex [--status]                      Reindexa el texto (superadmin) tras cambiar NEXO_KB_R1
 
 Servidor y token: engram cloud config / ENGRAM_CLOUD_SERVER y ENGRAM_CLOUD_TOKEN.
 En CI (GitHub Actions) el origen sale de GITHUB_REPOSITORY, GITHUB_SHA,
@@ -75,6 +80,12 @@ func Run(args []string, dataDir string, stdout, stderr io.Writer) int {
 		err = runPublish(rest, dataDir, stdout)
 	case "search":
 		err = runSearch(rest, dataDir, stdout)
+	case "upload":
+		err = runUpload(rest, dataDir, stdout)
+	case "changes":
+		err = runChanges(rest, dataDir, stdout)
+	case "reindex":
+		err = runReindex(rest, dataDir, stdout)
 	case "eval":
 		err = runEval(rest, dataDir, stdout)
 	default:
@@ -518,6 +529,7 @@ type SearchResponse struct {
 		Excerpt        string                `json:"excerpt"`
 		Version        int                   `json:"version"`
 		Citation       string                `json:"citation"`
+		Link           string                `json:"link"`
 		Match          string                `json:"match"`
 		SourceLocation domain.SourceLocation `json:"source_location"`
 	} `json:"results"`
@@ -552,6 +564,7 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	at := fsx.String("at", "", "vigente en esta fecha (YYYY-MM-DD)")
 	knownAt := fsx.String("known-at", "", "publicado a esta fecha (YYYY-MM-DD)")
 	limit := fsx.Int("limit", 10, "resultados (máximo 50)")
+	mode := fsx.String("mode", "", "fts (por defecto) o exact (literal o /expresión/)")
 	server := fsx.String("server", "", "URL del servidor")
 	asJSON := fsx.Bool("json", false, "salida JSON")
 	if err := fsx.Parse(reorder(args, map[string]bool{"json": true})); err != nil {
@@ -566,7 +579,11 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 		return err
 	}
 	var raw json.RawMessage
-	if err := c.Do(context.Background(), "GET", SearchQuery(q, spaces, *category, *tag, *at, *knownAt, *limit), nil, &raw); err != nil {
+	path := SearchQuery(q, spaces, *category, *tag, *at, *knownAt, *limit)
+	if *mode != "" {
+		path += "&mode=" + url.QueryEscape(*mode)
+	}
+	if err := c.Do(context.Background(), "GET", path, nil, &raw); err != nil {
 		return err
 	}
 	if *asJSON {
@@ -587,80 +604,9 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 			fmt.Fprintln(stdout, "   (coincidencia parcial: no contiene todos los términos)")
 		}
 		fmt.Fprintf(stdout, "   %s\n", strings.ReplaceAll(strings.TrimSpace(h.Excerpt), "\n", " "))
-	}
-	return nil
-}
-
-// ─── eval ────────────────────────────────────────────────────────────────────
-
-// ServerRetriever evalúa la búsqueda del servidor (pgfts).
-type ServerRetriever struct{ C *Client }
-
-// Name implementa eval.Retriever.
-func (s ServerRetriever) Name() string { return "pgfts" }
-
-// Search implementa eval.Retriever.
-func (s ServerRetriever) Search(ctx context.Context, q eval.Question, spaces []string, at *time.Time, limit int) ([]eval.Hit, error) {
-	atS := ""
-	if at != nil {
-		atS = at.Format(time.RFC3339)
-	}
-	var res SearchResponse
-	if err := s.C.Do(ctx, "GET", SearchQuery(q.Question, spaces, "", "", atS, "", limit), nil, &res); err != nil {
-		return nil, err
-	}
-	out := make([]eval.Hit, 0, len(res.Results))
-	for _, h := range res.Results {
-		out = append(out, eval.Hit{Space: h.Space, DocKey: h.DocKey, Anchor: h.Anchor})
-	}
-	return out, nil
-}
-
-func runEval(args []string, dataDir string, stdout io.Writer) error {
-	fsx := flag.NewFlagSet("eval", flag.ContinueOnError)
-	retriever := fsx.String("retriever", "pgfts", "motor: pgfts (servidor); local-bm25 e hybrid llegan después")
-	k := fsx.Int("k", 5, "Recall@k")
-	server := fsx.String("server", "", "URL del servidor")
-	asJSON := fsx.Bool("json", false, "salida JSON")
-	if err := fsx.Parse(reorder(args, map[string]bool{"json": true})); err != nil {
-		return exitError{2, err.Error()}
-	}
-	if fsx.NArg() != 1 {
-		return exitError{2, "uso: engram nexo kb eval <preguntas.yaml> [--retriever pgfts] [--k 5]"}
-	}
-	set, err := eval.Load(fsx.Arg(0))
-	if err != nil {
-		return err
-	}
-	var r eval.Retriever
-	switch *retriever {
-	case "pgfts", "server":
-		c, err := newClient(dataDir, *server)
-		if err != nil {
-			return err
+		if h.Link != "" {
+			fmt.Fprintf(stdout, "   %s\n", h.Link)
 		}
-		r = ServerRetriever{C: c}
-	case "local-bm25", "hybrid":
-		return exitError{2, "el motor " + *retriever + " llega con la copia local (entrega 2b); hoy: --retriever pgfts"}
-	default:
-		return exitError{2, "motor desconocido: " + *retriever}
-	}
-	rep := eval.Run(context.Background(), set, r, *k, 10)
-	if *asJSON {
-		return json.NewEncoder(stdout).Encode(rep)
-	}
-	fmt.Fprintln(stdout, rep.Summary())
-	for _, q := range rep.Results {
-		mark := "acierto"
-		switch {
-		case q.Error != "":
-			mark = "error: " + q.Error
-		case q.Rank == 0:
-			mark = "sin acierto"
-		case q.Rank > rep.K:
-			mark = fmt.Sprintf("fuera de @%d", rep.K)
-		}
-		fmt.Fprintf(stdout, "  %-28s rank=%-2d %s\n", q.ID, q.Rank, mark)
 	}
 	return nil
 }

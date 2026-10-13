@@ -65,6 +65,9 @@ var EvidenceTables = []string{
 	// NX-10 conocimiento
 	"nexo_kb_events",
 	"nexo_kb_versions",
+	// NX-10 entrega 2b (KP-02, RC-28)
+	"nexo_kb_publish_runs",
+	"nexo_kb_eval_runs",
 }
 
 // OwnerManagedTables son tablas que solo escribe la cuenta dueña (migración y

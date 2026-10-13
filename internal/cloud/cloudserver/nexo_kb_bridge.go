@@ -47,4 +47,5 @@ func (s *CloudServer) registerNexoKBRoutes(mux *http.ServeMux) {
 			next(w, r)
 		})
 	})
+	s.registerNexoKBDashboard(mux) // entrega 2b: páginas del panel (nexo_kb_dashboard.go)
 }
