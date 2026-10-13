@@ -47,7 +47,7 @@ archivos versionados, en tickets ni en chats.
      ENGRAM_DATABASE_URL |             | NEXO_MIGRATION_DATABASE_URL
      (nexo_app: opera)   |             | (nexo_owner: solo al iniciar, migra)
                    +-----v-------------v----+
-                   |  postgres:16 oficial   |   sin puertos publicados
+                   |  Postgres 18 (pgvector)|   sin puertos publicados
                    |  base engram_cloud     |   red interna del compose
                    +------------------------+
 ```
@@ -64,9 +64,9 @@ archivos versionados, en tickets ni en chats.
 | Requisito | Detalle |
 |---|---|
 | Servidor | Linux con Docker Engine y Docker Compose v2. Plataforma amd64 o arm64 |
-| Postgres | 16, imagen oficial `postgres:16-alpine` (la del compose de ejemplo) o un servicio administrado compatible (sección 8) |
+| Postgres | 18, imagen oficial `pgvector/pgvector:pg18` (la del compose de ejemplo; hasta `3.4.0-nexo.2` el ejemplo usaba 16, la migración está en 9.5) o un servicio administrado compatible, 16 o posterior (sección 8) |
 | Extensión `unaccent` | Opcional. Si existe o se puede crear, la búsqueda ignora tildes en la base; si no, las quita la aplicación y la migración sigue con un aviso. En Postgres 13 o posterior es una extensión "trusted": basta con que `nexo_owner` sea dueña de la base. Para no usarla: `NEXO_KB_DISABLE_UNACCENT=1` antes del primer arranque |
-| Extensión `pgvector` | No se usa en esta versión. Está prevista para la etapa R2 de búsqueda (híbrida, `docs/nexo/conocimiento/design.md`). Si elige un Postgres administrado, conviene que la ofrezca |
+| Extensión `pgvector` | Opcional. La usa la búsqueda por significado (R2, sección 4.6.1); sin ella, el servidor busca solo por texto. La imagen `pgvector/pgvector:pg18` ya la trae. Si elige un Postgres administrado, conviene que la ofrezca (0.8 o posterior) |
 | Dominio | Un nombre DNS interno que resuelva a la IP del servidor |
 | Certificado | Certificado del dominio emitido por la CA corporativa (recomendado) o la CA interna de Caddy (`tls internal`, solo si todas las PCs confían en esa CA). El cliente Engram exige HTTPS cuando usa token |
 | Red | Puerto 443 abierto desde la red de las PCs. Salida HTTPS hacia el webhook de Slack o Teams si se usan alertas |
@@ -180,7 +180,7 @@ que antes, solo con búsqueda por texto, y sin errores.
 
 | Qué | Detalle |
 |---|---|
-| Extensión `vector` (pgvector) | Versión 0.8 o superior, que permite el recorrido filtrado (`iterative_scan`). Con el compose de ejemplo, use la imagen `pgvector/pgvector:pg16`: `postgres-init/01-cuentas.sh` crea la extensión con el superusuario. En un Postgres administrado, un DBA ejecuta `CREATE EXTENSION IF NOT EXISTS vector;` en la base `engram_cloud` antes del primer arranque. La cuenta dueña no puede crearla, porque pgvector no es una extensión "trusted". Para ver la versión disponible: `SELECT * FROM pg_available_extension_versions WHERE name = 'vector';` |
+| Extensión `vector` (pgvector) | Versión 0.8 o superior, que permite el recorrido filtrado (`iterative_scan`). Con el compose de ejemplo, use la imagen `pgvector/pgvector:pg18`: `postgres-init/01-cuentas.sh` crea la extensión con el superusuario. En un Postgres administrado, un DBA ejecuta `CREATE EXTENSION IF NOT EXISTS vector;` en la base `engram_cloud` antes del primer arranque. La cuenta dueña no puede crearla, porque pgvector no es una extensión "trusted". Para ver la versión disponible: `SELECT * FROM pg_available_extension_versions WHERE name = 'vector';` |
 | Proveedor de embeddings | Gemini, OpenAI, Azure OpenAI o un servidor compatible con OpenAI (Ollama, vLLM, TEI) |
 | Política de datos | Cada sección publicada (con su título y su ruta) y cada pregunta se envían al proveedor. Hace falta la aprobación de Real Plaza antes de activarlo en producción |
 | Salida a internet | Desde el contenedor `cloud` hacia la API del proveedor (Gemini: `generativelanguage.googleapis.com`; OpenAI: `api.openai.com`; Azure: `<recurso>.openai.azure.com`) |
@@ -467,7 +467,7 @@ docker compose -f compose.yaml ps
 docker compose -f compose.yaml logs cloud | grep "\[nexo\]"
 ```
 
-Al iniciar, `01-cuentas.sh` corre una sola vez (al crear el volumen `pg-data`): crea `nexo_owner`
+Al iniciar, `01-cuentas.sh` corre una sola vez (al crear el volumen `pg18-data`): crea `nexo_owner`
 (dueña de la base y del esquema `public`) y `nexo_app` (solo `CONNECT` y `USAGE`). Si cambia las
 contraseñas del `.env` después, no se aplican solas (sección 12.3).
 
@@ -552,12 +552,12 @@ administración diaria está en [`administracion.md`](administracion.md).
 
 ## 8. Postgres administrado en lugar del contenedor
 
-Puede usar un Postgres 16 administrado (por ejemplo, el servicio de base de datos de la nube
+Puede usar un Postgres 16 o posterior administrado (el compose de ejemplo usa 18; por ejemplo, el servicio de base de datos de la nube
 corporativa). Qué cambia:
 
 | Tema | Con el contenedor | Con Postgres administrado |
 |---|---|---|
-| Servicio `postgres` del compose | Sí | Se quita, junto con `depends_on` del servicio `cloud` y el volumen `pg-data` |
+| Servicio `postgres` del compose | Sí | Se quita, junto con `depends_on` del servicio `cloud` y el volumen `pg18-data` |
 | Crear cuentas y base | `01-cuentas.sh` automático | Lo ejecuta usted una vez con la cuenta administradora del servicio (abajo) |
 | TLS hacia Postgres | Opcional (misma red interna, sin puertos) | Obligatorio: `sslmode=verify-full` con la CA del proveedor |
 | Superusuario | `postgres`, solo para administrar | La cuenta administradora del proveedor (normalmente no es superusuario) |
@@ -575,7 +575,7 @@ docker run --rm \
   -e PGPASSWORD -e POSTGRES_USER=<admin-del-servicio> \
   -e NEXO_OWNER_PASSWORD -e NEXO_APP_PASSWORD \
   -v "$PWD/postgres-init:/init:ro" -v "$PWD/pg-tls:/tls:ro" \
-  postgres:16-alpine sh /init/01-cuentas.sh
+  postgres:18-alpine sh /init/01-cuentas.sh
 ```
 
 Por verificar: este procedimiento no se probó contra un servicio administrado. En algunos
@@ -633,7 +633,7 @@ pide, agregue `-e PGPASSWORD` al `exec` con la contraseña de `nexo_owner` en el
 
 ### 9.3 Restauración completa (por ejemplo, después de perder el servidor)
 
-1. Prepare `/opt/nexo` con el mismo `.env` (mismas contraseñas y secretos) y un volumen `pg-data`
+1. Prepare `/opt/nexo` con el mismo `.env` (mismas contraseñas y secretos) y un volumen `pg18-data`
    vacío.
 2. Levante solo la base: `docker compose -f compose.yaml up -d postgres`. El script crea las cuentas
    y la base vacía.
@@ -642,8 +642,19 @@ pide, agregue `-e PGPASSWORD` al `exec` con la contraseña de `nexo_owner` en el
 
    ```sh
    age -d -i <clave-privada> respaldo-AAAA-MM-DD.dump.age > respaldo.dump
-   docker compose -f compose.yaml exec -T postgres pg_restore -U nexo_owner -d engram_cloud --exit-on-error < respaldo.dump
+   docker compose -f compose.yaml exec -T postgres sh -c 'cat > /tmp/respaldo.dump' < respaldo.dump
+   docker compose -f compose.yaml exec -T postgres sh -c '
+     pg_restore -l /tmp/respaldo.dump | grep -v -E "EXTENSION( -)? vector " > /tmp/lista.txt &&
+     pg_restore -U nexo_owner -d engram_cloud --exit-on-error -L /tmp/lista.txt /tmp/respaldo.dump;
+     r=$?; rm -f /tmp/respaldo.dump /tmp/lista.txt; exit $r' &&
+   echo "restauración correcta" && rm respaldo.dump
    ```
+
+   El filtro `grep` quita del respaldo la extensión `vector`: la imagen `pgvector/pgvector` ya la
+   creó `01-cuentas.sh` con el superusuario, y `nexo_owner` no puede cambiarle el comentario
+   (`must be owner of extension vector`). Sin el filtro, `--exit-on-error` detiene la restauración.
+   Con una base sin pgvector el filtro no quita nada y es inofensivo. `respaldo.dump` contiene todos los
+   datos: bórrelo al terminar.
 
 4. Levante el resto: `docker compose -f compose.yaml up -d`. Las migraciones son idempotentes y los
    privilegios se vuelven a aplicar.
@@ -667,6 +678,137 @@ hashes (alerta `audit_chain_broken`) y deja de ser evidencia válida.
 
 La única forma correcta de borrar evidencia antigua es la retención configurada (11.6), que usa
 funciones seguras con mínimos y deja un ancla para que la verificación siga pasando.
+
+### 9.5 Migrar de Postgres 16 a Postgres 18
+
+Hasta `3.4.0-nexo.2` el compose de ejemplo usaba `pgvector/pgvector:pg16`. Desde el cambio a
+Postgres 18 (`NEXO_CHANGES.md`, "Postgres 18") usa `pgvector/pgvector:pg18`. **Una instalación que ya
+tiene datos no puede cambiar solo la etiqueta de la imagen**: el formato de los datos de Postgres cambia
+entre versiones mayores y hay que migrarlos. El servidor Nexo no cambia (las migraciones son las
+mismas); lo que cambia es la base.
+
+**Qué cambia en la imagen de Postgres 18**
+
+| Tema | Postgres 16 | Postgres 18 | Qué hacer |
+|---|---|---|---|
+| Carpeta de datos | `PGDATA=/var/lib/postgresql/data`; el volumen se montaba en esa carpeta | `PGDATA=/var/lib/postgresql/18/docker`; el volumen se monta en **`/var/lib/postgresql`** | El compose de ejemplo ya lo hace. Si monta el volumen en `/var/lib/postgresql/data`, o reutiliza el volumen de la 16 en la ruta nueva, el contenedor **se niega a iniciar** con el mensaje `in 18+, these Docker images are configured to store database data in a format which is compatible with "pg_ctlcluster"` (se comprobó: no arranca ni inicializa una base vacía en silencio) |
+| Volumen | `pg-data` | `pg18-data` (nombre nuevo en el ejemplo) | El volumen de la 16 queda intacto y sirve para volver atrás |
+| Sumas de verificación de páginas | Desactivadas por defecto | Activadas por defecto en las bases nuevas (`SHOW data_checksums` = `on`) | Con `pg_dump` y `pg_restore` no importa. Con `pg_upgrade` sí (abajo) |
+| Contraseñas | `scram-sha-256` (valor por defecto desde la 14) | Igual; `md5` quedó en desuso y avisa | `01-cuentas.sh` guarda las contraseñas con el `password_encryption` por defecto, es decir `scram-sha-256`; no requiere cambios. Un cliente o un pooler antiguo que solo hable `md5` ya no es compatible |
+| Esquema `public` | Solo lo usa su dueña desde la 15 | Igual | Sin cambios: `01-cuentas.sh` ya lo deja a nombre de `nexo_owner` y sin permisos para `PUBLIC` |
+| Estadísticas del planificador | Se pierden al restaurar un respaldo | Se pierden al restaurar un respaldo de la 16 | Ejecute `vacuumdb --analyze-in-stages` después de restaurar (paso 6) |
+| pgvector | 0.8.x | 0.8.x (la imagen `pg18` trae la misma serie) | Sin cambios; los índices HNSW se reconstruyen al restaurar |
+
+**Procedimiento recomendado: `pg_dump` y `pg_restore`.** Requiere una ventana sin servicio (el
+servidor `cloud` se detiene y el autosync de las PCs reintenta después). Con una base de cientos de
+MB tarda minutos; el tiempo lo dominan la reconstrucción de los índices HNSW y de texto.
+
+Se probó el 2026-10-13 de Postgres 16.15 a 18.6, con pgvector 0.8.7 en las dos, con un índice
+vectorial activo de 768 dimensiones, usuarios, tokens, un espacio de conocimiento con documentos,
+memorias sincronizadas y la cadena de auditoría.
+
+1. **Detenga el servidor y haga el respaldo.** Anote los conteos de todas las tablas para comparar
+   después (con el servidor detenido nadie escribe):
+
+   ```sh
+   cd /opt/nexo
+   docker compose -f compose.yaml stop cloud
+   docker compose -f compose.yaml exec -T postgres psql -U nexo_owner -d engram_cloud -At --no-psqlrc -F' ' > conteos-pg16.txt <<'SQL'
+   SELECT format('SELECT %L, count(*) FROM public.%I', tablename, tablename) FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename \gexec
+   SELECT 'ext:' || extname || ' ' || extversion FROM pg_extension ORDER BY extname;
+   SELECT 'hnsw_indexes ' || count(*) FROM pg_indexes WHERE indexdef ILIKE '%hnsw%';
+   SQL
+   docker compose -f compose.yaml exec -T postgres pg_dump -U nexo_owner -d engram_cloud -Fc > migracion-pg16.dump
+   ls -l migracion-pg16.dump        # no debe estar vacío
+   ```
+
+   Copie `migracion-pg16.dump` fuera del host y cífrelo como un respaldo diario (9.2): contiene todos
+   los datos. No hace falta respaldar las cuentas con `pg_dumpall --globals-only`: `01-cuentas.sh`
+   crea `nexo_owner` y `nexo_app` con las contraseñas del `.env`.
+
+2. **Baje los contenedores sin borrar el volumen** (nunca `down -v`):
+
+   ```sh
+   docker compose -f compose.yaml down
+   docker volume ls | grep pg-data      # nexo-engram_pg-data: el volumen de la 16, se conserva
+   ```
+
+3. **Actualice `compose.yaml`** con el de `deploy/nexo/compose.example.yaml` del fork, o cambie en el
+   suyo tres cosas: la imagen del servicio `postgres` a `pgvector/pgvector:pg18`, el montaje a
+   `- pg18-data:/var/lib/postgresql` y, al final del archivo, el volumen `pg18-data:` en lugar de
+   `pg-data:`. No cambie el `.env`.
+
+4. **Levante solo la base nueva.** El script crea las cuentas, la base vacía y la extensión `vector`:
+
+   ```sh
+   docker compose -f compose.yaml up -d postgres
+   docker compose -f compose.yaml ps postgres        # esperar "healthy"
+   docker compose -f compose.yaml exec -T postgres psql -U postgres -At -c "SHOW server_version" -c "SHOW data_checksums"
+   ```
+
+5. **Restaure** antes de arrancar el servidor, con el mismo procedimiento de 9.3 (paso 3, con el
+   filtro de la extensión `vector`), usando `migracion-pg16.dump`. Debe terminar con salida 0 y sin
+   errores.
+
+6. **Calcule las estadísticas** del planificador (el respaldo no las trae):
+
+   ```sh
+   docker compose -f compose.yaml exec -T postgres vacuumdb -U postgres -d engram_cloud --analyze-in-stages
+   ```
+
+7. **Compare los conteos** antes de arrancar el servidor. No debe haber diferencias:
+
+   ```sh
+   docker compose -f compose.yaml exec -T postgres psql -U nexo_owner -d engram_cloud -At --no-psqlrc -F' ' > conteos-pg18.txt <<'SQL'
+   SELECT format('SELECT %L, count(*) FROM public.%I', tablename, tablename) FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename \gexec
+   SELECT 'ext:' || extname || ' ' || extversion FROM pg_extension ORDER BY extname;
+   SELECT 'hnsw_indexes ' || count(*) FROM pg_indexes WHERE indexdef ILIKE '%hnsw%';
+   SQL
+   diff conteos-pg16.txt conteos-pg18.txt && echo "conteos idénticos"
+   ```
+
+8. **Arranque el servidor y verifique.** Las migraciones son idempotentes y los privilegios se
+   vuelven a aplicar:
+
+   ```sh
+   docker compose -f compose.yaml up -d
+   docker compose -f compose.yaml logs --since 5m cloud | grep "\[nexo\]"
+   ```
+
+   Compruebe: el log dice `dos cuentas de base de datos` y, si usa búsqueda por significado,
+   `pgvector 0.8.x disponible`; `/health` y `/nexo/health/ready` responden; un token existente sigue
+   valiendo (`GET /nexo/authz/v1/me`); una búsqueda devuelve resultados (con `mode=hybrid` si hay
+   proveedor de embeddings); `engram nexo audit verify` termina con `"ok":true` (11.4); la PC de un
+   usuario sincroniza (`engram sync --cloud`). Los vectores no se recalculan: el índice vectorial
+   restaurado queda activo.
+
+9. **Conserve el volumen de la 16 unos días** y bórrelo cuando todo esté confirmado:
+   `docker volume rm nexo-engram_pg-data` (el prefijo es el `name:` del compose). Hasta entonces
+   también sirve para volver atrás.
+
+**Volver atrás.** `docker compose -f compose.yaml down`, restaure el `compose.yaml` anterior (imagen
+`pg16`, volumen `pg-data`) y `up -d`. Se pierde lo escrito desde el paso 8.
+
+**Alternativa: `pg_upgrade`** (no se probó con las imágenes del ejemplo; solo se justifica con bases
+de decenas de GB, donde la restauración tarda demasiado). Tenga en cuenta:
+
+- `pg_upgrade` necesita los binarios de la 16 **y** de la 18 en el mismo contenedor, y pgvector
+  instalado para las dos versiones. Las imágenes `pgvector/pgvector:pg16` y `pg18` traen solo una:
+  hay que construir una imagen propia con ambas.
+- Las bases nuevas de la 18 se crean con sumas de verificación de páginas, y `pg_upgrade` se niega si
+  la base vieja no las tiene. O se inicia la base nueva con `initdb --no-data-checksums`, o se
+  activan en la vieja con `pg_checksums --enable` (con la base detenida) antes de migrar.
+- La carpeta de datos de la 16 está en la raíz del volumen y la de la 18 en `18/docker`: hay que
+  mover los datos viejos a una carpeta propia (por ejemplo `16/docker`) antes de usar `--link`, o
+  copiar en lugar de enlazar.
+- Después: `vacuumdb --all --analyze-in-stages` y las mismas comprobaciones de los pasos 7 y 8. Con
+  `pg_upgrade` los índices no se reconstruyen: si el sistema base de la imagen (`glibc`) cambió,
+  ejecute `REINDEX DATABASE engram_cloud;` con `nexo_owner`. Con las imágenes de este ejemplo (Debian
+  12 en ambas) no hace falta. Con `pg_dump` y `pg_restore` todos los índices se reconstruyen.
+
+**Postgres administrado.** Use la actualización de versión mayor que ofrece el proveedor, o cree una
+instancia 18 y restaure con los mismos pasos 1, 5 a 8, apuntando `ENGRAM_DATABASE_URL` y
+`NEXO_MIGRATION_DATABASE_URL` a la nueva. Verifique que la instancia ofrezca pgvector 0.8 o posterior.
 
 ## 10. Actualizar a una versión nueva de Nexo
 
