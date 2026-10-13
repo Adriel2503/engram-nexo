@@ -304,6 +304,7 @@ type nexoMonitor struct {
 	exportOn     bool
 	retention    evidence.RetentionPlan
 	inactiveDays int
+	saStaleDays  int // NEXO_SA_STALE_DAYS (0 = sin aviso)
 	verifyEvery  time.Duration
 
 	mu             sync.Mutex
@@ -330,6 +331,7 @@ func newNexoMonitorFromEnv() *nexoMonitor {
 	m.export, m.exportOn, _ = evidence.ExportConfigFromEnv()
 	m.retention = evidence.RetentionFromEnv()
 	m.inactiveDays = evidence.DisableInactiveDays()
+	m.saStaleDays = evidence.SAStaleDays()
 	if raw := strings.TrimSpace(os.Getenv(NexoAuditVerifyMinutesEnv)); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
 			m.verifyEvery = time.Duration(n) * time.Minute
@@ -361,9 +363,14 @@ func (m *nexoMonitor) logConfig() {
 	}
 	log.Printf("[nexo] seguridad: retencion: %s", m.retention)
 	if m.inactiveDays > 0 {
-		log.Printf("[nexo] seguridad: cuentas sin uso por %d dias se deshabilitan (%s)", m.inactiveDays, evidence.DisableInactiveEnv)
+		log.Printf("[nexo] seguridad: personas sin uso por %d dias se deshabilitan (%s; las cuentas de servicio nunca)", m.inactiveDays, evidence.DisableInactiveEnv)
 	} else {
-		log.Printf("[nexo] seguridad: %s vacio: las cuentas inactivas solo se informan en la revision de accesos", evidence.DisableInactiveEnv)
+		log.Printf("[nexo] seguridad: %s vacio: las personas inactivas solo se informan en la revision de accesos", evidence.DisableInactiveEnv)
+	}
+	if m.saStaleDays > 0 {
+		log.Printf("[nexo] seguridad: cuentas de servicio sin uso por %d dias dejan una alerta, sin deshabilitarse (%s)", m.saStaleDays, evidence.SAStaleDaysEnv)
+	} else {
+		log.Printf("[nexo] seguridad: %s=0: sin aviso de cuentas de servicio sin uso", evidence.SAStaleDaysEnv)
 	}
 }
 
@@ -516,6 +523,18 @@ func (s *CloudServer) nexoDailyJobs(ctx context.Context, m *nexoMonitor, now tim
 		}
 		if len(done) > 0 {
 			log.Printf("[nexo] seguridad: %d cuentas deshabilitadas por inactividad (%d dias)", len(done), m.inactiveDays)
+		}
+		alerts = append(alerts, got...)
+	}
+	// Cuentas de servicio sin uso: solo alerta (una por período sin uso),
+	// nunca se deshabilitan.
+	if m.saStaleDays > 0 {
+		got, err := evidence.ServiceAccountStaleAlerts(ctx, db, m.saStaleDays, now, m.rules[evidence.RuleSAStale])
+		if err != nil {
+			log.Printf("[nexo] seguridad: cuentas de servicio sin uso: %v", err)
+		}
+		if len(got) > 0 {
+			log.Printf("[nexo] seguridad: %d cuentas de servicio sin uso por %d dias o mas (alerta %s)", len(got), m.saStaleDays, evidence.RuleSAStale)
 		}
 		alerts = append(alerts, got...)
 	}

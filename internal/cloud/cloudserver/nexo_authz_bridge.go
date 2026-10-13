@@ -28,6 +28,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/constants"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security/evidence"
 )
 
 // nexoAuthzDB lo implementa cloudstore.CloudStore (nexo_migrations.go).
@@ -44,7 +45,8 @@ func (s *CloudServer) nexoAuthz() (*authz.Service, bool) {
 			if db := p.NexoDB(); db != nil {
 				eng := authz.NewPostgres(db, authz.WithProjectNormalizer(cloudstore.NormalizeProjectGrant),
 					authz.WithNetworkPolicy(nexoNetworkPolicy())) // NX-07 (RS-13)
-				return authz.NewService(db, eng), true
+				// SG-10: marca de cuenta de servicio sin uso (NEXO_SA_STALE_DAYS).
+				return authz.NewService(db, eng).WithServiceAccountStaleDays(evidence.SAStaleDays()), true
 			}
 		}
 	}
