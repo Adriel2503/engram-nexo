@@ -46,3 +46,25 @@ func TestNexoPanelTextsOnlyWithBrand(t *testing.T) {
 		}
 	}
 }
+
+// OP-06: las cadenas que las funciones de Go de Engram (helpers.go y
+// dashboard.go) envuelven con nx() también tienen traducción.
+func TestNexoGoFilesWrappedTextsAreTranslated(t *testing.T) {
+	re := regexp.MustCompile(`nx\("([^"]*)"\)`)
+	found := 0
+	for _, f := range []string{"helpers.go", "dashboard.go"} {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			found++
+			if es, ok := nexoLookup(m[1]); !ok || strings.TrimSpace(es) == "" {
+				t.Errorf("%s: sin traducción para nx(%q)", f, m[1])
+			}
+		}
+	}
+	if found < 3 {
+		t.Fatalf("helpers.go y dashboard.go solo pasan %d textos por nx(): ¿se perdió el envoltorio?", found)
+	}
+}

@@ -43,8 +43,8 @@ templ StatusBadge(label string, variant string) {
 templ EmptyState(title string, message string) {
 	<div class="empty-state">
 		<p class="section-kicker">{ nx("NO SIGNAL YET") }</p>
-		<h3>{ title }</h3>
-		<p>{ message }</p>
+		<h3>{ nx(title) }</h3>
+		<p>{ nx(message) }</p>
 	</div>
 }
 

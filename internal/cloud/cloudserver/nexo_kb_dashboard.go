@@ -77,12 +77,12 @@ func (s *CloudServer) nexoKBPage(fn kbPageHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		svc, err := s.nexoKBService(r)
 		if err != nil {
-			http.Error(w, "knowledge spaces are not available on this server", http.StatusServiceUnavailable)
+			http.Error(w, "Los espacios de conocimiento no están disponibles en este servidor.", http.StatusServiceUnavailable)
 			return
 		}
 		principal, ok := s.dashboardPrincipalFromRequest(r)
 		if !ok {
-			http.Error(w, "forbidden: knowledge spaces require a managed user session", http.StatusForbidden)
+			http.Error(w, "Conocimiento necesita una sesión de una persona con usuario en Nexo. Entra con el token que te asignó el administrador.", http.StatusForbidden)
 			return
 		}
 		r = r.WithContext(WithPrincipal(r.Context(), principal))
@@ -92,11 +92,11 @@ func (s *CloudServer) nexoKBPage(fn kbPageHandler) http.HandlerFunc {
 		id.TokenScope = s.nexoEffectiveTokenScope(r.Context(), principal)
 		r = r.WithContext(authz.WithIdentity(r.Context(), id))
 		if !id.Managed() {
-			http.Error(w, "forbidden: knowledge spaces require a managed user token", http.StatusForbidden)
+			http.Error(w, "Conocimiento necesita el token de una persona con usuario en Nexo. Entra con el token que te asignó el administrador.", http.StatusForbidden)
 			return
 		}
 		if r.Method == http.MethodPost && !s.kbCSRFOK(r) {
-			http.Error(w, "forbidden: invalid or missing CSRF token; reload the page", http.StatusForbidden)
+			http.Error(w, "El formulario venció o no es válido. Vuelve a abrir la página e inténtalo de nuevo.", http.StatusForbidden)
 			return
 		}
 		fn(w, r, svc, id)
@@ -814,7 +814,7 @@ func splitSections(content string, refs []kbservice.SectionRef) []kbSec {
 
 func (s *CloudServer) kbRetire(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, "El formulario no es válido. Vuelve a abrir la página e inténtalo de nuevo.", http.StatusBadRequest)
 		return
 	}
 	slug := r.PathValue("slug")

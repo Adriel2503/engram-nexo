@@ -65,13 +65,25 @@ func nx(s string) string {
 	if !NexoBrand() {
 		return s
 	}
-	if t, ok := nexoText[s]; ok {
+	if t, ok := nexoLookup(s); ok {
 		return t
 	}
-	if t, ok := nexoTextPanel[s]; ok { // K6 (OP-06): textos de las páginas de Engram
+	if t, ok := nexoTextPattern(s); ok { // OP-06: textos de Go con datos pegados
 		return t
 	}
 	return s
+}
+
+// nexoLookup busca un texto en los diccionarios de Nexo.
+func nexoLookup(s string) (string, bool) {
+	if t, ok := nexoText[s]; ok {
+		return t, true
+	}
+	if t, ok := nexoTextPanel[s]; ok { // K6 (OP-06): textos de las páginas de Engram
+		return t, true
+	}
+	t, ok := nexoTextGo[s] // OP-06: textos de código Go de Engram
+	return t, ok
 }
 
 // nexoLang es el idioma del documento.

@@ -109,7 +109,7 @@ func (s *CloudServer) kbSpaceHead(r *http.Request, svc *kbservice.Service, id au
 func (s *CloudServer) kbMembersRender(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity, slug string, st kbMembersState) {
 	az, ok := s.nexoAuthz()
 	if !ok {
-		http.Error(w, "knowledge spaces are not available on this server", http.StatusServiceUnavailable)
+		http.Error(w, "Los espacios de conocimiento no están disponibles en este servidor.", http.StatusServiceUnavailable)
 		return
 	}
 	ctx := r.Context()
@@ -234,7 +234,7 @@ func (s *CloudServer) kbMembersApply(w http.ResponseWriter, r *http.Request, svc
 	}
 	az, ok := s.nexoAuthz()
 	if !ok {
-		http.Error(w, "knowledge spaces are not available on this server", http.StatusServiceUnavailable)
+		http.Error(w, "Los espacios de conocimiento no están disponibles en este servidor.", http.StatusServiceUnavailable)
 		return
 	}
 	fail := func(status int, msg string) {

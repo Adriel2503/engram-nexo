@@ -282,7 +282,7 @@ func formatTimestamp(ts string) string {
 // Cards that show "last seen" or similar nullable values render "Never" instead of "-".
 func formatTimestampStr(ts string) string {
 	if ts == "" {
-		return "Never"
+		return nx("Never") // NX-10 (panel, OP-06)
 	}
 	return formatTimestamp(ts)
 }
@@ -383,7 +383,7 @@ func renderStructuredContent(raw string) string {
 func renderInlineStructuredPreview(raw string, max int) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "No content captured."
+		return nx("No content captured.") // NX-10 (panel, OP-06)
 	}
 	if structuredFieldRE.MatchString(raw) {
 		labels := structuredFieldRE.FindAllStringSubmatch(raw, -1)
@@ -544,7 +544,7 @@ func formatTimeValue(t time.Time) string {
 // nil or zero (e.g. a token that has never been used).
 func formatTimePtr(t *time.Time) string {
 	if t == nil || t.IsZero() {
-		return "Never"
+		return nx("Never") // NX-10 (panel, OP-06)
 	}
 	return formatTimeValue(*t)
 }

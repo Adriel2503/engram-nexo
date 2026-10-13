@@ -112,7 +112,7 @@ func (s *CloudServer) nexoTokenIssueFromForm(w http.ResponseWriter, r *http.Requ
 	if raw := strings.TrimSpace(r.FormValue("expires_in_days")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil {
-			http.Error(w, "expires_in_days must be a whole number of days", http.StatusBadRequest)
+			http.Error(w, "Los días de vida deben ser un número entero.", http.StatusBadRequest)
 			return nil, false
 		}
 		req.ExpiresInDays = &n
