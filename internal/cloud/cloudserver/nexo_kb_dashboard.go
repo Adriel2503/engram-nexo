@@ -67,6 +67,7 @@ func (s *CloudServer) registerNexoKBDashboard(mux *http.ServeMux) {
 	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/retire", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbRetire)))
 	s.registerNexoKBMembersDashboard(mux)   // K6 (KP-12): miembros del espacio
 	s.registerNexoKBProposalsDashboard(mux) // K6 (KP-13): propuestas
+	s.registerNexoSearchStatusDashboard(mux) // Estado de la búsqueda (nexo_search_status.go)
 }
 
 type kbPageHandler func(w http.ResponseWriter, r *http.Request, svc *kbservice.Service, id authz.Identity)

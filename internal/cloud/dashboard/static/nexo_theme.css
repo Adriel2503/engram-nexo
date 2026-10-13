@@ -2162,3 +2162,305 @@ body.nexo select:disabled {
 	}
 }
 
+/* ─── Estado de la búsqueda (/dashboard/kb/search-status) ───────────────────── */
+
+.nxs {
+	gap: 2rem;
+	grid-template-columns: minmax(0, 1fr);
+	align-content: start;
+}
+
+.nxs > * {
+	min-width: 0;
+}
+
+/* La frase principal: qué buscador responde hoy y si el índice está al día. */
+.nxs-verdict {
+	border-left: 6px solid var(--nx-sched-fg);
+	background: var(--nx-sched-bg);
+	border-radius: 0 var(--nx-radius-card) var(--nx-radius-card) 0;
+	padding: 1.1rem 1.4rem 1.25rem;
+	color: var(--nx-ink);
+}
+
+.nxs-verdict-ok {
+	border-left-color: var(--nx-ok-fg);
+	background: var(--nx-ok-bg);
+}
+
+.nxs-verdict-warn {
+	border-left-color: var(--nx-exp-fg);
+	background: var(--nx-exp-bg);
+}
+
+.nxs-verdict p {
+	margin: 0 0 0.3rem;
+	max-width: 62ch;
+}
+
+.nxs-verdict .nxs-verdict-title {
+	font-family: var(--nx-font-read);
+	font-size: var(--nx-s5);
+	font-weight: 600;
+	line-height: 1.25;
+	max-width: 36ch;
+}
+
+.nxs-meter {
+	margin-top: 0.9rem;
+	max-width: 42rem;
+}
+
+progress.nxs-bar {
+	-webkit-appearance: none;
+	appearance: none;
+	display: block;
+	width: 100%;
+	height: 0.75rem;
+	margin: 0 0 0.35rem;
+	border: 0;
+	border-radius: 999px;
+	overflow: hidden;
+	background: rgba(23, 35, 31, 0.14);
+	color: var(--nx-green);
+}
+
+progress.nxs-bar::-webkit-progress-bar {
+	background: rgba(23, 35, 31, 0.14);
+}
+
+progress.nxs-bar::-webkit-progress-value {
+	background: var(--nx-green);
+	border-radius: 999px;
+}
+
+progress.nxs-bar::-moz-progress-bar {
+	background: var(--nx-green);
+	border-radius: 999px;
+}
+
+.nxs-meter .nxs-meter-text {
+	margin: 0;
+	font-size: var(--nx-s2);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Secciones sueltas, separadas por una línea fina (sin tarjetas). */
+.nxs-section {
+	border-top: 1px solid var(--nx-line);
+	padding-top: 1.25rem;
+}
+
+.nxs-section h3 {
+	font-size: var(--nx-s3);
+	margin: 0 0 0.4rem;
+}
+
+/* Pares etiqueta y valor. */
+.nxs-dl {
+	margin: 0;
+	display: grid;
+}
+
+.nxs-dl > div {
+	display: grid;
+	grid-template-columns: minmax(10rem, 15rem) minmax(0, 1fr);
+	gap: 0.25rem 1.25rem;
+	padding: 0.55rem 0;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+.nxs-dl > div:last-child {
+	border-bottom: 0;
+}
+
+.nxs-dl dt {
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s2);
+}
+
+.nxs-dl dd {
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+.nxs-note {
+	display: block;
+	margin-top: 0.15rem;
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+	line-height: 1.45;
+	max-width: 62ch;
+}
+
+.nxs-env {
+	margin-left: 0.6rem;
+	font-family: var(--nx-font-code);
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+	background: none;
+	padding: 0;
+}
+
+.nxs-progress + .nxs-progress {
+	margin-top: 1.25rem;
+}
+
+/* Tablas: números alineados y fechas sin saltos. */
+.nxs-table {
+	width: 100%;
+	min-width: 36rem;
+	font-variant-numeric: tabular-nums;
+}
+
+body.nexo .nxs-table th,
+body.nexo .nxs-table td {
+	padding: 0.5rem 0.6rem;
+	text-align: left;
+	vertical-align: top;
+}
+
+body.nexo .nxs-table th {
+	white-space: nowrap;
+}
+
+body.nexo .nxs-table .nxs-num {
+	text-align: right;
+}
+
+.nxs-nowrap {
+	white-space: nowrap;
+}
+
+.nxs-table .nx-chip {
+	margin-left: 0.4rem;
+}
+
+.nxs-table td > .nx-chip:first-child {
+	margin-left: 0;
+}
+
+/* Comando sugerido y errores recientes. */
+.nxs-cmd {
+	display: inline-block;
+	max-width: 100%;
+	padding: 0.45rem 0.75rem;
+	border: 1px solid var(--nx-line-strong);
+	border-radius: var(--nx-radius-control);
+	background: var(--nx-surface);
+	font-family: var(--nx-font-code);
+	font-size: var(--nx-s2);
+	overflow-wrap: anywhere;
+}
+
+.nxs-errors {
+	list-style: none;
+	margin: 1rem 0 0;
+	padding: 0;
+	display: grid;
+	gap: 0.75rem;
+}
+
+.nxs-errors li {
+	display: grid;
+	gap: 0.15rem;
+	padding-left: 0.85rem;
+	border-left: 3px solid var(--nx-danger-fg);
+}
+
+.nxs-errors-meta {
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+	font-variant-numeric: tabular-nums;
+}
+
+.nxs-errors-msg {
+	font-size: var(--nx-s2);
+	overflow-wrap: anywhere;
+	max-width: 80ch;
+}
+
+/* Parámetros en uso: grupos en columnas que se apilan. */
+.nxs-params {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+	gap: 1.5rem 3rem;
+	margin-top: 0.75rem;
+}
+
+.nxs-params .nxs-dl > div {
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0.1rem;
+}
+
+/* Reordenamiento (R3): su lugar queda reservado. */
+.nxs-rerank {
+	border-top-style: dashed;
+}
+
+/* Solo lectores de pantalla (títulos de tabla). */
+.nxs-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+@media (max-width: 600px) {
+	.nxs-dl > div {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.1rem;
+	}
+	.nxs-verdict .nxs-verdict-title {
+		font-size: var(--nx-s4);
+	}
+}
+
+/* Menú: con diez pestañas dejaba fuera de la vista las últimas (desplazamiento
+ * horizontal oculto). En pantallas anchas se reparten en dos filas; en móvil
+ * sigue el desplazamiento. */
+@media (min-width: 721px) {
+	body.nexo nav [role="tablist"] {
+		flex-wrap: wrap;
+		overflow-x: visible;
+		gap: 0 1.4rem;
+	}
+}
+
+.nxs-sub {
+	display: block;
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+}
+
+/* Avance de la indexación: cifras en fila, la explicación va en una nota. */
+.nxs-facts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+	gap: 0.75rem 1.5rem;
+	margin: 0.5rem 0 0;
+}
+
+.nxs-facts > div {
+	border-top: 1px solid var(--nx-line);
+	padding-top: 0.4rem;
+}
+
+.nxs-facts dt {
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+.nxs-facts dd {
+	margin: 0;
+	font-size: var(--nx-s5);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.2;
+}

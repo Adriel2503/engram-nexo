@@ -1,0 +1,205 @@
+package dashboard
+
+// Nexo IA · NX-10 (panel) — pantalla "Estado de la búsqueda": solo lectura,
+// para quien administra la plataforma. Archivo propio de Nexo: components.templ
+// y layout.templ no cambian. Todo el texto se escapa. Diseño:
+// docs/nexo/panel/design.md §11. Los bloques son secciones sueltas: para
+// agregar uno (por ejemplo el reordenamiento de R3) basta un campo en
+// NexoSearchStatusPage y una llamada en esta plantilla.
+
+templ NexoSearchStatusPageView(p NexoSearchStatusPage) {
+	<div class="nx-page nxs">
+		<header class="nx-head">
+			<h1>Estado de la búsqueda</h1>
+			<p class="nx-hint">Cómo responde hoy el buscador de Conocimiento y si el índice por significado está al día. Esta pantalla solo muestra datos: no cambia nada.</p>
+		</header>
+		<div class={ "nxs-verdict nxs-verdict-" + p.Verdict.Class } role="status">
+			<p class="nxs-verdict-title">{ p.Verdict.Title }</p>
+			if p.Verdict.Detail != "" {
+				<p>{ p.Verdict.Detail }</p>
+			}
+			for _, pr := range p.Progress {
+				@nexoSearchBar(pr)
+			}
+		</div>
+		<section class="nxs-section" aria-labelledby="nxs-cfg-t">
+			<h2 class="nx-h2" id="nxs-cfg-t">Configuración</h2>
+			@nexoSearchRows(p.Config)
+		</section>
+		<section class="nxs-section" aria-labelledby="nxs-ver-t">
+			<h2 class="nx-h2" id="nxs-ver-t">Versiones del índice por significado</h2>
+			if len(p.Versions) == 0 {
+				<p class="nx-empty">Todavía no hay versiones. El servidor crea la primera al iniciar con un proveedor de embeddings configurado.</p>
+			} else {
+				<p class="nx-hint">Solo la versión activa responde las consultas. La que está en construcción pasa a activa cuando no le quedan secciones pendientes; la anterior se retira.</p>
+				<div class="nx-scroll">
+					<table class="nxs-table">
+						<caption class="nxs-sr">Versiones del índice vectorial</caption>
+						<thead>
+							<tr>
+								<th scope="col">Versión</th>
+								<th scope="col">Estado</th>
+								<th scope="col">Modelo</th>
+								<th scope="col" class="nxs-num">Dimensiones</th>
+								<th scope="col">Creada (UTC)</th>
+								<th scope="col">Activada (UTC)</th>
+								<th scope="col">Retirada (UTC)</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, v := range p.Versions {
+								<tr>
+									<td>{ v.Version }</td>
+									<td><span class={ "nx-chip " + v.StatusChip }>{ v.Status }</span></td>
+									<td>{ v.Model }<span class="nxs-sub">{ v.Provider }</span></td>
+									<td class="nxs-num">{ v.Dims }</td>
+									<td class="nxs-nowrap">{ v.Created }</td>
+									<td class="nxs-nowrap">{ v.Activated }</td>
+									<td class="nxs-nowrap">{ v.Retired }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</section>
+		if len(p.Progress) > 0 {
+			<section class="nxs-section" aria-labelledby="nxs-prog-t">
+				<h2 class="nx-h2" id="nxs-prog-t">Avance de la indexación</h2>
+				<p class="nx-hint">Pendientes: secciones en la cola del indexador (mientras esperan se encuentran solo por texto). Con fallos: se reintentan solas y tras 5 fallos pasan a cartas muertas. Cambios sin leer: cambios publicados que el indexador todavía no revisó.</p>
+				for _, pr := range p.Progress {
+					<div class="nxs-progress">
+						<h3>{ pr.Label }</h3>
+						<dl class="nxs-facts">
+							for _, f := range pr.Facts {
+								<div><dt>{ f.Label }</dt><dd>{ f.Value }</dd></div>
+							}
+						</dl>
+					</div>
+				}
+			</section>
+		}
+		<section class="nxs-section" aria-labelledby="nxs-dead-t">
+			<h2 class="nx-h2" id="nxs-dead-t">Secciones que no se pudieron vectorizar</h2>
+			<p>{ p.Dead.Summary }</p>
+			if p.Dead.Total > 0 {
+				<p class="nx-hint">Estas secciones se siguen encontrando por texto. Cuando el proveedor se recupere, vuelve a encolarlas desde un equipo con acceso de superadmin:</p>
+				<p><code class="nxs-cmd">{ NexoRequeueDeadCommand }</code></p>
+				<ul class="nxs-errors">
+					for _, e := range p.Dead.Errors {
+						<li>
+							<span class="nxs-errors-meta">{ e.When } UTC, versión { e.Version }, { e.Attempts }</span>
+							<span class="nxs-errors-msg">{ e.Message }</span>
+						</li>
+					}
+				</ul>
+			}
+		</section>
+		<section class="nxs-section" aria-labelledby="nxs-eval-t">
+			<h2 class="nx-h2" id="nxs-eval-t">Últimas evaluaciones</h2>
+			if len(p.Evals) == 0 {
+				<p class="nx-empty">Todavía no hay corridas registradas. Se registran con <code>engram nexo kb eval --record</code>.</p>
+			} else {
+				<div class="nx-scroll">
+					<table class="nxs-table">
+						<caption class="nxs-sr">Corridas de evaluación recientes</caption>
+						<thead>
+							<tr>
+								<th scope="col">Fecha (UTC)</th>
+								<th scope="col">Buscador</th>
+								<th scope="col" class="nxs-num">Preguntas</th>
+								<th scope="col" class="nxs-num">Hit@5</th>
+								<th scope="col" class="nxs-num">MRR</th>
+								<th scope="col" class="nxs-num">Sin respuesta</th>
+								<th scope="col">Conjunto</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, e := range p.Evals {
+								<tr>
+									<td class="nxs-nowrap">{ e.When }</td>
+									<td>
+										{ e.Retriever }
+										if e.Accepted {
+											<span class="nx-chip nx-chip-ok">Aceptada</span>
+										}
+									</td>
+									<td class="nxs-num">{ e.Questions }</td>
+									<td class="nxs-num">{ e.Hit5 }</td>
+									<td class="nxs-num">{ e.MRR }</td>
+									<td class="nxs-num">{ e.NoAnswer }</td>
+									<td>{ e.Set }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				<p class="nx-hint">Hit@5: la respuesta esperada está entre las 5 primeras. MRR: qué tan arriba aparece. Sin respuesta: preguntas sin estándar que el buscador supo dejar sin respuesta.</p>
+			}
+		</section>
+		<section class="nxs-section" aria-labelledby="nxs-par-t">
+			<h2 class="nx-h2" id="nxs-par-t">Parámetros en uso</h2>
+			<p class="nx-hint">Valores con los que arrancó el servidor. Para cambiarlos se edita la variable de entorno y se reinicia.</p>
+			<div class="nxs-params">
+				for _, g := range p.Params {
+					<div>
+						<h3>{ g.Title }</h3>
+						@nexoSearchRows(g.Rows)
+					</div>
+				}
+			</div>
+		</section>
+		@nexoSearchRerank(p.Rerank)
+	</div>
+}
+
+// nexoSearchBar es la barra de avance de una versión (la memorable de la
+// pantalla): un <progress> nativo con su texto.
+templ nexoSearchBar(pr NexoSearchProgress) {
+	<div class="nxs-meter">
+		if pr.Total > 0 {
+			<progress class="nxs-bar" value={ pr.Value() } max={ pr.Max() } aria-label={ pr.ProgressText }>{ pr.DoneText }</progress>
+		}
+		<p class="nxs-meter-text">{ pr.Short }: { pr.DoneText }</p>
+	</div>
+}
+
+// nexoSearchRows es una lista de pares etiqueta y valor.
+templ nexoSearchRows(rows []NexoSearchRow) {
+	<dl class="nxs-dl">
+		for _, r := range rows {
+			<div>
+				<dt>{ r.Label }</dt>
+				<dd>
+					if r.Chip != "" {
+						<span class={ "nx-chip " + r.Chip }>{ r.Value }</span>
+					} else {
+						{ r.Value }
+					}
+					if r.Env != "" {
+						<code class="nxs-env">{ r.Env }</code>
+					}
+					if r.Note != "" {
+						<span class="nxs-note">{ r.Note }</span>
+					}
+				</dd>
+			</div>
+		}
+	</dl>
+}
+
+// nexoSearchRerank es el bloque "Reordenamiento (R3)". Hasta que R3 exista
+// dice "no configurado".
+templ nexoSearchRerank(r NexoSearchRerank) {
+	<section class="nxs-section nxs-rerank" aria-labelledby="nxs-rr-t">
+		<h2 class="nx-h2" id="nxs-rr-t">Reordenamiento (R3)</h2>
+		if r.Configured {
+			@nexoSearchRows(r.Rows)
+		} else {
+			<p><span class="nx-chip nx-chip-ret">No configurado</span></p>
+		}
+		if r.Note != "" {
+			<p class="nx-hint">{ r.Note }</p>
+		}
+	</section>
+}
