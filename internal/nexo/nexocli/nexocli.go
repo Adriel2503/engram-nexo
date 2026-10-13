@@ -2,6 +2,7 @@
 // Nexo: kb (NX-10, espacios de conocimiento), audit (NX-07 S4, evidencia) y,
 // desde la tanda 2 de NX-10, la conexión de la PC (connect, status,
 // disconnect) y la instalación del protocolo Nexo en un asistente (setup).
+// Desde SG-10, sa: cuentas de servicio para CI y bots (serviceaccounts.go).
 package nexocli
 
 import (
@@ -23,6 +24,7 @@ Conexión de esta PC:
 Áreas:
   kb      espacios de conocimiento (spaces, search, get, sync, upload, publish, changes, eval, reindex, import-transversal)
   audit   evidencia de seguridad (verify, export, verify-export)
+  sa      cuentas de servicio para CI y bots (list, show, create, update, disable, enable, grant, ungrant, token)
 
 Instalación para un dev: engram nexo connect --server <url> --token-stdin  y luego  engram setup <agente>.
 El token también se puede pasar en NEXO_TOKEN (evita dejarlo en el historial de la terminal).
@@ -39,6 +41,8 @@ func Run(args []string, dataDir string, stdout, stderr io.Writer) int {
 		return nexokbcli.Run(args, dataDir, stdout, stderr)
 	case "audit":
 		return auditcli.Run(args[1:], stdout, stderr)
+	case "sa", "service-accounts": // SG-10
+		return runServiceAccounts(args[1:], dataDir, stdout, stderr)
 	case "connect", "status", "disconnect", "setup":
 		return runConnection(args[0], args[1:], dataDir, stdout, stderr)
 	case "help", "--help", "-h":
