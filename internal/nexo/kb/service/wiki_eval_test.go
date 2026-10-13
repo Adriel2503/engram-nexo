@@ -39,6 +39,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/kbtest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/rerank"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/source"
 )
@@ -170,6 +171,14 @@ func (c *cachedEmbedder) Embed(ctx context.Context, texts []string, kind embed.K
 type evalConfig struct {
 	name                  string
 	vw, tw, minSim, minTS float64
+	// R3 (rerank_eval_test.go): useDefault mide hybrid con los parámetros por
+	// defecto de R2; rerank "on" lo reordena con topN, la mezcla y el puntaje
+	// mínimo indicados.
+	useDefault bool
+	rerank     string
+	topN       int
+	blend      float64
+	minScore   float64
 }
 
 func parseEvalConfigs(t testing.TB, raw string) []evalConfig {
@@ -215,6 +224,22 @@ func TestEvalWikiCorpus(t *testing.T) {
 		r2 := service.R2FromEnv()
 		r2.Worker = false
 		opts = append(opts, service.WithEmbedder(cache, c), service.WithR2(r2))
+	}
+	// R3: reordenador por NEXO_KB_RERANKER, con caché de puntajes.
+	var rrCache *cachedReranker
+	if c, err := rerank.ConfigFromEnv(); err != nil {
+		t.Fatal(err)
+	} else if c.Enabled() {
+		r, err := rerank.New(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rrCache = newCachedReranker(t, r, os.Getenv("NEXO_KB_RERANK_CACHE_FILE"))
+		o3 := service.R3FromEnv()
+		if os.Getenv(service.EnvRerankBudget) == "" {
+			o3.Budget = 120 * time.Second // la medición espera al proveedor (la cuota gratuita responde 429)
+		}
+		opts = append(opts, service.WithReranker(rrCache, c), service.WithR3(o3))
 	}
 	env := kbtest.New(t, opts...)
 	tm := env.NewTeam()
@@ -318,6 +343,20 @@ func TestEvalWikiCorpus(t *testing.T) {
 	if env.KB.VectorEnabled() {
 		runs = append([]evalConfig{{name: "fts"}}, parseEvalConfigs(t, os.Getenv("NEXO_KB_EVAL_CONFIGS"))...)
 	}
+	// R3: línea base hybrid (parámetros por defecto, sin reordenar) y las
+	// variantes con reordenamiento de NEXO_KB_EVAL_RERANKS.
+	if specs := parseRerankSpecs(t, os.Getenv("NEXO_KB_EVAL_RERANKS")); len(specs) > 0 {
+		if !env.KB.RerankEnabled() || !env.KB.VectorEnabled() {
+			t.Fatal("NEXO_KB_EVAL_RERANKS exige NEXO_KB_EMBEDDER y NEXO_KB_RERANKER")
+		}
+		runs = append(runs, evalConfig{name: "hybrid", useDefault: true})
+		for _, s := range specs {
+			s.useDefault = true
+			runs = append(runs, s)
+		}
+	}
+	r2def, r3def := env.KB.R2(), env.KB.R3()
+	var outcomes []runOutcome
 	// NEXO_KB_EVAL_DEBUG=1: cobertura y similitud de los primeros resultados
 	// de las preguntas sin respuesta y de paráfrasis, sin umbral (para
 	// calibrar NEXO_KB_MIN_SIMILARITY y NEXO_KB_MIN_TEXT_SIMILARITY).
@@ -367,9 +406,19 @@ func TestEvalWikiCorpus(t *testing.T) {
 	for _, rc := range runs {
 		r := service.NewEvalRetriever(env.KB, env.ID(tm.Luis))
 		r.NoChanges = os.Getenv("NEXO_KB_EVAL_BASELINE") == "1"
-		switch rc.name {
-		case "default":
-		case "fts":
+		r.Rerank = "off" // la comparación es explícita: solo las variantes de R3 reordenan
+		switch {
+		case rc.useDefault:
+			r.Mode = "hybrid"
+			env.KB.ApplyR2(r2def)
+			if rc.rerank == "on" {
+				r.Rerank = "on"
+				o3 := r3def
+				o3.TopN, o3.Blend, o3.MinScore = rc.topN, rc.blend, rc.minScore
+				env.KB.ApplyR3(o3)
+			}
+		case rc.name == "default":
+		case rc.name == "fts":
 			r.Mode = "fts"
 		default:
 			r.Mode = "hybrid"
@@ -377,9 +426,20 @@ func TestEvalWikiCorpus(t *testing.T) {
 			o.Hybrid.Weights.Vector, o.Hybrid.Weights.Text, o.MinSimilarity, o.MinTextSimilarity = rc.vw, rc.tw, rc.minSim, rc.minTS
 			env.KB.ApplyR2(o)
 		}
+		liveBefore, runStart := 0, time.Now()
+		if rrCache != nil {
+			liveBefore = rrCache.liveCalls()
+		}
 		rep := eval.RunWith(ctx, set, r, eval.Options{})
 		t.Logf("== %s: %s", rc.name, rep.Summary())
 		t.Log("\n" + rep.Table())
+		if line := rep.RerankLine(); line != "" {
+			t.Log(line)
+		}
+		mode := r.Mode
+		if r.Rerank == "on" {
+			mode += "+rerank"
+		}
 		var misses []string
 		for _, q := range rep.Results {
 			if !q.Correct {
@@ -396,13 +456,42 @@ func TestEvalWikiCorpus(t *testing.T) {
 		sort.Strings(misses)
 		t.Log("fallos:\n" + strings.Join(misses, "\n"))
 		// RC-28: cada corrida queda en nexo_kb_eval_runs (del esquema de la prueba).
-		run, err := env.KB.RecordEvalRun(env.Ctx(), env.ID(tm.Ana), service.RecordEvalRunInput{Report: rep, Config: env.KB.EvalConfig(), Mode: r.Mode,
+		run, err := env.KB.RecordEvalRun(env.Ctx(), env.ID(tm.Ana), service.RecordEvalRunInput{Report: rep, Config: env.KB.EvalConfig(), Mode: mode,
 			Spaces: []string{"arquitectura"}, Note: "R0 wiki: " + rc.name})
 		if err != nil {
 			t.Fatal(err)
 		}
+		if rc.useDefault {
+			oc := runOutcome{name: rc.name, mode: mode, rep: rep, spec: rc, runID: run.ID, duration: time.Since(runStart)}
+			if rrCache != nil {
+				oc.liveCalls, oc.liveP50, oc.liveP95, oc.liveMax = rrCache.liveLatency(liveBefore)
+				st := rrCache.Stats()
+				oc.tokensIn, oc.tokensOut, oc.apiCalls = st.PromptTokens, st.OutputTokens, st.Calls
+				oc.cacheHits, oc.cacheMiss = rrCache.Hits, rrCache.Misses
+				oc.r3Settings = fmt.Sprintf("Modelo %s %s.", rrCache.Name(), rrCache.Model())
+				t.Logf("llamadas reales al proveedor en %s: %d (p50 %s, p95 %s, máx %s); acumulado: %d llamadas, %d tokens de entrada, %d de salida, %d fallos de lote, %d respuestas no válidas",
+					rc.name, oc.liveCalls, oc.liveP50.Round(time.Millisecond), oc.liveP95.Round(time.Millisecond), oc.liveMax.Round(time.Millisecond), st.Calls, st.PromptTokens, st.OutputTokens, st.FailedBatch, st.Malformed)
+			}
+			outcomes = append(outcomes, oc)
+		}
 		reports[rc.name] = map[string]any{"report": rep, "config": env.KB.EvalConfig(), "eval_run_id": run.ID}
 		order = append(order, rc.name)
+	}
+	if err := writeRerankMarkdown(os.Getenv("NEXO_KB_EVAL_MD"), outcomes); err != nil {
+		t.Fatal(err)
+	}
+	// NEXO_KB_EVAL_RUNS_OUT: las corridas tal como quedaron en nexo_kb_eval_runs
+	// (configuración sin claves, métricas totales y por clase), antes de que la
+	// prueba borre su esquema.
+	if out := os.Getenv("NEXO_KB_EVAL_RUNS_OUT"); out != "" {
+		recorded, err := env.KB.ListEvalRuns(env.Ctx(), env.ID(tm.Ana), "", false, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.MarshalIndent(recorded, "", "  ")
+		if err := os.WriteFile(out, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if out := os.Getenv("NEXO_KB_EVAL_OUT"); out != "" {
 		raw, _ := json.MarshalIndent(map[string]any{"runs": reports, "order": order, "load": res.Summary}, "", "  ")
