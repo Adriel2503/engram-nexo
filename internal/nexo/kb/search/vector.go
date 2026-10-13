@@ -155,7 +155,7 @@ func scanVecHits(rows *sql.Rows, err error) ([]vecHit, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []vecHit
 	for rows.Next() {
 		var h vecHit

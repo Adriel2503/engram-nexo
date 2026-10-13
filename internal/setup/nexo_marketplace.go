@@ -71,9 +71,9 @@ func nexoReplaceForeignClaudeMarketplace(claudeBin string) {
 	if source == "" || nexoIsForkSource(source) {
 		return
 	}
-	fmt.Fprintf(nexoStderr, "[nexo] el catálogo de plugins %q de Claude Code apunta a %s; se reemplaza por %s (plugin con la skill nexo-protocol)\n", nexoMarketplaceName, source, claudeCodeMarketplace)
+	_, _ = fmt.Fprintf(nexoStderr, "[nexo] el catálogo de plugins %q de Claude Code apunta a %s; se reemplaza por %s (plugin con la skill nexo-protocol)\n", nexoMarketplaceName, source, claudeCodeMarketplace)
 	if out, err := runCommand(claudeBin, "plugin", "marketplace", "remove", nexoMarketplaceName); err != nil {
-		fmt.Fprintf(nexoStderr, "[nexo] no se pudo quitar el catálogo %q (%s). Hágalo a mano y repita la instalación:\n  claude plugin marketplace remove %s\n  claude plugin marketplace add %s\n  engram setup claude-code\n", nexoMarketplaceName, strings.TrimSpace(string(out)), nexoMarketplaceName, claudeCodeMarketplace)
+		_, _ = fmt.Fprintf(nexoStderr, "[nexo] no se pudo quitar el catálogo %q (%s). Hágalo a mano y repita la instalación:\n  claude plugin marketplace remove %s\n  claude plugin marketplace add %s\n  engram setup claude-code\n", nexoMarketplaceName, strings.TrimSpace(string(out)), nexoMarketplaceName, claudeCodeMarketplace)
 	}
 }
 
@@ -123,8 +123,8 @@ func nexoReplaceForeignCodexMarketplace(codexBin, configPath string) {
 	if nexoIsForkSource(source) && (ref == "" || ref == codexMarketplaceRef) {
 		return
 	}
-	fmt.Fprintf(nexoStderr, "[nexo] el catálogo de plugins %q de Codex apunta a %s (rama %q); se reemplaza por %s --ref %s (plugin con la skill nexo-protocol)\n", nexoMarketplaceName, source, ref, codexMarketplace, codexMarketplaceRef)
+	_, _ = fmt.Fprintf(nexoStderr, "[nexo] el catálogo de plugins %q de Codex apunta a %s (rama %q); se reemplaza por %s --ref %s (plugin con la skill nexo-protocol)\n", nexoMarketplaceName, source, ref, codexMarketplace, codexMarketplaceRef)
 	if out, err := runCommand(codexBin, "plugin", "marketplace", "remove", nexoMarketplaceName); err != nil {
-		fmt.Fprintf(nexoStderr, "[nexo] no se pudo quitar el catálogo %q (%s). Hágalo a mano y repita la instalación:\n  codex plugin marketplace remove %s\n  codex plugin marketplace add %s --ref %s\n  engram setup codex\n", nexoMarketplaceName, strings.TrimSpace(string(out)), nexoMarketplaceName, codexMarketplace, codexMarketplaceRef)
+		_, _ = fmt.Fprintf(nexoStderr, "[nexo] no se pudo quitar el catálogo %q (%s). Hágalo a mano y repita la instalación:\n  codex plugin marketplace remove %s\n  codex plugin marketplace add %s --ref %s\n  engram setup codex\n", nexoMarketplaceName, strings.TrimSpace(string(out)), nexoMarketplaceName, codexMarketplace, codexMarketplaceRef)
 	}
 }

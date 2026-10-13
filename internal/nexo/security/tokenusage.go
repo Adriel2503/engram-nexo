@@ -66,7 +66,7 @@ func LoadTokensLastSeen(ctx context.Context, db *sql.DB, principalID string, tok
 	if err != nil {
 		return nil, fmt.Errorf("nexo: último uso de tokens: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id string
 		var ls TokenLastSeen

@@ -112,7 +112,6 @@ type vectorState struct {
 	embedders map[string]embed.Embedder // firma -> Embedder (índice activo de otro modelo)
 	active    *store.VectorIndex
 	activeAt  time.Time
-	ensured   bool
 }
 
 // setupR2 lee la configuración y, con un proveedor, monta el motor híbrido.

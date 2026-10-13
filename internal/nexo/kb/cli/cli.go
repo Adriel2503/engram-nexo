@@ -554,7 +554,7 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 		return err
 	}
 	if res.Notice != "" {
-		fmt.Fprintln(stdout, "Aviso: "+res.Notice)
+		_, _ = fmt.Fprintln(stdout, "Aviso: "+res.Notice)
 	}
 	if res.NoResults {
 		fmt.Fprintln(stdout, res.Message)
@@ -563,7 +563,7 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	for i, h := range res.Results {
 		fmt.Fprintf(stdout, "%d. %s\n", i+1, h.Citation)
 		if h.Match == "semantic" {
-			fmt.Fprintln(stdout, "   (por significado: no contiene los términos de la consulta)")
+			_, _ = fmt.Fprintln(stdout, "   (por significado: no contiene los términos de la consulta)")
 		}
 		if h.Match == "some_terms" {
 			fmt.Fprintln(stdout, "   (coincidencia parcial: no contiene todos los términos)")

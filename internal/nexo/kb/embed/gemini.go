@@ -68,7 +68,7 @@ func (g *gemini) call(ctx context.Context, hc *http.Client, texts []string, kind
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
 		return nil, err

@@ -77,7 +77,7 @@ func nexoReadEngramRoutes(t *testing.T) map[string]bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	out := map[string]bool{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

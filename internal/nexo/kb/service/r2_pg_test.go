@@ -36,7 +36,7 @@ func ensureVectorExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`CREATE EXTENSION IF NOT EXISTS vector SCHEMA public`); err != nil {
 		t.Skipf("pgvector no disponible en la base de pruebas: %v", err)
 	}
@@ -356,7 +356,7 @@ func vectorPlan(t *testing.T, env *kbtest.Env, dims int, typ string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var b strings.Builder
 	for rows.Next() {
 		var l string
