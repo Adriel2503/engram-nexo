@@ -56,7 +56,10 @@ func (a *api) register2b(h func(string, handler)) {
 	h("POST "+Prefix+"/admin/index:reindex", a.reindex)
 }
 
-// BaseURL devuelve la URL pública para los enlaces.
+// BaseURL devuelve la URL pública para los enlaces: NEXO_KB_PUBLIC_URL si
+// está configurada; si no, el esquema y el host que informó un proxy
+// confiable (WithForwardedOrigin, publicurl.go) o, sin proxy, los de la
+// conexión.
 func BaseURL(r *http.Request) string {
 	if v := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvPublicURL)), "/"); v != "" {
 		return v
@@ -66,7 +69,15 @@ func BaseURL(r *http.Request) string {
 		scheme = "https"
 	}
 	host := r.Host
-	if host == "" || strings.ContainsAny(host, " /\\@") {
+	if o, ok := forwardedOriginFrom(r.Context()); ok {
+		if o.scheme != "" {
+			scheme = o.scheme
+		}
+		if o.host != "" {
+			host = o.host
+		}
+	}
+	if !validHost(host) {
 		return ""
 	}
 	return scheme + "://" + host
