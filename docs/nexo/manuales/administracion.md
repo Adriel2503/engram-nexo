@@ -999,6 +999,43 @@ defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marc
 | `NEXO_DISABLE_INACTIVE_DAYS` | vacía (desactivado) | Deshabilita personas sin uso (mínimo 7 días) |
 | `NEXO_SA_STALE_DAYS` | `180` | Avisa de cuentas de servicio sin uso; nunca las deshabilita (`0` = sin aviso) |
 
+### 9.5 Panel del auditor
+
+Todo lo de 9.1 a 9.3 también se hace desde el panel, sin terminal. Entre con el token que le dio el
+superadmin (el auditor puede entrar con un token `read` para mirar; reconocer alertas y registrar la
+revisión piden un token `write`). El menú muestra la pestaña **Auditoría** a quien tiene
+`platform.audit.read` (auditor, admin y superadmin); cualquier otra persona recibe 403. El acceso
+denegado queda en los eventos de roles (`authz.denied`).
+
+| Pantalla | Ruta | Para qué sirve |
+|---|---|---|
+| Registro | `/dashboard/admin/audit` | Eventos de seguridad (logins, rechazos, tokens, permisos) o, con "Roles y permisos", los cambios de roles. Filtros: desde, hasta, actor, acción (exacta o con `*`), resultado y ámbito (proyecto; en roles, tipo y clave del ámbito). Páginas de 50 con "Ver más antiguos" |
+| Actividad | `/dashboard/admin/audit/activity` | Quién se conectó (última conexión, IP y cliente) y qué sincronizó (operación, proyecto, elementos) |
+| Historial | `/dashboard/admin/audit/history?key=` | Versiones de una memoria: quién la cambió y cuándo. Se llega desde "Ver historial" en el registro o escribiendo la clave. No muestra el contenido |
+| Integridad | `/dashboard/admin/audit/integrity` | Botón "Verificar ahora": recorre la cadena de hashes y dice "La cadena está íntegra" o muestra la fila alterada y los huecos |
+| Alertas | `/dashboard/admin/audit/alerts` | Pendientes y todas (incluida `service_account_stale`), con "Reconocer" y nota opcional |
+| Revisión de accesos | `/dashboard/admin/audit/access-review` | Roles, tokens y marcas por persona, última revisión (fecha y autor) y "Marcar revisión como hecha" |
+
+Cada pantalla usa las mismas funciones que la API y deja las mismas acciones de auditoría
+(`nexo.audit.read`, `nexo.alerts.read`, `nexo.alert.ack`, `nexo.access_review.complete`, ...):
+consultar el panel también queda registrado. El detalle de un evento muestra solo lo que la API ya
+expone y omite cualquier valor con forma de token, hash o cabecera `Authorization`. La hora va en UTC.
+
+#### Procedimiento de la revisión trimestral de accesos
+
+1. Entre al panel con un token `write` y abra **Auditoría > Revisión de accesos**.
+2. Compare el resumen con el de la revisión anterior (arriba aparece la fecha y el autor de la
+   última). Ajuste "días sin uso" si el criterio del trimestre es otro y pulse "Recalcular".
+3. Pulse "Solo con marcas" y recorra cada fila con la tabla de 9.3: `Inactiva`, `Sin uso`
+   (cuenta de servicio), `Token sin caducidad` y `Token nunca usado`. Las acciones (deshabilitar,
+   revocar, ajustar roles) se hacen en sus pantallas o con la API; esta pantalla no cambia accesos.
+4. Revise "Rol de plataforma" y "Roles por proyecto y espacio": quien ya no corresponde, se ajusta.
+5. Vuelva a esta pantalla, escriba en las notas qué encontró y qué hizo (por ejemplo "3 tokens
+   rotados, 2 personas deshabilitadas, 1 cuenta de servicio sin uso confirmada con su responsable") y
+   pulse **Marcar revisión como hecha**. Se guarda quién, cuándo, las notas y una huella del
+   contenido que vio (personas, roles y tokens); la pantalla muestra "Revisión registrada".
+6. Cierre además las alertas pendientes de la pestaña Alertas y compruebe la pestaña Integridad.
+
 ## 10. Tareas periódicas recomendadas
 
 | Frecuencia | Tarea | Quién | Cómo |
@@ -1009,7 +1046,7 @@ defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marc
 | Mensual | Renovar tokens que vencen en los próximos 30 días | Admin | 3.6 y `tokens_expiring_30d` |
 | Mensual | Revisar avisos de vencimiento y revisión de documentos y actualizar o retirar | Responsables | 7, 5.9 |
 | Mensual | Confirmar que la cadena de auditoría verifica y que la exportación firmada se copió fuera del host | Admin (con quien opera el servidor) | `GET /nexo/admin/audit/verify`; `servidor-produccion.md` §11.5 |
-| Trimestral | Revisión de accesos registrada | Admin y auditor | 9.3 |
+| Trimestral | Revisión de accesos registrada | Admin y auditor | 9.3 (API) o 9.5 (panel) |
 | Trimestral | Revisar miembros y responsables de cada espacio restringido | Responsables | 4.3 |
 | Trimestral | Revisar quién tiene rol de plataforma (dos superadmins, sin roles de más) | Superadmin | 2.4 |
 
@@ -1069,6 +1106,8 @@ defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marc
 | `GET /nexo/authz/v1/events`, `GET /nexo/admin/authz-events` | `platform.audit.read` |
 | `GET /nexo/admin/audit/verify`, `GET /nexo/admin/alerts`, `GET /nexo/admin/access-review` | `platform.audit.read` |
 | `POST /nexo/admin/alerts/<id>:ack`, `POST /nexo/admin/access-review:complete` | `platform.audit.read` y token `write` |
+| `GET /dashboard/admin/audit`, `/activity`, `/history`, `/integrity`, `/alerts`, `/access-review` (panel) | `platform.audit.read` |
+| `POST /dashboard/admin/audit/alerts/<id>/ack`, `POST /dashboard/admin/audit/access-review/complete` (panel) | `platform.audit.read` y token `write` |
 | `GET /nexo/kb/v1/admin/index`, `POST /nexo/kb/v1/admin/index:reindex` | `platform.settings` |
 
 ## Anexo B. Puntos por verificar

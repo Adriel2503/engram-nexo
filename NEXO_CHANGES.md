@@ -375,6 +375,25 @@ Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram
 
 **Archivos Nexo modificados.** `internal/nexo/authz/serviceaccounts.go` (función SQL, campos y marca), `service.go` (`WithServiceAccountStaleDays`); `internal/nexo/security/evidence/review.go` (filtro `kind = 'human'`, marca `stale`), `alerts.go` (regla `service_account_stale`); `cloudserver/nexo_authz_bridge.go` (días del aviso), `nexo_evidence.go` (pasada diaria y log de arranque), `nexo_service_accounts.go` (campos del detalle), `nexo_service_accounts_dashboard.go`; `dashboard/nexo_service_accounts.go`, `.templ` y `_templ.go` (regenerado solo ese archivo con templ v0.3.1001); `internal/nexo/nexocli/serviceaccounts.go`. Ningún archivo de Engram cambia.
 
+### SG-07 · Pantallas del panel para el auditor
+
+**Especificación.** Backlog SG-07 en `docs/nexo/mejoras-y-referencias.md`, diseño en `docs/nexo/panel/design.md` §9, manual `docs/nexo/manuales/administracion.md` §9.5. Reglas de base: RS-30..RS-34, CA-S09 (seguridad S4) y el rol auditor (R1).
+
+**Motivo.** La auditoría, la verificación de la cadena, las alertas y la revisión de accesos solo se podían usar con la API JSON. El auditor necesita hacerlo desde el panel y dejar constancia de la revisión trimestral.
+
+**Qué hace.** Pestaña "Auditoría" (para quien tiene `platform.audit.read`) con seis pantallas server-rendered (templ, sin JavaScript propio):
+- **Registro** `/dashboard/admin/audit`: eventos de seguridad (`cloud_auth_audit_log`) o, con `?src=roles`, de roles (`nexo_authz_events`). Filtros de actor, acción, fechas, resultado y ámbito; páginas de 50 por cursor; enlace "Ver historial" cuando el evento trae una clave de elemento.
+- **Actividad y presencia** `/dashboard/admin/audit/activity`: quién se conectó (IP y cliente) y qué sincronizó.
+- **Historial** `/dashboard/admin/audit/history?key=`: versiones de un elemento (sin su contenido).
+- **Integridad** `/dashboard/admin/audit/integrity[?run=1&table=]`: ejecuta `evidence.VerifyAll`; muestra "La cadena está íntegra" o la primera fila alterada, el total y los huecos. Es un GET (como la API), por eso sirve también con un token `read`.
+- **Alertas** `/dashboard/admin/audit/alerts` (pendientes o todas; incluye `service_account_stale`) y `POST .../alerts/{id}/ack` (`platform.audit.read` + token write): `evidence.AckAlert`.
+- **Revisión de accesos** `/dashboard/admin/audit/access-review` y `POST .../access-review/complete` (`platform.audit.read` + token write): `evidence.BuildAccessReview` y `CompleteReview`; muestra fecha y autor de la última revisión.
+- Mismas funciones y mismas acciones de auditoría que la API (`nexo.audit.read`, `nexo.alerts.read`, `nexo.alert.ack`, `nexo.access_review.complete`, ...); si no se puede registrar la lectura, no se entregan datos. Sesión del panel con la identidad del token (un token `read` lee y no cambia nada), CSRF del panel de conocimiento y POST con redirección (303). Los errores internos pasan por `nexoInternalError`. El detalle de un evento omite claves con nombre de secreto y valores con forma de token, hash o cabecera Authorization.
+
+**Archivos nuevos.** `internal/cloud/cloudserver/nexo_audit_dashboard.go` (rutas, acceso, registro, actividad, historial), `nexo_audit_dashboard_evidence.go` (integridad, alertas, revisión), `nexo_audit_dashboard_test.go` (Postgres: acceso del auditor, el admin y el superadmin, 403 para un miembro, filtros y paginación, detalle sin secretos, integridad íntegra y rota por alteración y borrado, reconocer y registrar con CSRF, token read y mismos eventos que la API, sin tokens ni hashes en el HTML), `internal/cloud/dashboard/nexo_audit.go`, `nexo_audit.templ` y `nexo_audit_templ.go` (templ v0.3.1001).
+
+**Archivos Nexo modificados.** `cloudserver/nexo_admin_routes.go` (registro, +1 línea), `nexo_routes_test.go` (prefijo `/dashboard/admin/audit` en `nexoIsNexoPath`), `cloudstore/nexo_queries.go` (filtro `Project` de `NexoAuditQuery`; la API no lo usa), `dashboard/nexo_brand.templ` y `nexo_brand_templ.go` (pestaña "Auditoría", +3 líneas), `dashboard/static/nexo_theme.css` (bloque `nxa-` al final). Ningún archivo de Engram cambia.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
