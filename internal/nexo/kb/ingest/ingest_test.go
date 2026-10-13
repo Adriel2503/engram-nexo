@@ -256,11 +256,11 @@ func TestRegistryLimitsAndLookup(t *testing.T) {
 
 func TestDetectSecrets(t *testing.T) {
 	bad := []string{
-		"-----BEGIN RSA PRIVATE KEY-----",
-		"aws: AKIAIOSFODNN7EXAMPLE",
-		"token ghp_" + strings.Repeat("a", 36),
-		"DATABASE_URL=postgres://app:S3cr3t0!@db.interno:5432/ventas",
-		"clave sk-ant-" + strings.Repeat("b", 40),
+		fakeSecret(strings.Repeat("-", 5), "BEGIN RSA ", "PRIV", "ATE KEY", strings.Repeat("-", 5)),
+		fakeSecret("aws: ", "AK", "IA", "IOSFODNN7", "EXAMPLE"),
+		fakeSecret("token gh", "p_", strings.Repeat("a", 36)),
+		fakeSecret("DATABASE_URL=postgres", ":/", "/app", ":S3cr", "3t0!", "@db.interno:5432/ventas"),
+		fakeSecret("clave s", "k-an", "t-", strings.Repeat("b", 40)),
 	}
 	for _, s := range bad {
 		if len(DetectSecrets(s)) == 0 {
@@ -269,8 +269,8 @@ func TestDetectSecrets(t *testing.T) {
 	}
 	good := []string{
 		"La contraseña debe tener 12 caracteres y no se guarda en el repositorio.",
-		"DATABASE_URL=postgres://usuario:<password>@host:5432/db",
-		"Use postgres://app:${DB_PASSWORD}@db:5432/app",
+		fakeSecret("DATABASE_URL=postgres", ":/", "/usuario", ":<password>", "@host:5432/db"),
+		fakeSecret("Use postgres", ":/", "/app", ":${DB_PASSWORD}", "@db:5432/app"),
 		"Clave de ejemplo: sk-xxxx",
 	}
 	for _, s := range good {

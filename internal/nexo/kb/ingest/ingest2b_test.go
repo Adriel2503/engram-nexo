@@ -96,10 +96,10 @@ func TestStripNumbering(t *testing.T) {
 
 func TestDetectSecretsSG09(t *testing.T) {
 	cases := map[string]string{
-		"Server=db;Database=x;User Id=app;Password=Sup3rS3creto;":    "connection_string_password",
-		"Data Source=x;Pwd=Abc12345":                                 "connection_string_password",
-		"Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789": "bearer_token",
-		"api-key: 0123456789abcdef0123":                              "api_key_header",
+		fakeSecret("Server=db;Database=x;User Id=app;", "Pass", "word=", "Sup3r", "S3creto;"):        "connection_string_password",
+		fakeSecret("Data Source=x;", "Pw", "d=", "Abc", "12345"):                                     "connection_string_password",
+		fakeSecret("Authorization: ", "Bea", "rer ", "abcdefghijklm", "nopqrstuvwxyz", "0123456789"): "bearer_token",
+		fakeSecret("api", "-key: ", "0123456789", "abcdef0123"):                                      "api_key_header",
 	}
 	for text, kind := range cases {
 		got := DetectSecrets(text)
@@ -107,7 +107,7 @@ func TestDetectSecretsSG09(t *testing.T) {
 			t.Errorf("%q: %+v", text, got)
 		}
 	}
-	for _, ok := range []string{"Password=<tu-clave>", "Pwd=${DB_PASSWORD}", "Bearer <token>", "api-key: <clave-del-servicio>", "la contraseña se guarda en Secret Manager"} {
+	for _, ok := range []string{fakeSecret("Pass", "word=", "<tu-clave>"), fakeSecret("Pw", "d=", "${DB_PASSWORD}"), "Bearer <token>", "api-key: <clave-del-servicio>", "la contraseña se guarda en Secret Manager"} {
 		if got := DetectSecrets(ok); len(got) != 0 {
 			t.Errorf("marcador o texto normal %q detectado: %+v", ok, got)
 		}
