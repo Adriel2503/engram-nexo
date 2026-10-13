@@ -202,3 +202,20 @@ Rutas relativas a `repository/WeKnora/`.
 | Búsqueda por expresión regular | `internal/mcpserver/tools_retrieve.go:197-264`; filtro en `internal/agent/tools/search_knowledge.go:118-137` | Extrae literales, busca por texto y filtra los resultados con la expresión (sin distinguir mayúsculas) | Adaptar | Modo `exact` del `Retriever`; preselección con FTS `simple` o `ILIKE` dentro de los espacios visibles; límite de longitud de la expresión |
 | MMR | `internal/reranking/mmr.go:11-124` | Selección por Maximal Marginal Relevance con Jaccard de tokens e índice invertido (sin embeddings) | Casi tal cual | Tokenizar con la normalización de Nexo (minúsculas, sin tildes) en vez de jieba; tope por documento (RC-09) como alternativa más simple |
 | Pasaje para el reordenador | `internal/reranking/passage.go:115-187`; `internal/application/service/knowledge_index_content.go:12-21` | Título + ruta de títulos + cuerpo como texto indexado y como pasaje del reordenador | Idea (pocas líneas) | Usar `heading_path` y el título de la versión |
+
+## 10. CortexDB (referencia, 2026-10-13)
+
+`github.com/liliang-cn/cortexdb` (MIT, Go, unas 160 000 líneas, un autor principal, 342 estrellas,
+v2.125.0, muy activo), descargado en `nexo_ia/repository/cortexdb` (2026-10-13). Memoria de IA y grafo
+de conocimiento en un archivo SQLite, con plugins para Claude Code y Codex, servidor gRPC compartido
+opcional y Postgres + pgvector como alternativa. No sirve como base de Nexo: llaves de solo dos niveles
+(lectura o escritura más un ámbito) sin roles por espacio, sin auditoría inmutable y gRPC en texto
+plano por diseño (el README pide poner TLS por fuera). Ideas a evaluar:
+
+| ID | Idea | Origen en CortexDB | Valor | Fase | Prioridad | Estado |
+|---|---|---|---|---|---|---|
+| KP-14 | Importar las memorias que el dev ya tiene (`CLAUDE.md`, `AGENTS.md`, memorias de Codex y de Claude Code) como memorias de proyecto o propuestas, al dar de alta | `import_agent_memory`, `pkg/importflow` | Alta sin empezar de cero | E3 | M | pendiente |
+| KP-15 | Marcar como reemplazada una memoria que otra más nueva vuelve falsa: se conserva, pero no se recupera como vigente (encaja con `at` / `known_at`) | Captura de `cortexdb-live` (`superseded`), `pkg/agentmem` | Menos memorias contradictorias | Con KP-04 | M | pendiente |
+| RC-32 | Planificar la búsqueda antes de consultar: un modelo chico convierte la pregunta en palabras clave en español e inglés, alias, entidades y modo de búsqueda; un "ok" no busca nada | Recuperación planificada de `cortexdb-live` | Mejor recuperación y menos consultas inútiles | R4 | M | pendiente |
+| RC-33 | Ontología con acciones gobernadas (tipos de objeto, relaciones y acciones permitidas con validación) sobre el conocimiento publicado. Evaluar junto con el grafo de R5; no reemplaza el flujo propuesta, aprobación y publicación de Nexo | Ontología "estilo Palantir", SHACL | Consultas de varios saltos y reglas sobre relaciones | R5 | B | pendiente (evaluar) |
+| OP-07 | Transporte gRPC (HTTP/2 + protobuf) entre el cliente y el servidor en lugar de JSON sobre HTTP. Solo si la sincronización o la búsqueda muestran que la serialización es el cuello de botella; siempre con TLS | Servidor `cortexdb-grpc` | Menos latencia y bytes por llamada | Solo si se mide | B | decidido: no por ahora |
