@@ -231,6 +231,7 @@ var ProfileAgent = map[string]bool{
 	"mem_session_summary":   true, // end-of-session summary — referenced 16 times
 	"mem_session_start":     true, // register session start
 	"mem_session_end":       true, // mark session completed
+	"mem_consolidate":       true, // explicit preview/confirmation for atomic curation
 	"mem_get_observation":   true, // full observation content after search — referenced 4 times
 	"mem_suggest_topic_key": true, // stable topic key for upserts — referenced 3 times
 	"mem_capture_passive":   true, // extract learnings from text — referenced in Gemini/Codex protocol
@@ -320,7 +321,7 @@ var coreTools = []coreToolDesc{
 var deferredTools = []string{
 	"mem_update", "mem_review", "mem_pin", "mem_unpin", "mem_suggest_topic_key",
 	"mem_session_start", "mem_session_end", "mem_doctor", "mem_capture_passive",
-	"mem_stats", "mem_delete", "mem_timeline", "mem_merge_projects",
+	"mem_stats", "mem_delete", "mem_timeline", "mem_merge_projects", "mem_consolidate",
 }
 
 // memoryWritingTools contains every registered tool that can mutate persistent
@@ -329,7 +330,7 @@ var memoryWritingTools = []string{
 	"mem_save", "mem_update", "mem_review", "mem_delete",
 	"mem_save_prompt", "mem_pin", "mem_unpin", "mem_session_summary",
 	"mem_session_start", "mem_session_end", "mem_capture_passive",
-	"mem_merge_projects", "mem_judge", "mem_compare",
+	"mem_merge_projects", "mem_judge", "mem_compare", "mem_consolidate",
 }
 
 func hasRegisteredMemoryWriter(allowlist map[string]bool) bool {
@@ -439,6 +440,7 @@ func shouldRegister(name string, allowlist map[string]bool) bool {
 // registerTools registers all enabled MCP tools on the given server.
 func registerTools(srv *server.MCPServer, s *store.Store, cfg MCPConfig, allowlist map[string]bool, activity *SessionActivity) {
 	writeQueue := newWriteQueue(defaultMCPWriteQueueSize)
+	registerConsolidate(srv, s, allowlist, writeQueue)
 
 	// ─── mem_search (profile: agent, core — always in context) ─────────
 	if shouldRegister("mem_search", allowlist) {
@@ -747,6 +749,9 @@ Examples:
 				),
 				mcp.WithNumber("max_bytes",
 					mcp.Description("Total context budget in bytes. Default 16384; values above 65536 are clamped to 65536."),
+				),
+				mcp.WithBoolean("older_history",
+					mcp.Description("Include a bounded Older History overview with counts and sampled titles outside the recent window."),
 				),
 				mcp.WithBoolean("compact",
 					mcp.Description("Drop the inline content preview from observation bullets to save tokens."),
@@ -2067,11 +2072,16 @@ func truncateMemContextUTF8(s string, maxBytes int) string {
 	return s[:maxBytes]
 }
 
+var contextHistoryFormatter = func(s *store.Store, project, scope string, opts store.ContextOptions) (string, error) {
+	return s.FormatContextWithOptions(project, scope, opts)
+}
+
 func handleContext(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		projectOverride, _ := req.GetArguments()["project"].(string)
 		scope, _ := req.GetArguments()["scope"].(string)
 		compact, _ := req.GetArguments()["compact"].(bool)
+		olderHistory, _ := req.GetArguments()["older_history"].(bool)
 
 		// Resolve project: validate override or auto-detect (REQ-310, REQ-311)
 		detRes, err := resolveReadProjectWithProcessOverride(s, projectOverride, cfg.DefaultProject)
@@ -2116,10 +2126,11 @@ func handleContext(s *store.Store, cfg MCPConfig, activity *SessionActivity) ser
 		if contextBudget < 1 {
 			contextBudget = 1
 		}
-		contextResult, err := s.FormatContextWithOptions(contextProject, scope, store.ContextOptions{
-			MaxBytes: contextBudget,
-			Pinned:   memContextMaxPinned,
-			Compact:  compact,
+		contextResult, err := contextHistoryFormatter(s, contextProject, scope, store.ContextOptions{
+			MaxBytes:     contextBudget,
+			Pinned:       memContextMaxPinned,
+			Compact:      compact,
+			OlderHistory: olderHistory,
 		})
 		if err != nil {
 			return mcp.NewToolResultError("Failed to get context: " + err.Error()), nil
@@ -3692,13 +3703,16 @@ func resolveFallbackSessionID(s *store.Store, project string) (string, error) {
 		if err == nil {
 			switch len(ids) {
 			case 0:
-				return defaultSessionID(project), nil
+				return s.ResolveManualSession(project, currentWorkingDirectory())
 			case 1:
 				return ids[0], nil
 			default:
 				return "", fmt.Errorf("multiple active runtime sessions match the current project and directory; provide session_id, end other active matching sessions, or save independently with engram save. The resolved project is %q; pass that exact name as the --project value and never invent another. This writes to an independent project manual-save session and does not bind it to this MCP session", project)
 			}
 		}
+	}
+	if s != nil {
+		return s.ResolveManualSession(project, currentWorkingDirectory())
 	}
 	return defaultSessionID(project), nil
 }

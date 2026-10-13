@@ -257,11 +257,11 @@ it. No trace file is created automatically.
 ## Quick start
 
 ```bash
-pi install npm:gentle-engram@0.4.1
+pi install npm:gentle-engram@0.4.2
 pi-engram init
 ```
 
-Engram core `3.3.1` and this source version of Go's `engram setup pi` pin `0.4.1`. Older core `3.3.0` binaries pin `0.3.0`; use the explicit install command above to select `0.4.1` with an older core. Earlier `0.1.16` still registers Engram MCP during `pi-engram init`, so do not use it for native-only setup.
+This source version of Go's `engram setup pi` pins `0.4.2`. Released core `3.3.1` pins `0.4.1`, and older core `3.3.0` binaries pin `0.3.0`; use the explicit install command above to select `0.4.2` with an older core. Earlier `0.1.16` still registers Engram MCP during `pi-engram init`, so do not use it for native-only setup.
 
 Restart Pi after installation, then ask Pi what it remembers about the current project or call `mem_context`.
 
@@ -332,6 +332,32 @@ Pi sends eligible non-Engram tool results to Engram for passive scanning after r
 - Prompt context tied to meaningful saved observations
 - Cross-machine/team memory once a project is enrolled in Engram Cloud
 
+### Injected memory contract
+
+The agent MUST follow this protocol without waiting for activation.
+
+The Pi-native Memory Protocol requires proactive `mem_save` for significant decisions,
+conventions, workflow/tool choices, completed non-obvious work, discoveries and
+preferences, including user confirmation or rejection and a self-check after every
+task. Save verified conclusions, not routine progress or sensitive content.
+
+Memory attribution comes from Pi's host session and confirmed Engram registration,
+not a model-supplied `session_id`. Use native `mem_*` tools rather than alternative
+MCP names. Recall starts with `mem_context`; ordinary search is project-scoped AND.
+An empty scoped search gets one `match_mode: "any", all_projects: true` retry before
+concluding that no memory exists.
+
+Explicit session closure or handoff requires a structured `mem_session_summary`;
+ordinary task completion or saying "done" does not summarize or end the session.
+Outcome-specific [compaction guidance](#compaction-recovery) takes precedence over
+manual fallback instructions. Memory failure MUST NOT prevent the user-facing answer.
+
+Automatic passive scanning covers eligible tool outputs, **not final assistant
+responses**. A final `## Key Learnings:` section alone is not persisted by Pi; save
+significant response learnings explicitly with `mem_save` or `mem_capture_passive`
+before replying. Protocol sandbox tests check instruction delivery, not autonomous
+agent compliance.
+
 ### Automatic user-prompt capture
 
 Prompts with more than 10 trimmed characters are captured once at
@@ -350,6 +376,10 @@ its queues without a new `before_agent_start` capture.
 
 This changes automatic capture only, not explicit `mem_save_prompt` calls, and
 does not remove previously stored synthetic prompts.
+
+## Canonical topic workflow
+
+A memory is an evolving topic, not a log entry. Before writing, search the intended project and scope with `mem_search`, then read plausible candidates in full with `mem_get_observation`. If the topic already exists, update it with `mem_update`: keep the same `topic_key`, preserve every still-valid fact, rewrite only what changed, and record superseded facts as history inside the content. Use `mem_save` with a deliberate new `topic_key` only for genuinely uncovered topics. Do not merge across projects or scopes, and do not treat a matching suggested key or similar title as proof of identity.
 
 ## Private blocks
 
@@ -436,6 +466,31 @@ This local-port remedy requires `ENGRAM_URL` to be unset. `ENGRAM_PORT` alone ne
 
 ## Configuration
 
+### Startup safety policy
+
+`gentle-engram` 0.4.2 advertises `engram.startupPolicy: 1` in package metadata.
+Launchers can set `ENGRAM_STARTUP_POLICY=disabled` before loading the extension
+when safe use of an existing store cannot be established. Pi remains usable:
+no memory tools, memory protocol, bridge responder, normal lifecycle hooks,
+subprocesses (including `instance-id` and `version`), HTTP requests, retries or
+shutdown writes are registered or dispatched. Only a session-start warning/status
+hook runs, with backup/update/restart/recheck guidance.
+
+Absent policy preserves standalone behavior. Literal `allow` also preserves
+normal startup; it is **not** evidence of schema compatibility or permission to
+migrate. Every other supplied value, including empty, whitespace or wrong case,
+fails closed. Policy is read when the extension loads; restart/reload Pi after
+changing it. It takes precedence over an explicit `ENGRAM_URL`.
+
+Optional `ENGRAM_STARTUP_NOTICE` appends display-only warning text. The provider
+never executes or interprets it as commands, never injects it into the memory
+protocol, and does not use it to enable memory. Back up the existing data, update
+Engram and restart its server, then recheck safety before enabling memory.
+This controls this native extension only, not separately configured MCP clients
+or other agents. Older provider packages do not enforce this policy; launchers
+must verify the metadata contract rather than assuming an environment variable
+alone protects the store.
+
 ### Existing Engram server
 
 Use an already running Engram HTTP server:
@@ -465,13 +520,15 @@ The Pi extension treats absent, empty, and whitespace-only `ENGRAM_URL`, `ENGRAM
 | `ENGRAM_URL`      | unset    | Adopt an already running Engram HTTP server (for example `http://127.0.0.1:7437`). When set, the extension skips spawning `engram serve` and skips local instance-identity ownership checks; the server is treated as externally managed.                                                |
 | `ENGRAM_BIN`      | `engram` | Binary override. The named executable is resolved from `PATH` and used to auto-start the local server, resolve its instance identity (`instance-id`), and report its version (`version`). Binaries older than v2.0.0-rc.11 cannot resolve an identity and are reported with upgrade guidance. |
 | `ENGRAM_PORT`     | `7437`   | Port of the local server the extension spawns and probes when `ENGRAM_URL` is unset.                                                                                                                                                                                                       |
+| `ENGRAM_STARTUP_POLICY` | unset | `allow` preserves normal startup; `disabled` and all other supplied values disable the native provider before registration or effects. |
+| `ENGRAM_STARTUP_NOTICE` | unset | Display-only text appended to the disabled-memory warning; never executed. |
 | `ENGRAM_DATA_DIR` | unset    | Data directory inherited by the spawned `engram serve` process. When unset, the server stores memory in `~/.engram` (`%USERPROFILE%\.engram` on Windows).                                                                                                                               |
 
 ## Install command details
 
 With this Pi package version, `pi-engram init` updates Pi-owned config in the Pi agent directory:
 
-- `settings.json`: ensures `npm:gentle-engram@0.4.1` is declared, replacing affected `npm:gentle-engram@0.1.8`, `npm:gentle-engram@0.1.11`, `npm:gentle-engram@0.1.12`, `npm:gentle-engram@0.1.14`, `npm:gentle-engram@0.1.15`, `npm:gentle-engram@0.1.16`, `npm:gentle-engram@0.2.0`, `npm:gentle-engram@0.3.0`, and `npm:gentle-engram@0.4.0` pins when present. It does not add `npm:pi-mcp-adapter` and leaves an existing adapter entry untouched.
+- `settings.json`: ensures `npm:gentle-engram@0.4.2` is declared, replacing affected `npm:gentle-engram@0.1.8`, `npm:gentle-engram@0.1.11`, `npm:gentle-engram@0.1.12`, `npm:gentle-engram@0.1.14`, `npm:gentle-engram@0.1.15`, `npm:gentle-engram@0.1.16`, `npm:gentle-engram@0.2.0`, `npm:gentle-engram@0.3.0`, `npm:gentle-engram@0.4.0`, and `npm:gentle-engram@0.4.1` pins when present. It does not add `npm:pi-mcp-adapter` and leaves an existing adapter entry untouched.
 - `mcp.json`: never created or changed by init. Existing `mcpServers.engram` triggers a warning with its exact config path. Manually remove only that key and restart/reload Pi to guarantee native-only agent writes; preserve unrelated MCP servers.
 
 `engram setup pi` also auto-pins `npmCommand` in Pi's `settings.json` when [mise](https://mise.jdx.dev/) is detected in `PATH`. It sets `npmCommand` to `["mise", "exec", "node@<version>", "--", "npm"]` so Pi always uses the mise-managed Node version. Existing `npmCommand` values are never overwritten; if mise is not found, this step is a no-op.
@@ -514,7 +571,7 @@ There is no automatic inference: editing files in another repository never chang
 
 | Symptom                                                      | Fix                                                                                                                                                                                                                                                                     |
 | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mem_*` tools are missing                                    | Install/verify `npm:gentle-engram@0.4.1`, run `pi-engram init`, then restart Pi. Earlier `0.1.16` init still registers Engram MCP; do not use it for native-only setup.                                                                                                 |
+| `mem_*` tools are missing                                    | Install/verify `npm:gentle-engram@0.4.2`, run `pi-engram init`, then restart Pi. Earlier `0.1.16` init still registers Engram MCP; do not use it for native-only setup.                                                                                                 |
 | Pi cannot find `engram`                                      | Set `ENGRAM_BIN=/absolute/path/to/engram`.                                                                                                                                                                                                                              |
 | Session capture should use another server                    | Set `ENGRAM_URL=http://host:7437`.                                                                                                                                                                                                                                      |
 | Pi shows `error MCP: 0/N servers` but `mem_*` works          | That status covers Pi's MCP servers, not Engram's Pi-native HTTP tools. Check `~/.pi/agent/mcp.json` for stale/unreachable servers such as remote OAuth services. |

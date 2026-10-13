@@ -25,6 +25,12 @@ const ENGRAM_PORT = Number.parseInt(optionalEnvironmentValue(process.env.ENGRAM_
 const CONFIGURED_ENGRAM_URL = optionalEnvironmentValue(process.env.ENGRAM_URL);
 const ENGRAM_URL = CONFIGURED_ENGRAM_URL || `http://127.0.0.1:${ENGRAM_PORT}`;
 const ENGRAM_BIN = optionalEnvironmentValue(process.env.ENGRAM_BIN) ?? "engram";
+// Only absence preserves standalone behavior; every supplied value except literal
+// "allow" fails closed, including empty or whitespace values. Never execute notice text.
+const ENGRAM_STARTUP_ALLOWED = process.env.ENGRAM_STARTUP_POLICY === undefined
+  || process.env.ENGRAM_STARTUP_POLICY === "allow";
+const ENGRAM_DISABLED_NOTICE = "Engram memory is disabled by startup policy. Back up your existing Engram data, update Engram, restart its server and Pi, then recheck memory safety."
+  + (process.env.ENGRAM_STARTUP_NOTICE ? ` ${process.env.ENGRAM_STARTUP_NOTICE}` : "");
 
 // Only allowlisted metadata is logged; never pass request bodies, identities, or errors.
 type SessionTraceEvent =
@@ -91,28 +97,78 @@ const ENGRAM_TOOL_NAMES = new Set<string>(ENGRAM_TOOLS);
 const MEMORY_INSTRUCTIONS = `## Engram Persistent Memory — Protocol
 
 You have access to Engram, a persistent memory system that survives across sessions and compactions.
+The agent MUST follow this protocol without waiting for activation.
 These instructions are injected by gentle-engram, the Pi-native memory provider. Use the memory tools named in this section as the authoritative Pi memory contract. Do not infer alternative Engram tool names from other integrations unless the user explicitly asks you to use them.
 
-### WHEN TO SAVE (mandatory — not optional)
+### CANONICAL TOPIC WORKFLOW (mandatory — not optional)
 
-Call \`mem_save\` IMMEDIATELY after any of these:
+A memory is an evolving topic, not a log entry. Follow this workflow for every learning worth persisting.
+
+1. **SEARCH first.** Use \`mem_search\` on the bounded subject in the intended project and scope before writing.
+2. **READ in full.** Use \`mem_get_observation\` on plausible candidates; search snippets are not enough to decide identity.
+3. **SAME bounded topic?** Use \`mem_update\` by ID. Keep the existing \`topic_key\`, preserve every still-valid fact, and rewrite only what changed. Record superseded facts as history inside the content instead of leaving competing current truths.
+4. **Genuinely new topic?** Use \`mem_save\` with a deliberate, distinct \`topic_key\`. If the learning is already covered, write nothing.
+5. **Ambiguous identity or failed lookup?** Do not blindly overwrite and do not fall back to a duplicate save. A failed read is not evidence of absence.
+6. **Never merge across projects or scopes.** A matching suggested \`topic_key\` or a similar title is a hint, not proof of identity.
+
+Save when one of these happens:
 - Bug fix completed
 - Architecture or design decision made
 - Non-obvious discovery about the codebase
 - Configuration change or environment setup
 - Pattern established (naming, structure, convention)
 - User preference or constraint learned
+- Feature implemented with a non-obvious approach
+- Notion/Jira/GitHub artifact created or updated with significant content
+- Team convention documented or established
+- Workflow change agreed upon
+- Tool or library choice made with tradeoffs
+- Gotcha, edge case, or unexpected behavior found
+- User confirms or rejects a recommendation or approach
+- User expresses a preference or makes a decision after presented options
+- Discussion concludes with a clear direction chosen
+
+For completed bug fixes, include the root cause in the persisted content.
+After EVERY task, self-check: "Did I or the user make a decision, confirm or reject
+an approach, express a preference, fix a bug, learn something non-obvious, or
+establish a convention?" If yes, follow the canonical topic workflow now:
+update an existing topic, save a genuinely new topic, or write nothing if covered.
+Save verified, significant conclusions rather than routine progress, source dumps,
+or speculation. Never save secrets, credentials, private content, or personal data.
 
 Format for \`mem_save\`:
 - **title**: Verb + what — short, searchable
 - **type**: bugfix | decision | architecture | discovery | pattern | config | preference
 - **scope**: \`project\` (default) | \`personal\` | \`global\`
-- **topic_key**: stable key for evolving decisions when relevant
+- **topic_key**: stable, deliberate key for the topic; reuse via \`mem_update\` rather than duplicating
 - **content**:
   **What**: One sentence — what was done
   **Why**: What motivated it
   **Where**: Files or paths affected
   **Learned**: Gotchas, edge cases, things that surprised you
+
+Format for \`mem_update\`:
+- **id**: observation ID from \`mem_search\` / \`mem_get_observation\`
+- **expected_project**: project that owns the observation
+- **topic_key**: keep the existing key unless the topic itself changed
+- **content**: full rewritten content including every still-valid fact, with changed or superseded facts recorded as history
+
+### NATIVE SESSION ATTRIBUTION
+
+Native \`mem_save\`, \`mem_save_prompt\`, \`mem_session_summary\`, and \`mem_capture_passive\`
+derive attribution from the current Pi host session and confirmed Engram registration.
+Do not invent or override \`session_id\`; gentle-engram owns the effective persisted
+identity, including resumed continuations and explicit cross-project targets.
+\`mem_session_end\` accepts only the current Pi host session ID; the extension
+resolves the effective persisted ID. Ordinary task completion does not end it.
+
+### PASSIVE CAPTURE
+
+Pi automatically scans eligible non-Engram tool outputs after redaction; only
+recognized structured learnings are persisted, not arbitrary output.
+Final assistant responses are not automatically captured. For significant learnings
+in a response, follow the canonical topic workflow before replying;
+a final \`## Key Learnings:\` section alone is not a persistence guarantee.
 
 ### DELIVERY GUARANTEE
 
@@ -1053,6 +1109,9 @@ function spawnAndWaitForEngram(deadline: number, expectedID = ""): Promise<void>
 }
 
 async function initializeEngramServer(): Promise<void> {
+  // Defense in depth: a future caller must not bypass policy via an explicit URL
+  // or reach the potentially state-writing instance-id command.
+  if (!ENGRAM_STARTUP_ALLOWED) throw new Error(ENGRAM_DISABLED_NOTICE);
   if (CONFIGURED_ENGRAM_URL !== undefined) return;
   const deadline = Date.now() + ENGRAM_STARTUP_TIMEOUT_MS;
   const instanceID = localEngramInstanceID = localInstanceID(Math.max(1, deadline - Date.now()));
@@ -1293,7 +1352,7 @@ function supportsRootSessionResume(health: unknown): boolean {
 function rootResumeCompatibilityError(health: unknown): Error {
   const version = health && typeof health === "object" && typeof (health as { version?: unknown }).version === "string"
     ? (health as { version: string }).version : "unknown";
-  return new Error(`gentle-engram 0.4.1 cannot resume this Pi session with Engram core ${version}. Requires capabilities.root_session_resume: true or a supported release >= 3.0.0 without an explicit negative or malformed capability. Upgrade the Engram core and restart its server, then retry. No resumed identity was adopted.`);
+  return new Error(`gentle-engram 0.4.2 cannot resume this Pi session with Engram core ${version}. Requires capabilities.root_session_resume: true or a supported release >= 3.0.0 without an explicit negative or malformed capability. Upgrade the Engram core and restart its server, then retry. No resumed identity was adopted.`);
 }
 
 async function registerEffectiveSession(ctx: SessionContext, sessionProject: string, appendEntry: ExtensionAPI["appendEntry"] | undefined, fetch: EngramFetcher = engramFetch): Promise<string> {
@@ -1770,7 +1829,7 @@ const optionalBoolean = (description: string) => Type.Optional(Type.Boolean({ de
 
 const MEMORY_TOOL_SCHEMAS: Record<string, ReturnType<typeof Type.Object>> = {
   mem_search: Type.Object({
-    query: Type.String({ description: "Search query — natural language or keywords" }),
+    query: Type.String({ description: "Search query — natural language or keywords. Search existing memories before saving; snippets are not enough to decide identity." }),
     type: optionalString("Filter by observation type"),
     project: optionalString("Filter by project name"),
     scope: optionalString("Filter by scope: project, personal, or global. Omit to apply no scope filter."),
@@ -1780,22 +1839,22 @@ const MEMORY_TOOL_SCHEMAS: Record<string, ReturnType<typeof Type.Object>> = {
   }),
   mem_save: Type.Object({
     title: Type.String({ description: "Short, searchable title" }),
-    content: Type.String({ description: "Structured memory content" }),
+    content: Type.String({ description: "Structured memory content. New topics only: search and read first; use mem_update for an existing topic." }),
     type: optionalString("Observation type/category"),
     scope: optionalString("Scope: project, personal, or global"),
-    topic_key: optionalString("Stable topic key for upserts"),
+    topic_key: optionalString("Stable, deliberate topic key; reuse via mem_update rather than duplicating"),
     project: optionalString("Optional explicit project"),
     cwd: optionalString("Optional directory whose Engram project receives this write; must agree with project when both are set"),
     capture_prompt: optionalBoolean("Capture the available session/project prompt for this save (default true); does not disable lifecycle capture"),
   }),
   mem_update: Type.Object({
-    id: Type.Number({ description: "Observation ID to update" }),
+    id: Type.Number({ description: "Observation ID to update. Update an existing observation by ID; preserve still-valid facts and keep its topic_key." }),
     expected_project: Type.String({ description: "Explicit expected owner of the observation" }),
     title: optionalString("New title"),
     content: optionalString("New content"),
     type: optionalString("New type/category"),
     scope: optionalString("New scope: project, personal, or global"),
-    topic_key: optionalString("New topic key"),
+    topic_key: optionalString("Keep the existing topic_key unless the topic itself changed"),
   }),
   mem_delete: Type.Object({
     id: Type.Number({ description: "Observation ID to delete" }),
@@ -1833,7 +1892,7 @@ const MEMORY_TOOL_SCHEMAS: Record<string, ReturnType<typeof Type.Object>> = {
     project: optionalString("Filter by project name"),
   }),
   mem_get_observation: Type.Object({
-    id: Type.Number({ description: "Observation ID to retrieve" }),
+    id: Type.Number({ description: "Observation ID to retrieve. Read in full before deciding identity or updating." }),
   }),
   mem_session_start: Type.Object({
     id: Type.String({ description: "Unique session identifier" }),
@@ -2435,6 +2494,17 @@ function installBridgeResponder(pi: ExtensionAPI, ctx: SessionContext, runtimeID
 }
 
 export default function registerEngram(pi: ExtensionAPI) {
+  if (!ENGRAM_STARTUP_ALLOWED) {
+    // No normal tools, protocol, bridge responder, capture or shutdown hooks.
+    pi.on("session_start", (_event: unknown, ctx: SessionContext) => {
+      try { ctx.ui?.setStatus?.("engram", "🧠 memory disabled"); } catch {}
+      try {
+        if (ctx.hasUI) ctx.ui?.notify?.(ENGRAM_DISABLED_NOTICE, "warning");
+        else process.stderr.write(`${ENGRAM_DISABLED_NOTICE}\n`);
+      } catch { /* A disposed UI must not interrupt a usable memory-free session. */ }
+    });
+    return;
+  }
   // Trace-only comparison is local to this factory, never persistence or ownership state.
   let previousTraceIdentity: string | undefined;
   const traceLifecycle = (event: "session_start" | "session_shutdown", id: string | undefined | (() => string), reason?: unknown) => {

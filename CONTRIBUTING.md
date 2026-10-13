@@ -60,11 +60,39 @@ Changes to labels on a linked issue do not themselves trigger PR Validation;
 the approval check fetches issue labels when the workflow runs. PR label events
 and linked-issue label events are distinct.
 
+**Issue-refresh bootstrap (not yet live proof):** the candidate **Issue Validation
+Refresh** workflow adds trusted metadata-only publication for approval-label
+addition/removal and the same PR events via `pull_request_target`, not merge-group
+events. Native PR Validation merge-group jobs and their resolver remain unchanged
+and must remain intact even in later PR-writer retirement. It becomes
+available only after integration on the trusted branch; do not assume this
+introducing PR can run it. Original PR Validation and its issue jobs remain
+unchanged until live provider/required-gate compatibility is observed.
+See the [rollout and trusted manual recovery guide](docs/ci-issue-refresh-rollout.md)
+before relying on refresh or retiring legacy writers. The publisher uses only
+`checks: write`, PR/issues read access and contents read access for trusted helpers;
+it never executes PR-head code or changes approvals, settings or required gates.
+Its issue/default and PR-target/base triggers establish trusted provenance;
+`workflow_sha` alone is not a universal trust marker.
+Refresh is eventual, not atomic: scheduling/API delays, metadata changes after
+reads, concurrent or late legacy writes and already evaluated merge groups leave
+consistency windows. Existing visible checks may remain after an error. Recover
+by rerunning an eligible **Issue Validation Refresh** metadata-only run, not
+original PR Validation or broad CI; verify current-head results afterwards.
+
+**Approved native-gating amendment:** #1802 now permits `actions: write` only
+on a future selective issue-label router job, never globally. Native metadata
+jobs remain read-only. The #1834 candidate defines two independent native jobs
+and an original-PR-head-bound adapter, not yet trusted-main or live gate evidence;
+issue-label routing is not implemented by this foundation. Publication is not
+required-gate proof, and legacy retirement remains unauthorized. See the
+[native-policy scope and rollout boundary](docs/ci-issue-native-policy.md).
+
 All required checks must pass before a PR can be merged.
 
 > **Repo admin note:** The active `main` ruleset requires exactly these six contexts: `E2E Tests`, `Unit Tests`, `Plugin Tests`, `Check Issue Has status:approved`, `Check Issue Reference`, and `Check PR Has type:* Label`.
 
-Non-required PR checks include the Claude plugin version guard, lint, Windows setup and wrapper coverage, transient-artifact validation, **Policy Helper Tests** (the merge-queue, label-policy, transient-artifacts, and PR-size-notice script suites), and **Obsidian Build** (tests, typecheck, and build after dependency installation). Policy Helper Tests, Obsidian Build, and the Claude plugin version guard also run on merge groups; lint, Windows checks, and transient-artifact validation do not run as merge-group CI jobs. None of these are active `main` required contexts; a maintainer must explicitly add the Claude plugin version guard to the ruleset before it becomes required.
+Non-required PR checks include the Claude plugin version guard, lint, Windows setup and wrapper coverage, transient-artifact validation, **Policy Helper Tests** (the unchanged merge-queue, label-policy, transient-artifacts and PR-size-notice command, plus a separate step discovering available `.github/scripts/issue-*.test.mjs` regressions), and **Obsidian Build** (tests, typecheck, and build after dependency installation). Policy Helper Tests, Obsidian Build, and the Claude plugin version guard also run on merge groups; lint, Windows checks, and transient-artifact validation do not run as merge-group CI jobs. None of these are active `main` required contexts; a maintainer must explicitly add the Claude plugin version guard to the ruleset before it becomes required.
 
 ### Merge Queue Activation (administrators)
 
@@ -140,6 +168,33 @@ artifacts remain untrusted data. Require justification for legitimate write scop
 blanket `contents: read` or bans on privileged events. This adds no workflow,
 permission or required-check changes and does not replace actionlint or zizmor.
 
+Sync/import paths have targeted advisory instructions:
+
+| Sync surface | Instruction glob |
+|--------------|------------------|
+| Chunk export/import and replay | `internal/sync/**/*.go` |
+| Wire encoding | `internal/cloud/chunkcodec/**/*.go` |
+| Automatic push/pull orchestration | `internal/cloud/autosync/**/*.go` |
+| Transport | `internal/cloud/remote/transport.go` |
+| Chunk and mutation handlers | `internal/cloud/cloudserver/cloudserver.go`, `internal/cloud/cloudserver/mutations.go` |
+
+The existing `internal/store/**/*.go` and
+`internal/cloud/cloudstore/**/*.go` ownership instructions are retained, with
+additional guidance conditional on sync/import changes only. No duplicate
+persistence rules are added or instruction-overlap precedence assumed.
+
+Review record/identity and deletion preservation, and the existing `review_after`
+contract: omitted fields, explicit null and valid dates are not interchangeable.
+Check idempotent replay, transaction boundaries and recovery from partial
+failures; do not assume whole-sync atomicity. Check that push acknowledgements
+and pull cursors reflect successfully accepted/persisted work according to
+existing contracts. Policy rejection must stay explicit without bypassing
+enrollment or cloud pause. Seek deterministic regression evidence for changed
+observable behavior, including rejected-input side effects, replay and recovery.
+This guidance does not prescribe new sync algorithms, ownership/conflict rules
+or review scheduling, change data formats, permissions or required CI checks,
+or guarantee protection against data loss.
+
 CodeRabbit does not automatically approve PRs (`request_changes_workflow: false`),
 skips drafts, and does not replace human review or the required checks above.
 Generated outputs are excluded only from AI review, not from generation checks.
@@ -147,10 +202,11 @@ Existing manually requested code-generation/fix features remain unchanged.
 
 Changes to this file require normal issue-first review. Run `go test . -run
 TestCodeRabbit -count=1` to check YAML parsing, the two adjustments, JS/TS and
-workflow instruction content/scope, documentation and baseline preservation.
+workflow and sync instruction content/scope, documentation and baseline preservation.
 The original export hash is retained: only the five exact JS/TS instruction
-blocks and two exact workflow instruction blocks are removed before comparing
-all other settings. Deliberate future settings changes must
+blocks, two exact workflow instruction blocks and six exact sync instruction
+blocks are removed, and the two conditional persistence additions are reverted
+before comparing all other settings. Deliberate future settings changes must
 update the baseline test with their rationale. Local path examples exercise a
 limited plain-glob contract, not CodeRabbit's matcher, schema validation or live
 instruction overlap. To pause automatic reviews on one PR, comment
@@ -166,6 +222,11 @@ on these test surfaces and record useful findings, noise and limitations before
 claiming improved test-review quality. For workflow guidance, observe representative
 safe/unsafe review feedback without executing unsafe examples; record useful
 findings, false positives and limitations before claiming improved security review.
+For sync guidance, inspect representative live feedback for metadata preservation,
+replay and partial-failure changes; record useful findings, false positives and
+limitations after rollout. These local configuration tests do not prove live
+review quality or sync correctness; deterministic sync tests and human review
+remain necessary.
 
 ## Claude Plugin Version Rule
 

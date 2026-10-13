@@ -226,8 +226,12 @@ function buildInitializeEngramServerForTest({
   instanceID = "00000000000000000000000000000000",
   engramUrl = "http://127.0.0.1:7437",
   legacyMessage = "legacy server message",
+  startupAllowed = true,
+  resolveInstanceID = () => instanceID,
 }) {
-  const body = extractFunctionBody("initializeEngramServer", "{\n  if (CONFIGURED_ENGRAM_URL");
+  // Extract from the opening brace, retaining the policy gate rather than
+  // skipping to the old URL early return.
+  const body = extractFunctionBody("initializeEngramServer", "{\n");
   class DeterministicStartupError extends Error {}
   const factory = new Function(
     "CONFIGURED_ENGRAM_URL",
@@ -239,14 +243,17 @@ function buildInitializeEngramServerForTest({
     "ENGRAM_URL",
     "legacyEngramServerMessage",
     "DeterministicStartupError",
+    "ENGRAM_STARTUP_ALLOWED",
+    "resolveInstanceID",
     `
+    const ENGRAM_DISABLED_NOTICE = "Engram memory is disabled by startup policy";
     let localEngramInstanceID = "";
     class ForeignOwnershipError extends DeterministicStartupError {
       constructor(evidence) { super("Engram server ownership mismatch at " + ENGRAM_URL); this.evidence = evidence; }
     }
     const localEngramVersion = () => "unknown";
     const missingInstanceIdentityMessage = () => "missing identity";
-    const localInstanceID = () => instanceID;
+    const localInstanceID = resolveInstanceID;
     async function initializeEngramServer() {
       ${body}
     }
@@ -267,7 +274,24 @@ function buildInitializeEngramServerForTest({
     engramUrl,
     () => legacyMessage,
     DeterministicStartupError,
+    startupAllowed,
+    resolveInstanceID,
   );
+}
+
+for (const configuredUrl of [false, true]) {
+  test(`initialization policy gate precedes identity and URL early return (configured URL=${configuredUrl})`, async () => {
+    const effects = [];
+    const initialize = buildInitializeEngramServerForTest({
+      configuredUrl, startupAllowed: false,
+      resolveInstanceID: () => { effects.push("identity"); return "unused"; },
+      probeEngramHealth: async () => { effects.push("health"); return "ready"; },
+      spawnAndWaitForEngram: async () => { effects.push("spawn"); },
+      waitForEngramReadiness: async () => { effects.push("wait"); },
+    });
+    await assert.rejects(initialize(), /memory is disabled by startup policy/);
+    assert.deepEqual(effects, [], "disabled initialization has no identity, HTTP, spawn or readiness effects");
+  });
 }
 
 function buildLocalInstanceIDForTest({ spawnSync, DeterministicStartupError = class extends Error {}, instanceIDFailureMessage = buildInstanceIDFailureMessageForTest() }) {
@@ -641,6 +665,41 @@ test("memory protocol declares gentle-engram as the Pi-native provider", () => {
   assert.match(source, /These instructions are injected by gentle-engram, the Pi-native memory provider/);
   assert.match(source, /Use the memory tools named in this section as the authoritative Pi memory contract/);
   assert.match(source, /Do not infer alternative Engram tool names from other integrations/);
+});
+
+test("memory protocol enforces the canonical topic workflow", () => {
+  const workflowStart = source.indexOf("### CANONICAL TOPIC WORKFLOW");
+  assert.notEqual(workflowStart, -1, "canonical topic workflow section missing");
+  const nextHeading = source.indexOf("\n### ", workflowStart + 1);
+  const workflow = source.slice(workflowStart, nextHeading);
+
+  assert.match(workflow, /SEARCH first[\s\S]*mem_search/);
+  assert.match(workflow, /READ in full[\s\S]*mem_get_observation/);
+  assert.match(workflow, /search snippets are not enough/);
+  assert.match(workflow, /SAME bounded topic[\s\S]*mem_update[\s\S]*by ID/);
+  assert.match(workflow, /preserve every still-valid fact/);
+  assert.match(workflow, /Record superseded facts as history/);
+  assert.match(workflow, /Genuinely new topic[\s\S]*mem_save/);
+  assert.match(workflow, /If the learning is already covered, write nothing/);
+  assert.match(workflow, /Ambiguous identity or failed lookup[\s\S]*Do not blindly overwrite/);
+  assert.match(workflow, /A failed read is not evidence of absence/);
+  assert.match(workflow, /Never merge across projects or scopes/);
+  assert.match(workflow, /hint, not proof of identity/);
+
+  assert.doesNotMatch(workflow, /Call `mem_save` IMMEDIATELY/);
+  assert.match(source, /Bug fix completed[\s\S]*Architecture or design decision made[\s\S]*User preference or constraint learned/);
+  assert.match(source, /Format for \\`mem_update\\`:/);
+  assert.match(source, /expected_project[\s\S]*project that owns the observation/);
+  assert.match(source, /full rewritten content including every still-valid fact/);
+});
+
+test("memory tool descriptions carry the canonical workflow guidance", () => {
+  assert.match(source, /mem_search: Type\.Object\(\{[\s\S]*Search existing memories before saving; snippets are not enough to decide identity/);
+  assert.match(source, /mem_get_observation: Type\.Object\(\{[\s\S]*Read in full before deciding identity or updating/);
+  assert.match(source, /mem_save: Type\.Object\(\{[\s\S]*New topics only: search and read first; use mem_update for an existing topic/);
+  assert.match(source, /mem_update: Type\.Object\(\{[\s\S]*Update an existing observation by ID; preserve still-valid facts and keep its topic_key/);
+  assert.match(source, /mem_save: Type\.Object\(\{[\s\S]*Stable, deliberate topic key; reuse via mem_update rather than duplicating/);
+  assert.match(source, /mem_update: Type\.Object\(\{[\s\S]*Keep the existing topic_key unless the topic itself changed/);
 });
 
 test("an inconclusive health probe still attempts the spawn", async () => {
