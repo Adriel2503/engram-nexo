@@ -256,6 +256,79 @@ distintos. El estado y la reconstrucción se ven en el manual de administración
 texto con `notice: "Respuesta solo por texto: ..."`, sin error. El indexador espera y reintenta
 solo.
 
+### 4.6.2 Reordenamiento de los mejores resultados (R3, opcional)
+
+Pone primero el resultado que mejor responde la pregunta. Un modelo externo puntúa los mejores
+resultados de la búsqueda y la respuesta se ordena con ese puntaje. Es **opcional e independiente**
+de la búsqueda por significado: funciona con o sin proveedor de embeddings.
+
+Por defecto está **apagado** y, aun con proveedor, solo reordena cuando la consulta lo pide
+(`rerank=on`) o cuando el servidor lo activa por defecto. Sin proveedor configurado, nunca
+reordena. Reordenar solo cambia el orden de lo que la búsqueda ya encontró, con permisos y umbral
+ya aplicados: no agrega resultados ni cambia la respuesta "no existe un estándar oficial". Si el
+proveedor falla, tarda más que el presupuesto o responde mal, la respuesta conserva el orden normal
+de la búsqueda, con `rerank.status` y un `notice`, y sin error.
+
+**Requisitos.**
+
+| Qué | Detalle |
+|---|---|
+| Proveedor | Cohere Rerank (también un despliegue de Cohere en Azure AI), Jina, Voyage, un servidor TEI propio (por ejemplo `bge-reranker-v2-m3`), un servicio con la forma de Cohere en una URL propia, o un LLM: Gemini, OpenAI, Azure OpenAI o un servidor compatible con la API de chat de OpenAI |
+| Política de datos | **Cada consulta reordenada envía al proveedor la pregunta y hasta `NEXO_KB_RERANK_TOP_N` pasajes** (título, ruta y texto de la sección, con un recorte de 1 500 caracteres con un LLM y de 12 000 con Cohere). Son más datos y más veces que con los embeddings. Solo salen secciones que quien busca ya puede ver. Hace falta la aprobación de Real Plaza |
+| Salida a internet | Desde el contenedor `cloud` hacia la API del proveedor (Gemini: `generativelanguage.googleapis.com`; Cohere: `api.cohere.com`) |
+| Costo | Con un LLM, unos 2 400 tokens de entrada y 100 a 200 de salida por consulta reordenada (TopN 20, medido en la wiki). Una consulta sin respuesta o con menos de 2 resultados no cuesta nada |
+| Latencia | Se suma a cada consulta reordenada. Medido con Gemini: `gemini-3.1-flash-lite`, 1,2 s de mediana y 1,9 s en el percentil 95; `gemini-3.8-flash`, 2,9 s y 4,9 s. El presupuesto (`NEXO_KB_RERANK_BUDGET_SECONDS`, 6 s) acota el peor caso |
+
+**Variables** (la lista completa está en `NEXO_CHANGES.md` §5 y el diseño en `design.md` §21).
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `NEXO_KB_RERANKER` | `off` | `cohere`, `jina`, `voyage`, `tei`, `rerank-compatible`, `gemini`, `openai`, `azure-openai`, `openai-compatible` u `off` (también `llm` con `NEXO_KB_RERANK_LLM`) |
+| `NEXO_KB_RERANK_API_KEY` o `NEXO_KB_RERANK_API_KEY_FILE` | — | Clave del proveedor, o un archivo con ella. También se aceptan `COHERE_API_KEY`, `JINA_API_KEY`, `VOYAGE_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` y `AZURE_OPENAI_API_KEY`. Nunca se imprime ni se guarda en la base |
+| `NEXO_KB_RERANK_MODEL` | `rerank-v3.5` (cohere), `jina-reranker-v2-base-multilingual`, `rerank-2.5` (voyage), `gemini-3.1-flash-lite` (gemini) | Modelo. Con `openai` y `openai-compatible` es obligatorio; en Azure OpenAI, el despliegue |
+| `NEXO_KB_RERANK_URL` | URL pública del proveedor | Obligatoria en `tei`, `rerank-compatible`, `azure-openai` y `openai-compatible`. Para Cohere en Azure AI, la URL del despliegue (si termina en `/rerank` se usa tal cual) |
+| `NEXO_KB_RERANK_AUTH` | `bearer` | `api-key` (por ejemplo, Cohere en Azure AI o Azure OpenAI), `bearer` o `none` |
+| `NEXO_KB_RERANK_TOP_N` | `20` | Cuántos resultados se reordenan (2 a 50). Casi nunca hay más de 20 que pasen el umbral |
+| `NEXO_KB_RERANK_BLEND` | `0.7` | Peso del reordenador frente al orden de la búsqueda (1 = solo el reordenador) |
+| `NEXO_KB_RERANK_DEFAULT` | `off` | `on`: reordenar siempre que la consulta no diga otra cosa. Recomendado solo después de la medición del manual de administración (sección 5.13) |
+| `NEXO_KB_RERANK_MIN_SCORE` | `0` (apagado) | Descarta pasajes con puntaje menor. Depende del modelo: no lo active sin calibrarlo |
+| `NEXO_KB_RERANK_BUDGET_SECONDS` | `6` | Tiempo total que una consulta espera al reordenador |
+| `NEXO_KB_RERANK_RPM`, `NEXO_KB_RERANK_CONCURRENCY` | sin límite, 4 con LLM | Límite por minuto y llamadas en paralelo. Sin límite propio, un 429 se reintenta con la espera que indica el proveedor |
+
+**Ejemplo con Gemini** (en el `.env`, nunca en `compose.yaml`; puede ser la misma clave de los
+embeddings):
+
+```
+NEXO_KB_RERANKER=gemini
+NEXO_KB_RERANK_API_KEY=<clave de Google AI Studio>
+```
+
+**Ejemplo con Cohere en Azure AI:**
+
+```
+NEXO_KB_RERANKER=cohere
+NEXO_KB_RERANK_URL=https://<despliegue>.<region>.models.ai.azure.com/v2/rerank
+NEXO_KB_RERANK_AUTH=api-key
+NEXO_KB_RERANK_API_KEY=<clave del despliegue>
+```
+
+**Probar la clave y la ruta antes de activarlo** (desde una copia del código, nunca imprime la
+clave):
+
+```
+NEXO_KB_RERANK_LIVE=1 NEXO_KB_RERANKER=cohere NEXO_KB_RERANK_API_KEY=<clave> \
+  go test -run TestRerankerLive -v ./internal/nexo/kb/rerank/
+```
+
+**Qué pasa al arrancar.** No hace falta reindexar nada: no hay migraciones ni índice propio. Si la
+configuración es inválida, el log lo dice (`configuración del reordenamiento inválida`) y el
+servidor sigue sin reordenar.
+
+**Si el proveedor falla** (clave inválida, modelo retirado, cuota agotada o caída), la consulta
+responde con el orden normal, `rerank.status = "failed"` y `notice: "Sin reordenamiento: ..."`,
+sin error. Ver el log del servidor (`reordenamiento fallido`), que no incluye la clave. Un modelo
+retirado se ve como un 404 del proveedor: cambie `NEXO_KB_RERANK_MODEL`.
+
 ### 4.7 Evidencia, retención y alertas
 
 | Variable | Por defecto | Qué hace |

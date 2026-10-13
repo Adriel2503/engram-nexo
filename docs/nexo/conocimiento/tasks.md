@@ -187,4 +187,30 @@ Pendientes:
 
 - Validar las 50 preguntas con 3 o 4 devs y volver a calibrar los umbrales.
 - Aprobación de Real Plaza para enviar datos a un proveedor externo.
-- R3 (reordenamiento) si el orden sigue flojo. El MRR de las paráfrasis es 0,43.
+- R3 (reordenamiento) si el orden sigue flojo. El MRR de las paráfrasis es 0,43. Hecho: ver la
+  sección siguiente.
+
+## R3. Reordenamiento (2026-10-13, rama `feat/r3-rerank`)
+
+Diseño, medición, decisión del valor por defecto y desviaciones: `design.md` §21. Hecho y verificado,
+sin fusionar.
+
+| ID | Tarea | Verificación |
+|---|---|---|
+| R3-01 | Interfaz `Reranker` y capa común: lotes, paralelismo con tope, reintentos con `Retry-After`, RPM, tiempo máximo, validación de cada respuesta y clave borrada en los errores | `rerank/rerank_test.go`: prueba de contrato con un servidor simulado por adaptador |
+| R3-02 | Adaptadores Cohere v2 (también Azure AI con `api-key` y URL propia), Jina, Voyage, TEI y compatible | Idem; `TestRerankerLive` (solo con clave; Cohere pendiente) |
+| R3-03 | Reordenador LLM: Gemini y API de chat de OpenAI, Azure OpenAI o compatible; prompt con puntaje 0 a 10, JSON estricto, lectura defensiva y lote no válido sin puntaje | Idem; `TestParseScores`; prueba en vivo con Gemini |
+| R3-04 | Tubería en la búsqueda: después del filtro y del umbral, TopN, mezcla, descarte opcional, presupuesto y caída segura con `rerank.status` y aviso | `search/rerank_test.go` (sin base de datos) |
+| R3-05 | Servicio, API (`rerank=on` u `off`), MCP (`nexo_search`), CLI (`search --rerank`, `eval --rerank`) y estado en `GET /admin/index` | `r3_pg_test.go`; `nexo_response_fields_test.go` |
+| R3-06 | Rastro por pregunta y resumen (p50, p95, mejoradas, empeoradas) en `nexo_kb_eval_runs` | `r3_pg_test.go` `TestR3AdminStateAndEvalTrace` |
+| R3-07 | Prueba de calidad en el CI sin red (reordenador simulado) | `eval/quality_test.go` `TestSearchQualityGateRerank` |
+| R3-08 | Medición R0 con Gemini: línea base contra reordenamiento, 2 modelos, TopN 20 y 50, mezcla, descarte por puntaje | `design.md` §21.5; `nexo_ia/06-pruebas/conocimiento/RESULTADOS.md` §6; `evidencia/r3/` |
+| R3-09 | Documentación: `NEXO_CHANGES`, manuales de producción y administración, backlog (RC-13, RC-21, RC-29) | Revisión |
+
+Pendientes:
+
+- Probar Cohere (y Azure AI) con una clave: `TestRerankerLive`.
+- Repetir la medición con las preguntas validadas y decidir si se activa por defecto
+  (`NEXO_KB_RERANK_DEFAULT=on`).
+- Elegir el proveedor de producción y obtener la aprobación de Real Plaza para enviar fragmentos a un
+  proveedor externo en cada consulta reordenada.

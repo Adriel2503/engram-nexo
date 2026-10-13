@@ -836,6 +836,75 @@ engram nexo kb eval preguntas.yaml --retriever hybrid --wait-index --record
 `--wait-index` necesita el rol de superadmin. Las dos corridas quedan en `nexo_kb_eval_runs` para
 compararlas.
 
+### 5.13 Reordenamiento de los mejores resultados (superadmin)
+
+Esta sección aplica solo si el servidor tiene configurado un reordenador (`NEXO_KB_RERANKER`; ver el
+manual de producción, 4.6.2). Pone primero el resultado que mejor responde la pregunta. Solo
+reordena lo que la búsqueda ya encontró con sus permisos y su umbral: no agrega resultados ni cambia
+la respuesta "no existe un estándar oficial".
+
+**Cómo se activa.**
+
+1. Configure el proveedor y su clave en el entorno del servidor y reinicie (manual de producción,
+   4.6.2). No hay migración ni índice que construir.
+2. Compruebe el estado (superadmin): `GET /nexo/kb/v1/admin/index`, campo `rerank`.
+   Muestra `enabled`, el proveedor y el modelo, las opciones (`top_n`, `blend`, `min_score`,
+   `budget`, `default`) y el uso acumulado desde que arrancó el servidor (llamadas, reintentos,
+   lotes fallidos y tokens).
+3. Pruebe una consulta pidiendo el reordenamiento:
+
+```bash
+engram nexo kb search --rerank on --json "<pregunta>"
+```
+
+En la respuesta, `rerank.status` dice qué pasó:
+
+| `rerank.status` | Significado | Qué hacer |
+|---|---|---|
+| `used` | Se reordenó. `rerank.latency_ms` es el tiempo que sumó; cada resultado trae `rerank_score` y `pre_rerank_position` | — |
+| `skipped` | Había menos de 2 resultados, o el modo es `exact` | Nada: no hay qué reordenar |
+| `unavailable` | Se pidió `rerank=on` y el servidor no tiene reordenador | Configurar `NEXO_KB_RERANKER` |
+| `failed` o `partial` | El proveedor falló, tardó más que el presupuesto o respondió mal. La respuesta conserva el orden normal y trae `notice` | Revisar la clave, el modelo (un 404 es un modelo retirado) y la conectividad en el log (`reordenamiento fallido`) |
+
+**Cómo se elige.**
+
+- `rerank=on` u `off` en la API (`GET /search?rerank=on`), en `nexo_search` (parámetro `rerank`) y
+  con `engram nexo kb search --rerank`. Sin el parámetro decide `NEXO_KB_RERANK_DEFAULT`
+  (apagado por defecto).
+- El panel no tiene selector: usa lo que decida el servidor.
+- La copia local de la PC no reordena.
+
+**Cómo se mide antes de activarlo por defecto.** Compare los mismos motores con las preguntas del
+espacio; las dos corridas quedan en `nexo_kb_eval_runs`:
+
+```bash
+engram nexo kb eval preguntas.yaml --retriever hybrid --wait-index --record
+engram nexo kb eval preguntas.yaml --retriever hybrid --rerank on --record
+```
+
+`--rerank` es `off` por defecto en `eval` (para que la comparación sea explícita), `on` mide el
+motor `hybrid+rerank` y `auto` deja decidir al servidor. Al final, la CLI imprime una línea con las
+consultas reordenadas, las preguntas que mejoraron y empeoraron, y la latencia agregada p50, p95 y
+máxima; cada pregunta guarda su posición antes y después. Con la salida `--json` se ve el detalle.
+
+Antes de activarlo por defecto compruebe, con las preguntas validadas del espacio:
+
+1. El MRR y el nDCG@3 de `hybrid+rerank` son mejores que los de `hybrid`.
+2. El acierto de "no hay respuesta" no baja (no debería: el reordenador no toca el umbral).
+3. La latencia p95 agregada cabe en lo que acepta quien busca.
+4. El costo por consulta (tokens en `GET /admin/index`) es aceptable.
+
+En la wiki de arquitectura (50 preguntas borrador), `gemini-3.1-flash-lite` subió el MRR de 0,813 a
+0,865 con 1,9 s de latencia p95, sin cambiar el acierto total ni el de "no hay" (diseño, `design.md`
+§21.5). Si cumple, active `NEXO_KB_RERANK_DEFAULT=on` y reinicie. Para volver atrás, `off` o quite
+`NEXO_KB_RERANKER`: la búsqueda queda como antes.
+
+**Descarte por puntaje mínimo** (`NEXO_KB_RERANK_MIN_SCORE`). Está apagado. Descarta los resultados
+con puntaje bajo y puede subir el acierto de "no hay", pero la escala cambia con el modelo: en la
+medición, 0,4 corrigió un falso "hay" con `gemini-3.8-flash` y no hizo nada con
+`gemini-3.1-flash-lite`, y 0,6 perdía aciertos. Actívelo solo después de medirlo con sus preguntas
+validadas y con el modelo que use.
+
 ## 6. Propuestas
 
 Un proponente envía una propuesta (un documento nuevo o un cambio). No es oficial hasta que un
