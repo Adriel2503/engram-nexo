@@ -242,12 +242,12 @@ func (s *CloudServer) handleNexoAuthzIssueToken(w http.ResponseWriter, r *http.R
 	actor, _ := PrincipalFromContext(r.Context())
 	managedToken, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("generate token: %v", err))
+		nexoInternalError(w, "generate token", err)
 		return
 	}
 	tokenHash, err := s.managedHasher.Hash(managedToken.Raw)
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("hash token: %v", err))
+		nexoInternalError(w, "hash token", err)
 		return
 	}
 	name := strings.TrimSpace(body.Name)

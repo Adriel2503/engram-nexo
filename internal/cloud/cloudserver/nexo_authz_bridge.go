@@ -20,6 +20,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -109,7 +110,8 @@ func nexoRespondDenied(w http.ResponseWriter, respond nexoRespond, c authz.Capab
 }
 
 func nexoRespondAuthzError(w http.ResponseWriter, respond nexoRespond, err error) {
-	respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, fmt.Sprintf("authorization unavailable: %v", err))
+	log.Printf("[nexo] authorization unavailable: %v", err)
+	respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, "authorization unavailable: internal error")
 }
 
 // ─── Enganche de requireManagedAdmin ─────────────────────────────────────────

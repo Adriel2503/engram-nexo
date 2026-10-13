@@ -107,7 +107,7 @@ func nexoAuthzWriteError(w http.ResponseWriter, err error) {
 	case errors.Is(err, authz.ErrInvalidCursor):
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, "invalid cursor")
 	default:
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo authz: %v", err))
+		nexoInternalError(w, "nexo authz", err)
 	}
 }
 

@@ -255,7 +255,7 @@ func nexoWriteQueryError(w http.ResponseWriter, err error) bool {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, "invalid cursor")
 		return true
 	}
-	writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo query: %v", err))
+	nexoInternalError(w, "nexo query", err)
 	return true
 }
 
