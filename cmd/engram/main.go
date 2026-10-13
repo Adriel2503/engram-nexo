@@ -3815,6 +3815,7 @@ func printNextSteps(steps []string) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// NX-10: el texto de ayuda lista `nexo <subcommand>` (2 líneas dentro de la cadena, después de `cloud`).
 func printUsage() {
 	fmt.Printf(`engram v%s — Persistent memory for AI coding agents
 
@@ -3893,6 +3894,8 @@ Commands:
 	                        enroll     Enroll a project for cloud sync
 	                        config     Set cloud server URL
 	                        serve      Run cloud backend + dashboard
+  nexo <subcommand>  Nexo IA (engram-nexo fork): connect, status, disconnect, setup,
+                     kb (knowledge spaces), audit. See: engram nexo help
   obsidian-export [--project PROJECT|--all]
                      Export memories to an Obsidian-compatible markdown vault
                        --vault         Path to Obsidian vault root (required)

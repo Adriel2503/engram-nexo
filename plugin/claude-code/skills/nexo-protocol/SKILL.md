@@ -11,7 +11,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: nexo-ia
-  version: "0.3.0"
+  version: "0.3.1"
   fase: "2 - espacios de conocimiento (fork engram-nexo, instalado por engram setup)"
 ---
 
@@ -232,7 +232,7 @@ mem_save(title="Tarea: <objetivo corto>", type="learning", topic_key="tarea/<slu
 3. `mem_current_project` → proyecto reconocido.
 4. `mem_doctor` → salud de la memoria local.
 
-Responde en una tabla corta: **Servidor de Nexo** (accesible / sin conexión), **Identidad**, **Espacios visibles** (n, roles), **Copia local** (fecha de actualización o «no existe»), **Memoria local** (OK / falla), **Proyecto reconocido**. Para cada problema, di qué queda afectado y una acción (p. ej. «ejecuta `engram nexo kb sync`», «pide un token vigente al administrador», «ejecuta `engram nexo status`»). Si no existen las herramientas `nexo_*`, dilo: esta PC no está conectada a Nexo o usa un Engram sin espacios de conocimiento; la conexión se hace con `engram nexo connect --server <url> --token <token>` (luego reiniciar el asistente).
+Responde en una tabla corta: **Servidor de Nexo** (accesible / sin conexión), **Identidad**, **Espacios visibles** (n, roles), **Copia local** (fecha de actualización o «no existe»), **Memoria local** (OK / falla), **Proyecto reconocido**. Para cada problema, di qué queda afectado y una acción (p. ej. «ejecuta `engram nexo kb sync`», «pide un token vigente al administrador», «ejecuta `engram nexo status`»). Si no existen las herramientas `nexo_*`, dilo: esta PC no está conectada a Nexo o usa un Engram sin espacios de conocimiento; la conexión se hace con `engram nexo connect --server <url> --token-stdin` (la persona pega el token y presiona Enter; nunca escribas el token en el comando ni en el chat) y luego se reinicia el asistente.
 
 ## 10. Repaso (`repaso`)
 

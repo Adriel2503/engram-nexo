@@ -101,6 +101,11 @@ func TestSyncGetAndImportTransversal(t *testing.T) {
 	if out, code := runKB(t, "search", "--local", "formato de errores de las APIs"); code != 0 || !strings.Contains(out, "apis/errores") {
 		t.Fatalf("search --local: %d %s", code, out)
 	}
+	// search sin --local y sin servidor: cae a la copia local avisando.
+	if out, code := runKB(t, "search", "formato de errores de las APIs"); code != 0 || !strings.Contains(out, "El servidor de Nexo no respondió") ||
+		!strings.Contains(out, "copia local") || !strings.Contains(out, "apis/errores") {
+		t.Fatalf("search sin servidor: %d %s", code, out)
+	}
 	srv.SetDown(false)
 
 	// import-transversal: dry-run, real y repetido (idempotente).

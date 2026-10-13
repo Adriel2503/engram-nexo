@@ -30,6 +30,11 @@ const nexoMaxUserAgentRunes = 256
 type NexoClientContext struct {
 	IP        string // IP real del cliente
 	UserAgent string // recortado a 256 caracteres
+	// ForwardedProto y ForwardedHost: X-Forwarded-Proto y X-Forwarded-Host,
+	// solo si la conexión viene de un proxy confiable (NX-10: enlaces de las
+	// citas con el esquema y el host públicos); si no, vacíos.
+	ForwardedProto string
+	ForwardedHost  string
 }
 
 type nexoClientContextKey struct{}
@@ -59,6 +64,7 @@ func nexoClientContextMiddleware(trusted []netip.Prefix, next http.Handler) http
 				IP:        nexoClientIP(r, trusted),
 				UserAgent: nexoTrimUserAgent(r.UserAgent()),
 			}
+			cc.ForwardedProto, cc.ForwardedHost = nexoForwardedOrigin(r, trusted)
 			r = r.WithContext(nexoWithClientContext(r.Context(), cc))
 		}
 		next.ServeHTTP(w, r)
@@ -159,4 +165,26 @@ func nexoTrimUserAgent(ua string) string {
 		return ua
 	}
 	return string([]rune(ua)[:nexoMaxUserAgentRunes])
+}
+
+// nexoForwardedOrigin devuelve X-Forwarded-Proto y X-Forwarded-Host (primer
+// valor de cada uno) solo si la conexión viene de un proxy confiable; si no,
+// las cabeceras se ignoran (como X-Forwarded-For en nexoClientIP).
+func nexoForwardedOrigin(r *http.Request, trusted []netip.Prefix) (proto, host string) {
+	if len(trusted) == 0 {
+		return "", ""
+	}
+	remote := strings.TrimSpace(r.RemoteAddr)
+	if h, _, err := net.SplitHostPort(remote); err == nil {
+		remote = h
+	}
+	addr, err := netip.ParseAddr(remote)
+	if err != nil || !nexoIsTrusted(addr, trusted) {
+		return "", ""
+	}
+	first := func(name string) string {
+		v, _, _ := strings.Cut(r.Header.Get(name), ",")
+		return strings.TrimSpace(v)
+	}
+	return first("X-Forwarded-Proto"), first("X-Forwarded-Host")
 }

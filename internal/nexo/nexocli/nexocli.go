@@ -21,7 +21,7 @@ Conexión de esta PC:
   setup <agente>                                     Instala el protocolo Nexo en un asistente
 
 Áreas:
-  kb      espacios de conocimiento (spaces, search, get, sync, upload, publish, changes, eval, import-transversal)
+  kb      espacios de conocimiento (spaces, search, get, sync, upload, publish, changes, eval, reindex, import-transversal)
   audit   evidencia de seguridad (verify, export, verify-export)
 
 Instalación para un dev: engram nexo connect --server <url> --token-stdin  y luego  engram setup <agente>.

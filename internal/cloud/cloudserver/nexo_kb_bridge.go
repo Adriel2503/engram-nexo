@@ -44,8 +44,21 @@ func (s *CloudServer) registerNexoKBRoutes(mux *http.ServeMux) {
 	httpapi.Register(mux, s.nexoKBService, func(next http.HandlerFunc) http.HandlerFunc {
 		return s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 			r, _ = nexoWithAuthzIdentity(r)
+			r = nexoWithKBPublicOrigin(r)
 			next(w, r)
 		})
 	})
 	s.registerNexoKBDashboard(mux) // entrega 2b: páginas del panel (nexo_kb_dashboard.go)
+}
+
+// nexoWithKBPublicOrigin pasa a los enlaces de /nexo/kb/v1 el esquema y el
+// host públicos que informó un proxy confiable (X-Forwarded-Proto y
+// X-Forwarded-Host, capturados por el middleware de NX-04 solo desde
+// NEXO_TRUSTED_PROXIES). NEXO_KB_PUBLIC_URL, si está, sigue mandando.
+func nexoWithKBPublicOrigin(r *http.Request) *http.Request {
+	cc, ok := NexoClientContextFrom(r.Context())
+	if !ok || (cc.ForwardedProto == "" && cc.ForwardedHost == "") {
+		return r
+	}
+	return r.WithContext(httpapi.WithForwardedOrigin(r.Context(), cc.ForwardedProto, cc.ForwardedHost))
 }

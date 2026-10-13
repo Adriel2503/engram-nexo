@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "engram",
-      "description": "Persistent memory with session tracking, compaction recovery, and Memory Protocol. Gives Claude a brain that survives across sessions.",
-      "version": "0.1.12",
+      "description": "Persistent memory with session tracking, compaction recovery, and Memory Protocol. Gives Claude a brain that survives across sessions. Nexo IA fork (engram-nexo): includes the nexo-protocol skill.",
+      "version": "0.1.1201",
       "author": {
         "name": "Gentleman Programming"
       },

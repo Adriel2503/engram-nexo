@@ -82,6 +82,8 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 | KP-09 | Avisos al responsable en `nexo_alerts` (S4): documento por vencer (`valid_until` dentro de N días) y documento sin revisión en `review_every_days` del espacio | Bitemporalidad E2a, alertas S4 | HU-29, HU-30 (mantener vigente) | E2b / K6 | M | hecho (2b tanda 1) |
 | KP-10 | Importar el historial git de la wiki como versiones sucesivas de cada página, con la fecha y el autor del commit en `origin` y en `valid_from`; así el eje temporal tiene datos desde el inicio. Pendiente decidir el reloj de registro (design §17.9) | Corpus real (unos 4 300 commits, 2021-2026) | HU-20 c2, preguntas temporales de R0 | E2b / R0 | M | descartado (2026-10-13: el flujo es subir archivos; el historial de la wiki no es requisito) |
 | KP-11 | Las carpetas `[TO_REMOVE]` y `≤-2022` se publican y quedan retiradas o vencidas, en vez de omitirlas (`[TO_TIDY]` queda vigente con una etiqueta); el adaptador lo marca con `Hints` | Corpus real | HU-08 (se ve que no está vigente) | E2b | M | hecho (2b tanda 1) |
+| KP-12 | Pantalla de miembros de un espacio en el panel: ver quién tiene cada rol y que el responsable o el administrador asigne y quite miembros (hoy solo por la API `/nexo/authz/v1` o la CLI) | Hallazgo de los manuales (2026-10-13) | Administrar espacios sin la API | K6 | M | pendiente |
+| KP-13 | Propuestas en el panel: listar, ver, aprobar y descartar (hoy por la API, la CLI o las herramientas `nexo_*`) | Hallazgo de los manuales (2026-10-13) | Revisión sin la terminal | K6 | M | pendiente |
 
 ## 4. Proyectos (memoria de equipos)
 
@@ -103,6 +105,7 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 | SG-07 | Pantallas del panel para auditor, espacios y revisión | K6 | Usabilidad | K6 | M | en curso (subida, documentos y retiro en el panel, 2b tanda 1; revisión y auditor pendientes) |
 | SG-08 | Tokens de MCP y API con alcance restringido a espacios y lista de herramientas permitidas (CI que solo publica en un espacio; asistente de solo lectura) | WeKnora (API keys por base, endpoints MCP con lista de herramientas) | HU-17 c2; menos daño si un token se filtra | E3 (dentro de K4, NX-06) | M | pendiente |
 | SG-09 | Escaneo de secretos obligatorio al publicar y al proponer, como control general para toda fuente. Amplía `ingest.DetectSecrets` con: cadenas de conexión de tipo clave=valor (`Password=`, `Pwd=`), pares "usuario/contraseña" en texto, encabezados `Bearer` y `api-key`, y un control de entropía. Por defecto rechaza el documento; enmascarar solo con una opción explícita y un evento (design §17.9). La wiki de arquitectura sirve como caso de prueba porque contiene credenciales de ejemplo (de demostración); nunca se copian a documentos ni preguntas | RN-K4, HU-17 c1; corpus real | No publicar secretos | E2b | A | en curso (detección ampliada en 2b tanda 1; política rechazar o enmascarar pendiente de decisión) |
+| SG-10 | Cuentas de servicio para CI y bots: alta desde el panel o la CLI, token sin caducidad o de larga duración emitido solo por superadmin, rotación y vista de su último uso | Hallazgo de los manuales (2026-10-13) | Publicar desde CI sin usar el token de una persona | E3 (K4, NX-06) | M | pendiente |
 
 ## 6. Distribución y operación
 
@@ -113,6 +116,7 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 | OP-03 | Etiquetar versiones estables `v3.4.0-nexo.N` desde `develop` y pasarlas a `main` (rama estable de Nexo desde el 2026-10-13); la copia del Engram original vive en `engram-upstream` | Flujo del fork | Versiones estables identificables | Al cerrar cada bloque | M | pendiente |
 | OP-04 | Ajuste de Postgres para búsqueda a escala (`shared_buffers`, memoria) si p95 supera 300 ms | Medición 2a (312 ms con 1 millón) | Rendimiento | Producción | B | pendiente |
 | OP-05 | Migraciones condicionales de extensiones (`vector`): verificar `pg_available_extension_versions` y la versión mínima (0.8), no dejar la migración a medias si falta, índices HNSW grandes con `CONCURRENTLY` fuera de la transacción; confirmar con Real Plaza el proveedor y la versión de Postgres y pgvector | WeKnora (migraciones 000059, 000112, 000115) | R2 en un Postgres administrado | Consulta a Real Plaza ahora; migración en R2 | A | pendiente (consultar) |
+| OP-06 | Textos del panel de Engram que siguen en inglés con la marca Nexo: "Create User", "Create Token", "Expires in days (default 90)" y otros de las páginas de usuarios y tokens. Pasarlos por `nx()` exige regenerar `components_templ.go` (templ renumera sus variables: unas 800 líneas de diff en un archivo de Engram) | Hallazgo de los manuales (2026-10-13) | Panel en español completo | Junto con otro cambio que ya regenere `components_templ.go`, o al integrar una versión nueva de Engram | B | pendiente |
 
 ## 7. Lo que decidimos no copiar (y por qué)
 

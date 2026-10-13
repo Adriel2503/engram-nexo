@@ -3,7 +3,9 @@
 # Compila el binario desde el código de esta rama (multietapa) y produce una
 # imagen equivalente a la de 03-servidor/piloto-local (alpine 3.21, usuario
 # engram 10001, puerto 18080, ENTRYPOINT engram, CMD cloud serve), pero con
-# los cambios NX-01..NX-04 (ver NEXO_CHANGES.md).
+# los cambios del fork: trazabilidad (NX-01..NX-04), roles (NX-05), seguridad
+# (NX-07) y espacios de conocimiento con su panel (NX-10); ver NEXO_CHANGES.md.
+# Disponibilidad con la base: GET /nexo/health/ready (200 o 503).
 #
 # Construir (desde la raíz del fork):
 #   docker build --platform linux/amd64 -f deploy/nexo/Dockerfile \
@@ -29,7 +31,7 @@ FROM alpine:3.21
 ARG VERSION=3.4.0-nexo.1
 LABEL org.opencontainers.image.title="nexo-engram-cloud" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.description="Engram Cloud (fork Nexo IA) con trazabilidad NX-01..NX-04"
+      org.opencontainers.image.description="Engram Cloud (fork Nexo IA): trazabilidad NX-01..NX-04, roles NX-05, seguridad NX-07 y espacios de conocimiento NX-10"
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 engram
 COPY --from=builder /out/engram /usr/local/bin/engram
 USER engram

@@ -236,6 +236,9 @@ type SearchParams struct {
 	Mode      string
 	Limit     int
 	LocalOnly bool
+	// LocalReason reemplaza, con LocalOnly, el motivo del aviso de la copia
+	// local (por ejemplo, la CLI cuando el servidor no respondió).
+	LocalReason string
 }
 
 // Hit es un resultado citable (RN-03, RF-21).
@@ -358,7 +361,11 @@ func (k *KB) Search(ctx context.Context, p SearchParams) (SearchResult, error) {
 		}
 		return k.searchLocal(ctx, p, why)
 	}
-	return k.searchLocal(ctx, p, "Consulta solo a la copia local.")
+	why := "Consulta solo a la copia local."
+	if p.LocalReason != "" {
+		why = p.LocalReason
+	}
+	return k.searchLocal(ctx, p, why)
 }
 
 func (k *KB) searchServer(ctx context.Context, p SearchParams) (SearchResult, error) {

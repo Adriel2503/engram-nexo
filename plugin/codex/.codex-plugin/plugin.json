@@ -1,8 +1,8 @@
 {
   "name": "engram",
   "displayName": "Engram Persistent Memory",
-  "version": "0.1.5",
-  "description": "Persistent memory for AI coding agents. Survives across sessions and compactions.",
+  "version": "0.1.501",
+  "description": "Persistent memory for AI coding agents. Survives across sessions and compactions. Nexo IA fork (engram-nexo): includes the nexo-protocol skill.",
   "shortDescription": "Persistent memory with session tracking, compaction recovery, and Memory Protocol.",
   "author": {
     "name": "Gentleman Programming"

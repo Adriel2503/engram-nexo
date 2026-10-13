@@ -161,14 +161,21 @@ func runDisconnect(args []string, dataDir string, stdout, stderr io.Writer) int 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	removed, err := client.Disconnect(dataDir, *keep)
+	res, err := client.Disconnect(dataDir, *keep)
 	if err != nil {
 		fmt.Fprintln(stderr, "No se pudo desconectar: "+err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, "Desconectado de Nexo: se quitaron la conexión y el token guardados.")
-	if removed != "" {
-		fmt.Fprintf(stdout, "Copia local borrada: %s\n", removed)
+	if res.ClearedCloud {
+		fmt.Fprintln(stdout, "Desconectado de Nexo: se quitaron la conexión y el token guardados.")
+	} else {
+		fmt.Fprintln(stdout, "Desconectado de Nexo: se quitó la conexión de Nexo.")
+	}
+	if res.KeptCloudServer != "" {
+		fmt.Fprintf(stdout, "La configuración cloud de Engram (cloud.json, servidor %s) no se tocó porque no es la de la conexión Nexo. Si quiere quitarla: engram cloud config --clear.\n", res.KeptCloudServer)
+	}
+	if res.RemovedCopy != "" {
+		fmt.Fprintf(stdout, "Copia local borrada: %s\n", res.RemovedCopy)
 	}
 	fmt.Fprintln(stdout, "Las herramientas nexo_* dejan de aparecer al reiniciar el asistente. La memoria de proyectos de Engram no se toca.")
 	return 0
