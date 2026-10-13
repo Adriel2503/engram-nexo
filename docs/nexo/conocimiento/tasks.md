@@ -1,6 +1,6 @@
 # Espacios de conocimiento (NX-10): tareas
 
-Estado: borrador para revisión. Fecha: 2026-10-12 (actualizado el 2026-10-13). Rama: `feat/conocimiento-nucleo` (desde `develop`).
+Estado: borrador para revisión. Fecha: 2026-10-12 (actualizado el 2026-10-13, tanda 2). Rama: `feat/conocimiento-nucleo` (desde `develop`).
 Documentos: `requirements.md`, `design.md`; roles en `docs/nexo/roles/` (NX-05, con sus propias
 tareas en `docs/nexo/roles/tasks.md`).
 
@@ -10,6 +10,21 @@ de Engram solo enganches de una línea marcados `// NX-05` o `// NX-10`; tests c
 
 Dependencia: la etapa R1 de roles (motor `internal/nexo/authz`, plataforma y API `/nexo/authz/v1`)
 va antes de la fase C.
+
+## Estado (entrega 2b, tanda 2, 2026-10-13, sin commit)
+
+Detalle y desviaciones D-K2b-22..D-K2b-30 en `design.md` §19. E2E: `nexo_ia/06-pruebas/conocimiento/RESULTADOS.md` §4
+(26 de 26 casos OK, con el MCP real por stdio, `engram nexo connect` y `engram setup` en un HOME temporal).
+
+| ID | Estado | Notas |
+|---|---|---|
+| D-01 Copia local (CA-K10, CA-K11, KP-07) | Hecho | `internal/nexo/kb/client`: SQLite propio con FTS5/BM25 (`~/.nexo/kb.db`, `$NEXO_HOME/kb.db` o `NEXO_KB_LOCAL_DB`), feed `/sync` por páginas, vigentes y programadas con vigencia filtradas al consultar, borrado de espacios no visibles, relectura de un espacio nuevo, ventana de solape (D-K2b-22), copia reconstruida al cambiar de persona o servidor, respuesta desde la copia marcada con fecha y antigüedad |
+| D-02 MCP | Hecho | 8 herramientas (`nexo_search`, `nexo_get`, `nexo_spaces`, `nexo_changes`, `nexo_propose`, `nexo_proposals`, `nexo_review`, `nexo_whoami`) con `at`/`known_at`; un enganche `// NX-10` en `registerTools`; pruebas de contrato con un cliente MCP en proceso (`client/client_pg_test.go`) |
+| D-03 CLI | Hecho | `get`, `sync`, `search --local`, `eval --retriever local-bm25`, `import-transversal` (dry-run, idempotente, `engram.db` en solo lectura o `--from` un export) |
+| D-04 GitHub Actions | Hecho (plantilla) | `docs/nexo/conocimiento/github-actions/` (dry-run en PR, `upload` al hacer merge a `main`, secreto `NEXO_KB_TOKEN`); opcional, no probado contra GitHub |
+| F-04 Skill e instalación | Hecho (en el fork) | Cambio de alcance del 2026-10-13 (design §19.4): `engram nexo connect`, `status`, `disconnect` y `setup`; `engram setup <agente>` instala la skill `nexo-protocol` (claude-code, codex, opencode) o el bloque de reglas (resto de agentes) con la PC conectada; fuente única `internal/nexo/setup/SKILL.md`. El kit `02-nexo-kit` queda histórico. Marketplace del plugin hacia el fork: decisión pendiente (D-K2b-35) |
+| C-10 (motor local) | Hecho | `eval --retriever local-bm25`: medición de la copia local (RESULTADOS §4.1) |
+| F-05 | Pendiente | Revisión del usuario y commit |
 
 ## Estado (entrega 2b, tanda 1, 2026-10-13, sin commit)
 
@@ -24,7 +39,7 @@ de secretos pendiente. Detalle y desviaciones D-K2b-1..D-K2b-21 en `design.md` �
 | U-03 Wiki de Azure DevOps (IN-08, KP-11) | Hecho | `source` + conversor `ado-md`; `[TO_REMOVE]` retiradas, `≤-AAAA` vencidas, `[TO_TIDY]` etiquetada |
 | C-07 Propuestas (KP-08) | Hecho | Conflicto 409 con `force`, vigencia futura, descarte con motivo, retiro; proponentes no ven ajenas; CA-K07, CA-K08 |
 | C-08 Rutas | Hecho | Se agregan subida, propuestas, `/changes`, `/sync`, `/eval-runs`, `publish-runs`, `admin/index` |
-| C-09 Feed `/sync` (KP-07) | Hecho (servidor) | Vigentes y programadas con vigencias; la copia local que lo consume es de la tanda 2 |
+| C-09 Feed `/sync` (KP-07) | Hecho | Vigentes y programadas con vigencias; la copia local lo consume desde la tanda 2 (con `public_url` y `source_url`) |
 | RC-27 Qué cambió | Hecho | `/changes` y `engram nexo kb changes`, relojes `valid` y `recorded` |
 | KP-09 Avisos | Hecho | `kb_doc_expiring`, `kb_doc_review_due` en `nexo_alerts` (capa conocimiento) |
 | KP-01, KP-02 | Hecho | Tope de poda (25 %, `confirm`); `nexo_kb_publish_runs` |
@@ -32,7 +47,7 @@ de secretos pendiente. Detalle y desviaciones D-K2b-1..D-K2b-21 en `design.md` �
 | C-10 / R0 | Hecho (borrador) | `eval` por clases y métricas portadas (Hit@5, Recall@5, MRR, nDCG, MAP, sin respuesta), `nexo_kb_eval_runs`, prueba de calidad en CI (`eval/quality_test.go`), 50 preguntas borrador sobre la wiki (a validar por 3-4 devs) |
 | R1 | Hecho | RC-03 (con reindexado seguro), RC-04, RC-05, RC-06, RC-07, RC-09, RC-10, RC-22, IN-07 (`quote`); todo desactivable con `NEXO_KB_R1` |
 | SG-09 | Parcial | Detección ampliada; la política (rechazar o enmascarar) sigue pendiente de decisión: hoy se rechaza |
-| D-01, D-02, D-03 (`get`, `import-transversal`), D-04, F-04 | Pendiente (tanda 2) | Copia local, MCP, plantilla de GitHub Actions (opcional), skill v0.3 |
+| D-01, D-02, D-03 (`get`, `import-transversal`), D-04, F-04 | Hecho en la tanda 2 | Ver el estado de la tanda 2 arriba |
 
 Medición de calidad (wiki de arquitectura, 50 preguntas borrador, `design.md` §18.3):
 

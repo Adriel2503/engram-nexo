@@ -231,6 +231,10 @@ type SectionView struct {
 	Citation string         `json:"citation"`
 	Status   string         `json:"document_status"`
 	Notice   string         `json:"notice,omitempty"`
+	// Tanda 2 (RC-08): enlace permanente a la sección (la API lo completa con la
+	// URL pública) y enlace a la fuente original, si se declaró.
+	Link      string `json:"link,omitempty"`
+	SourceURL string `json:"source_url,omitempty"`
 }
 
 // GetSection lee una sección por su ancla, en la versión vigente (0) o dada.
@@ -256,7 +260,8 @@ func (s *Service) GetSection(ctx context.Context, id authz.Identity, slug, docKe
 	h := search.Hit{Space: sp.Slug, Title: v.Title, DocKey: d.DocKey, HeadingPath: sec.HeadingPath, Anchor: sec.Anchor, Version: v.Version,
 		ValidFrom: sec.ValidFrom, ValidUntil: sec.ValidUntil, SourceLocation: sec.SourceLocation}
 	return SectionView{Space: sp.Slug, DocKey: d.DocKey, Title: v.Title, Category: v.Category, Owner: v.OwnerLabel, Version: v.Version,
-		Section: sec, Citation: search.Citation(h), Status: d.Status, Notice: notice(d.Document, v.Version, time.Now())}, nil
+		Section: sec, Citation: search.Citation(h), Status: d.Status, Notice: notice(d.Document, v.Version, time.Now()),
+		Link: search.SectionPath(sp.Slug, d.DocKey, sec.Anchor, v.Version), SourceURL: v.Origin.SourceURL}, nil
 }
 
 // ─── Búsqueda (RF-20..RF-24) ─────────────────────────────────────────────────

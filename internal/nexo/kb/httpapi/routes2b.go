@@ -412,6 +412,7 @@ func (a *api) sync(w http.ResponseWriter, r *http.Request, svc *service.Service,
 		writeErr(w, err)
 		return
 	}
+	res.PublicURL = BaseURL(r) // tanda 2: enlaces de la copia local (RC-08)
 	writeJSON(w, http.StatusOK, res)
 }
 

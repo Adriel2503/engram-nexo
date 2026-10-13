@@ -294,7 +294,9 @@ func SupportedAgents() []Agent {
 func Install(agentName string) (*Result, error) {
 	for _, a := range agentAdapters() {
 		if a.slug == agentName {
-			return installFromAdapter(a)
+			res, err := installFromAdapter(a)
+			nexoAfterInstall(a.slug) // NX-10: protocolo Nexo si la PC está conectada (nexo_setup.go)
+			return res, err
 		}
 	}
 	return nil, fmt.Errorf("unknown agent: %q (supported: %s)", agentName, strings.Join(supportedSlugs(), ", "))

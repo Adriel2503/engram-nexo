@@ -441,6 +441,9 @@ func (a *api) getSection(w http.ResponseWriter, r *http.Request, svc *service.Se
 		writeErr(w, err)
 		return
 	}
+	if base := BaseURL(r); base != "" && view.Link != "" { // RC-08 (tanda 2)
+		view.Link = base + view.Link
+	}
 	writeJSON(w, http.StatusOK, view)
 }
 
@@ -460,6 +463,9 @@ func (a *api) sectionByQuery(w http.ResponseWriter, r *http.Request, svc *servic
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if base := BaseURL(r); base != "" && view.Link != "" { // RC-08 (tanda 2)
+		view.Link = base + view.Link
 	}
 	writeJSON(w, http.StatusOK, view)
 }

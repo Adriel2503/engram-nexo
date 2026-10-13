@@ -1,0 +1,113 @@
+# Nexo IA (NX-10, D-04): plantilla de GitHub Actions para publicar los lineamientos de un
+# repositorio en un espacio de conocimiento. OPCIONAL: el flujo principal es que el responsable
+# suba los archivos desde el panel o con `engram nexo kb upload` (D-K12).
+#
+# Copiar a .github/workflows/publicar-conocimiento.yml del repositorio de lineamientos.
+# Configuración del repositorio (Settings > Secrets and variables > Actions):
+#   Secreto   NEXO_KB_TOKEN   token de una cuenta de servicio con rol publicador en el espacio
+#   Variable  NEXO_SERVER     URL de Nexo, por ejemplo https://nexo.midominio.pe
+#   Variable  NEXO_KB_SPACE   slug del espacio, por ejemplo lineamientos-frontend
+#   Variable  NEXO_KB_DIR     carpeta con los documentos (opcional, por defecto "docs")
+#   Variable  NEXO_FORK_REF   rama o etiqueta del fork engram-nexo a compilar (opcional, por defecto "develop")
+# Detalle en LEEME.md (misma carpeta).
+
+name: Publicar conocimiento en Nexo
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "nexo-kb.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "nexo-kb.yaml"
+  workflow_dispatch:
+
+# Mínimo privilegio: solo leer el repositorio. El token de Nexo es el único secreto.
+permissions:
+  contents: read
+
+# Nunca dos publicaciones del mismo espacio a la vez; un PR nuevo cancela su dry-run anterior.
+concurrency:
+  group: nexo-kb-${{ vars.NEXO_KB_SPACE }}-${{ github.event_name == 'push' && 'publicar' || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXO_KB_DIR: ${{ vars.NEXO_KB_DIR || 'docs' }}
+  NEXO_KB_SPACE: ${{ vars.NEXO_KB_SPACE }}
+  ENGRAM_CLOUD_SERVER: ${{ vars.NEXO_SERVER }}
+  ENGRAM_NO_UPDATE_CHECK: "1"
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Recomendado: fijar cada acción por SHA completo del commit (no solo la versión mayor).
+      - name: Repositorio de lineamientos
+        uses: actions/checkout@v4
+
+      # Opción A (hoy): compilar el binario del fork engram-nexo con una versión de Go fijada.
+      - name: Fork engram-nexo
+        uses: actions/checkout@v4
+        with:
+          repository: <organizacion>/engram-nexo
+          ref: ${{ vars.NEXO_FORK_REF || 'develop' }}
+          path: .engram-nexo
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: .engram-nexo/go.sum
+      - name: Compilar engram (fork)
+        working-directory: .engram-nexo
+        run: |
+          go build -o "$RUNNER_TEMP/engram" ./cmd/engram
+          "$RUNNER_TEMP/engram" version
+
+      # Opción B (cuando exista un release del fork, OP-01): descargar y verificar el binario
+      # en lugar de los tres pasos anteriores, por ejemplo:
+      #   curl -fsSL -o engram.tar.gz https://<releases>/engram_3.3.2-nexo.N_linux_amd64.tar.gz
+      #   echo "<sha256>  engram.tar.gz" | sha256sum -c -
+      #   tar -xzf engram.tar.gz -C "$RUNNER_TEMP" engram
+
+      - name: Comprobar configuración
+        run: |
+          test -n "$ENGRAM_CLOUD_SERVER" || { echo "Falta la variable NEXO_SERVER"; exit 1; }
+          test -n "$NEXO_KB_SPACE" || { echo "Falta la variable NEXO_KB_SPACE"; exit 1; }
+          test -d "$NEXO_KB_DIR" || { echo "No existe la carpeta $NEXO_KB_DIR"; exit 1; }
+
+      # PR: prueba sin escribir nada. El resultado (creados, actualizados, sin cambios,
+      # rechazados y por qué) queda en el resumen del job para revisarlo antes del merge.
+      - name: Dry-run (pull request)
+        if: github.event_name == 'pull_request'
+        env:
+          ENGRAM_CLOUD_TOKEN: ${{ secrets.NEXO_KB_TOKEN }}
+        run: |
+          set -o pipefail
+          {
+            echo "## Nexo: dry-run de la publicación en \`$NEXO_KB_SPACE\`"
+            echo '```'
+            "$RUNNER_TEMP/engram" nexo kb upload --space "$NEXO_KB_SPACE" --dry-run \
+              --collection "${{ github.event.repository.name }}" "$NEXO_KB_DIR" 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Merge a main (o ejecución manual): publicación real. Idempotente: lo que no cambió no
+      # crea versiones. Sin poda por defecto (ver LEEME.md para --prune).
+      - name: Publicar (main)
+        if: github.event_name != 'pull_request'
+        env:
+          ENGRAM_CLOUD_TOKEN: ${{ secrets.NEXO_KB_TOKEN }}
+        run: |
+          set -o pipefail
+          {
+            echo "## Nexo: publicación en \`$NEXO_KB_SPACE\`"
+            echo '```'
+            "$RUNNER_TEMP/engram" nexo kb upload --space "$NEXO_KB_SPACE" \
+              --collection "${{ github.event.repository.name }}" "$NEXO_KB_DIR" 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

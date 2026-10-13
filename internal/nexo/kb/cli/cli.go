@@ -10,7 +10,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,7 +26,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Gentleman-Programming/engram/v3/internal/cloudconfig"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/client"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
@@ -42,13 +40,20 @@ Comandos:
           [--branch B] [--category C] [--owner O] [--base DIR] <rutas...>
                                           Publica archivos .md y .txt (directorios recursivos)
   search [--space S]... [--category C] [--tag T] [--at FECHA] [--known-at FECHA]
-         [--limit N] [--json] <consulta>  Busca en los espacios visibles
+         [--limit N] [--mode fts|exact] [--local] [--json] <consulta>
+                                          Busca en los espacios visibles (--local: solo la copia local)
+  get --space S [--version N] [--anchor A] [--local] [--json] <doc_key>[#ancla]
+                                          Lee un documento o una sección (sin conexión: la copia local)
+  sync [--status] [--json]                Actualiza la copia local de solo lectura (~/.nexo/kb.db)
+  import-transversal --space general [--dry-run] [--from export.json] [--project nexo-transversal]
+                                          Migra la memoria nexo-transversal: Oficial -> documentos,
+                                          Propuesta -> propuestas (idempotente)
   upload --space S [--dry-run] [--prune [--confirm-prune]] [--source auto|dir|azure-devops-wiki]
          [--collection N] [--wiki-url URL] [--category C] [--owner O] <archivos | carpeta | zip>
                                           Sube archivos sueltos (.md, .txt, .docx), una carpeta o un zip
   changes --since FECHA [--until FECHA] [--space S]... [--clock valid|recorded]
                                           Secciones agregadas, modificadas y retiradas (RC-27)
-  eval <preguntas.yaml> [--k 5] [--validated-only] [--record [--accept]] [--min-hit 0.8] [--json]
+  eval <preguntas.yaml> [--retriever pgfts|local-bm25] [--k 5] [--validated-only] [--record [--accept]] [--min-hit 0.8] [--json]
                                           Mide la búsqueda por clase (Hit@5, Recall@5, MRR, nDCG, MAP, sin respuesta)
   reindex [--status]                      Reindexa el texto (superadmin) tras cambiar NEXO_KB_R1
 
@@ -88,6 +93,12 @@ func Run(args []string, dataDir string, stdout, stderr io.Writer) int {
 		err = runReindex(rest, dataDir, stdout)
 	case "eval":
 		err = runEval(rest, dataDir, stdout)
+	case "get": // tanda 2 (D-03)
+		err = runGet(rest, dataDir, stdout)
+	case "sync": // tanda 2 (D-01)
+		err = runSync(rest, dataDir, stdout)
+	case "import-transversal": // tanda 2 (D-03, design §11)
+		err = runImportTransversal(rest, dataDir, stdout)
 	default:
 		fmt.Fprintf(stderr, "comando desconocido: %s\n\n%s", cmd, usage)
 		return 2
@@ -111,85 +122,17 @@ type exitError struct {
 
 func (e exitError) Error() string { return e.msg }
 
-// ─── Cliente HTTP mínimo ─────────────────────────────────────────────────────
+// ─── Cliente HTTP ────────────────────────────────────────────────────────────
 
-// Client llama a /nexo/kb/v1.
-type Client struct {
-	Server string
-	Token  string
-	HTTP   *http.Client
-}
+// Client llama a /nexo/kb/v1. Desde la entrega 2b (tanda 2) vive en el
+// paquete client, junto con la copia local y las herramientas MCP.
+type Client = client.API
 
 // APIError es un error de la API.
-type APIError struct {
-	Status int
-	Code   string `json:"error_code"`
-	Msg    string `json:"error"`
-}
-
-func (e *APIError) Error() string { return fmt.Sprintf("HTTP %d %s: %s", e.Status, e.Code, e.Msg) }
+type APIError = client.APIError
 
 func newClient(dataDir, server string) (*Client, error) {
-	cc, err := cloudconfig.Load(dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("leer configuración cloud: %w", err)
-	}
-	cc = cloudconfig.ApplyServerOverride(cc)
-	token, _ := cloudconfig.EffectiveToken(dataDir)
-	if strings.TrimSpace(server) == "" && cc != nil {
-		server = cc.ServerURL
-	}
-	server = strings.TrimRight(strings.TrimSpace(server), "/")
-	if server == "" {
-		return nil, errors.New("falta el servidor: engram cloud config --server <url> o ENGRAM_CLOUD_SERVER")
-	}
-	if strings.TrimSpace(token) == "" {
-		return nil, errors.New("falta el token: ENGRAM_CLOUD_TOKEN o engram cloud config (el conocimiento exige un token de usuario administrado)")
-	}
-	return &Client{Server: server, Token: strings.TrimSpace(token), HTTP: &http.Client{Timeout: 120 * time.Second}}, nil
-}
-
-// Do envía una petición JSON y decodifica la respuesta en out.
-func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
-	var rd io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		rd = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.Server+path, rd)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "engram-nexo-kb/1")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode >= 300 {
-		ae := &APIError{Status: resp.StatusCode}
-		_ = json.Unmarshal(raw, ae)
-		if ae.Msg == "" {
-			ae.Msg = strings.TrimSpace(string(raw))
-		}
-		return ae
-	}
-	if out != nil {
-		return json.Unmarshal(raw, out)
-	}
-	return nil
+	return client.New(dataDir, server, 120*time.Second)
 }
 
 func spacePath(slug string) string { return "/nexo/kb/v1/spaces/" + url.PathEscape(slug) }
@@ -567,12 +510,16 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	mode := fsx.String("mode", "", "fts (por defecto) o exact (literal o /expresión/)")
 	server := fsx.String("server", "", "URL del servidor")
 	asJSON := fsx.Bool("json", false, "salida JSON")
-	if err := fsx.Parse(reorder(args, map[string]bool{"json": true})); err != nil {
+	local := fsx.Bool("local", false, "buscar con la copia local (servidor primero si no se indica; tanda 2)")
+	if err := fsx.Parse(reorder(args, map[string]bool{"json": true, "local": true})); err != nil {
 		return exitError{2, err.Error()}
 	}
 	q := strings.TrimSpace(strings.Join(fsx.Args(), " "))
 	if q == "" {
 		return exitError{2, "falta la consulta"}
+	}
+	if *local { // tanda 2: copia local (D-01)
+		return runSearchLocal(q, spaces, *category, *tag, *at, *mode, *limit, *asJSON, stdout)
 	}
 	c, err := newClient(dataDir, *server)
 	if err != nil {

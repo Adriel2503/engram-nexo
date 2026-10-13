@@ -151,9 +151,9 @@ func TestCLIPublishSearchEval(t *testing.T) {
 		t.Fatalf("eval: %d %s %s", code, out, errOut)
 	}
 	t.Log(strings.SplitN(out, "\n", 2)[0])
-	code, _, errOut = run(t, "kb", "eval", evalFile, "--retriever", "local-bm25")
-	if code != 2 || !strings.Contains(errOut, "tanda 2") {
-		t.Fatalf("local-bm25 aún no: %d %s", code, errOut)
+	code, _, errOut = run(t, "kb", "eval", evalFile, "--retriever", "hybrid")
+	if code != 2 || !strings.Contains(errOut, "R2") {
+		t.Fatalf("hybrid aún no: %d %s", code, errOut)
 	}
 	// Sin token.
 	t.Setenv("ENGRAM_CLOUD_TOKEN", "")

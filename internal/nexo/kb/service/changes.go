@@ -123,6 +123,10 @@ type SyncResult struct {
 	ServerTime     time.Time    `json:"server_time"`
 	VisibleSpaces  []SyncSpace  `json:"visible_spaces"`
 	Changes        []SyncChange `json:"changes"`
+	// PublicURL (tanda 2): URL pública de Nexo para que la copia local arme
+	// los enlaces permanentes de las citas sin conexión (RC-08). La completa
+	// la API.
+	PublicURL string `json:"public_url,omitempty"`
 }
 
 // Sync devuelve los espacios visibles y los cambios desde since (design §6.4

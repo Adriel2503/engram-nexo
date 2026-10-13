@@ -153,6 +153,9 @@ type FeedSection struct {
 	Extraction     string         `json:"extraction"`
 	ValidFrom      time.Time      `json:"valid_from"`
 	ValidUntil     *time.Time     `json:"valid_until,omitempty"`
+	// SourceURL: enlace a la fuente de la versión (RC-08), para citar desde la
+	// copia local.
+	SourceURL string `json:"source_url,omitempty"`
 }
 
 // OpenSections devuelve las secciones del documento que rigen hoy o regirán
@@ -161,7 +164,8 @@ type FeedSection struct {
 func OpenSections(ctx context.Context, q Querier, documentID string) ([]FeedSection, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT v.version, s.anchor, s.ordinal, array_to_json(s.heading_path)::text, s.body,
-			COALESCE(s.body_sha256, encode(sha256(convert_to(s.body, 'UTF8')), 'hex')), s.source_location::text, s.extraction, s.valid_from, s.valid_until
+			COALESCE(s.body_sha256, encode(sha256(convert_to(s.body, 'UTF8')), 'hex')), s.source_location::text, s.extraction, s.valid_from, s.valid_until,
+			COALESCE(v.origin->>'source_url', '')
 		FROM nexo_kb_sections s JOIN nexo_kb_versions v ON v.id = s.version_id
 		WHERE s.document_id = $1::uuid AND s.recorded_until IS NULL AND (s.valid_until IS NULL OR s.valid_until > now())
 		ORDER BY v.version, s.ordinal`, documentID)
@@ -174,7 +178,7 @@ func OpenSections(ctx context.Context, q Querier, documentID string) ([]FeedSect
 		var f FeedSection
 		var hp, loc string
 		var vu *time.Time
-		if err := rows.Scan(&f.Version, &f.Anchor, &f.Ordinal, &hp, &f.Body, &f.BodySHA256, &loc, &f.Extraction, &f.ValidFrom, &vu); err != nil {
+		if err := rows.Scan(&f.Version, &f.Anchor, &f.Ordinal, &hp, &f.Body, &f.BodySHA256, &loc, &f.Extraction, &f.ValidFrom, &vu, &f.SourceURL); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(hp), &f.HeadingPath)

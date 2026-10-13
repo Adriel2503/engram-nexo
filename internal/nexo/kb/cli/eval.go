@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/client"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/eval"
 )
 
@@ -87,7 +88,7 @@ func (s ServerRetriever) Changes(ctx context.Context, q eval.Question, spaces []
 
 func runEval(args []string, dataDir string, stdout io.Writer) error {
 	fsx := flag.NewFlagSet("eval", flag.ContinueOnError)
-	retriever := fsx.String("retriever", "pgfts", "motor: pgfts (servidor); local-bm25 e hybrid llegan después")
+	retriever := fsx.String("retriever", "pgfts", "motor: pgfts (servidor) o local-bm25 (copia local, FTS5); hybrid llega con R2")
 	k := fsx.Int("k", 5, "Recall@k")
 	server := fsx.String("server", "", "URL del servidor")
 	asJSON := fsx.Bool("json", false, "salida JSON")
@@ -115,21 +116,34 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var r ServerRetriever
+	var r eval.Retriever
+	var c *Client
 	switch *retriever {
 	case "pgfts", "server":
-		c, err := newClient(dataDir, *server)
-		if err != nil {
+		if c, err = newClient(dataDir, *server); err != nil {
 			return err
 		}
 		r = ServerRetriever{C: c}
-	case "local-bm25", "hybrid":
-		return exitError{2, "el motor " + *retriever + " llega con la copia local (tanda 2); hoy: --retriever pgfts"}
+	case "local-bm25", "local":
+		// Tanda 2 (C-10): la copia local con BM25 (FTS5), sin servidor.
+		l, err := client.OpenLocal(client.DefaultLocalPath())
+		if err != nil {
+			return err
+		}
+		defer l.Close()
+		r = LocalRetriever{L: l}
+	case "hybrid":
+		return exitError{2, "el motor hybrid llega con R2; hoy: --retriever pgfts o local-bm25"}
 	default:
 		return exitError{2, "motor desconocido: " + *retriever}
 	}
 	rep := eval.RunWith(context.Background(), set, r, eval.Options{K: *k, Depth: 10, ValidatedOnly: *validated})
 	if *record {
+		if c == nil {
+			if c, err = newClient(dataDir, *server); err != nil {
+				return err
+			}
+		}
 		spaces := set.Spaces
 		if len(spaces) == 0 {
 			seen := map[string]bool{}
@@ -142,11 +156,11 @@ func runEval(args []string, dataDir string, stdout io.Writer) error {
 				}
 			}
 		}
-		body := map[string]any{"report": rep, "accepted": *accept, "commit": *commit, "note": *note, "spaces": spaces, "mode": "fts"}
+		body := map[string]any{"report": rep, "accepted": *accept, "commit": *commit, "note": *note, "spaces": spaces, "mode": evalMode(*retriever)}
 		var run struct {
 			ID string `json:"id"`
 		}
-		if err := r.C.Do(context.Background(), "POST", "/nexo/kb/v1/eval-runs", body, &run); err != nil {
+		if err := c.Do(context.Background(), "POST", "/nexo/kb/v1/eval-runs", body, &run); err != nil {
 			return fmt.Errorf("registrar la corrida: %w", err)
 		}
 		fmt.Fprintf(stdout, "corrida registrada: %s\n", run.ID)

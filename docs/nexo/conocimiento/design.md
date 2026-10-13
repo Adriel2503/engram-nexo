@@ -60,7 +60,8 @@ Puntos de enganche en Engram (cada uno una línea, `// NX-10`):
 |---|---|
 | `internal/cloud/cloudserver/cloudserver.go` (`routes`) | `nexokb.Register(s.mux, s.nexoKBDeps())` |
 | `internal/cloud/cloudstore/cloudstore.go` (`migrate`) | `nexokbstore.Migrate(ctx, cs.db)` |
-| `internal/mcp/mcp.go` (`registerTools`) | `nexokbclient.RegisterTools(srv, cfg, allowlist)` |
+| `internal/mcp/mcp.go` (`registerTools`) | `nexokbclient.RegisterTools(srv, s, allowlist)` (tanda 2: recibe el almacén de Engram solo para leer su carpeta de datos) |
+| `internal/setup/setup.go` (`Install`) | `nexoAfterInstall(a.slug)` (tanda 2, §19.4: protocolo Nexo en `engram setup` con la PC conectada) |
 | `cmd/engram/main.go` | `case "nexo": nexokbclient.RunCLI(args)` |
 
 ## 4. Identidad y autorización
@@ -932,3 +933,70 @@ debe resolver; según la regla de §17.3, R0 ya muestra la condición para pasar
 por mejora en `nexo_ia/06-pruebas/conocimiento/RESULTADOS.md`.
 
 
+## 19. Entrega 2b, tanda 2: cliente Nexo (copia local, MCP, CLI) y kit
+
+Fecha: 2026-10-13. Rama `feat/conocimiento-nucleo` (sobre `8984928`), sin commit. Cierra el flujo:
+el admin crea el espacio, el responsable sube documentos (tanda 1) y el dev consulta desde su
+asistente (herramientas MCP `nexo_*`) o la terminal, con cita y enlace, sin inventar cuando no hay
+estándar, respetando vigencias y funcionando sin red con la copia local.
+
+### 19.1 Qué se implementó
+
+| Bloque | Implementación |
+|---|---|
+| D-01 Copia local | `internal/nexo/kb/client`: `Local` (SQLite propio con FTS5 `unicode61 remove_diacritics 2`, BM25 con pesos título 5, ruta de títulos 3, cuerpo 1) en `NEXO_KB_LOCAL_DB`, `$NEXO_HOME/kb.db` o `~/.nexo/kb.db`; nunca toca `engram.db`. `Syncer` consume `GET /nexo/kb/v1/sync` por páginas: borra los espacios que ya no están en `visible_spaces` (RF-41), reemplaza cada documento por su estado final (vigentes y programadas con su vigencia) o lo borra, guarda el cursor por página. La vigencia se aplica al consultar con el reloj local o `at` (KP-07): nunca devuelve lo vencido ni lo que aún no rige |
+| D-02 MCP | `nexo_search`, `nexo_get`, `nexo_spaces`, `nexo_changes`, `nexo_propose`, `nexo_proposals`, `nexo_review`, `nexo_whoami` (`client/mcp.go`). Un solo enganche `// NX-10` al final de `registerTools` (más su import). Cada resultado trae `status`, `citation`, `link`, `source_url`, `quote` y una `guidance` para el asistente; sin estándar, `no_results` y el mensaje literal de HU-06. Primero el servidor; si no responde, la copia local marcada (`source: local_copy`, `notice` con fecha y antigüedad) |
+| D-03 CLI | `engram nexo kb get`, `sync`, `search --local`, `eval --retriever local-bm25`, `import-transversal` (despachador `nexocli` existente; sin enganches nuevos en `main.go`) |
+| D-04 | Plantilla `docs/nexo/conocimiento/github-actions/` (`publicar-conocimiento.yml` y `LEEME.md`): `upload --dry-run` en PR, `upload` al hacer merge a `main`, token como secreto `NEXO_KB_TOKEN`; soporte a futuro, no es el flujo principal (D-K12) |
+| F-04 | **Superado por §19.4** (la instalación y la skill viven en el fork). Primero se hizo en el kit `nexo_ia/02-nexo-kit` v0.3.0, hoy histórico: skill `nexo-protocol` (lo transversal por `nexo_*`, cita siempre, "no hay estándar", `at`/`known_at`, "qué cambió", propuestas con confirmación; `nexo-transversal` como respaldo de solo lectura), plugin con las 8 herramientas en `--tools`, hook de inicio que ejecuta `engram nexo kb sync` (tolerante), instalador y README |
+| Servidor (aditivo) | `/sync` agrega `public_url` y `source_url` por sección; la lectura de una sección agrega `link` y `source_url`. Sin migraciones nuevas |
+
+### 19.2 Desviaciones
+
+| ID | Tema | Diseño | Implementado | Motivo |
+|---|---|---|---|---|
+| D-K2b-22 | Ventana de solape (riesgo D-K2b-17) | Cursor `seq` | El cliente guarda puntos de control (seq, hora) y relee desde el seq del punto más nuevo anterior en `NEXO_KB_SYNC_OVERLAP_SECONDS` (120 s) a la última sincronización; si todavía no existe ese punto, relee los últimos 1 000 cambios. Aplicar un documento es idempotente | Un cambio con `seq` menor confirmado después de leer el máximo se vuelve a leer en la sincronización siguiente. Supuesto: ninguna transacción de publicación tarda más que la ventana entre recibir su `seq` y confirmarse |
+| D-K2b-23 | Espacio que se vuelve visible | Feed por `seq` | Si `visible_spaces` trae un espacio que la copia no tenía, se relee el feed desde 0 una vez | Sus documentos tienen `seq` anteriores al cursor; el feed no filtra por espacio |
+| D-K2b-24 | Búsqueda local | FTS5 BM25 | Términos sin palabras vacías (español e inglés), por prefijo con recorte de sufijos ("validaciones" -> `validacion*`); primero todos los términos y luego cualquiera (como D-I4); umbral de cobertura ponderada por rareza calculada sobre la copia (`NEXO_KB_MIN_COVERAGE`) y tope por documento (`NEXO_KB_MAX_PER_DOC`); modo `exact` (literal o RE2). Sin sinónimos del glosario ni `known_at` (la copia no guarda el historial de publicación: se dice) | La copia no tiene el lematizador de Postgres. La calidad local se mide con `eval --retriever local-bm25` (§14.5) |
+| D-K2b-25 | Identidad de la copia | — | Huella `sha256(servidor + token)` truncada (nunca el token): si cambia la persona o el servidor, la copia se reconstruye | Una copia pertenece a una persona |
+| D-K2b-26 | Registro de herramientas | `RegisterTools(srv, cfg, allowlist)` | `RegisterTools(srv, s, allowlist)`; se registran si no hay allowlist, si su nombre está en ella o si incluye `nexo` (`--tools=agent,nexo`), y solo con servidor y token configurados; `NEXO_KB_MCP=off` las apaga. Un pánico interno no tumba el MCP | El perfil `agent` de Engram no puede incluir nombres que el Engram oficial no conoce; el kit usa la lista explícita |
+| D-K2b-27 | Herramientas | Seis en §6.5 | Ocho: se agregan `nexo_changes` (HU-38) y `nexo_whoami`. "Sin conexión" = error de red, tiempo agotado (`NEXO_KB_TIMEOUT_SECONDS`, 8 s) o 502/503/504; un 401/403/404/422 no cae a la copia (el servidor respondió) | HU-38 y diagnóstico (`estado` de la skill) |
+| D-K2b-28 | Sincronización | Al iniciar el MCP, por hook y cada 10 min | Igual (`NEXO_KB_SYNC_MINUTES`), más una sincronización en segundo plano cuando el servidor vuelve a responder tras estar caído o la copia tiene más de 10 minutos; nunca bloquea la respuesta. `engram nexo kb sync` termina en 0 sin red (para los hooks) | CA-K10 (al reconectar se actualiza sola) |
+| D-K2b-29 | Migración de `nexo-transversal` | Publicar Oficial, listar Propuestas | `import-transversal` lee `engram.db` en solo lectura (`mode=ro`) o un `engram export` (`--from`); Oficial -> documento por lote (origen `import`, `doc_key` `transversal/<topic_key>`, categoría desde **Categoría**, vigencia desde **Vigente desde**, responsable); Propuesta (o sin Estado) -> propuesta del espacio, idempotente por `doc_key` entre las propias; Obsoleto y otros se omiten. `--dry-run` no escribe nada | Las propuestas quedan a nombre de quien ejecuta la migración (la autoría original queda en la sección "Procedencia" del texto); el autor original no tiene token en ese momento |
+| D-K2b-30 | Cliente HTTP | En `client` (2b) | El cliente mínimo de `cli` pasó a `client.API` (`cli.Client` es un alias) | Una sola implementación para CLI y MCP |
+
+### 19.3 Riesgos
+
+- Si en la PC que corre las pruebas de Engram están definidos `ENGRAM_CLOUD_SERVER` y `ENGRAM_CLOUD_TOKEN`,
+  el MCP de las pruebas registraría también las herramientas `nexo_*` (y cambiaría la cuenta de
+  herramientas). Mitigación: `NEXO_KB_MCP=off` al correr esas pruebas. En CI no están definidas.
+- El binario oficial de Engram no tiene `nexo_*`: el kit depende de distribuir el binario del fork
+  (OP-01).
+- La copia local guarda texto de documentos oficiales en la PC (como antes `nexo-transversal`); se
+  borra al perder acceso al espacio en la siguiente sincronización, no antes.
+
+### 19.4 Cambio de alcance (decisión del usuario, 2026-10-13): la instalación vive en el fork
+
+La skill y la instalación de Nexo dejan el kit externo (`nexo_ia/02-nexo-kit`, que queda como
+histórico) y pasan al fork. Instalación para un dev, igual en Windows, Mac y Linux:
+
+1. Instalar el binario `engram` del fork (`3.3.2-nexo.N`).
+2. `engram nexo connect --server https://<servidor-nexo> --token-stdin` (o `NEXO_TOKEN`, o `--token`).
+3. `engram setup <agente>` (claude-code, codex, cursor, windsurf, ...). Si ya estaba configurado:
+   `engram nexo setup <agente>`.
+4. Reiniciar el asistente. Comprobar con `engram nexo status`; quitar con `engram nexo disconnect`.
+
+| ID | Tema | Implementado | Motivo |
+|---|---|---|---|
+| D-K2b-31 | Conexión | `engram nexo connect` valida servidor y token con `GET /nexo/authz/v1/me` (401, 403 y 404 dan mensajes claros y no guardan nada), guarda servidor y token en `cloud.json` de Engram (0600, el mismo archivo de `engram cloud config`: el servidor Nexo es el Engram Cloud del equipo), escribe el marcador `nexo.json` en la carpeta de datos (servidor, persona, alcance; sin el token) y hace la primera sincronización de la copia local. `status` informa conexión, identidad, servidor y copia; `disconnect` borra el marcador, el token y la copia (`--keep-copy` la conserva). El token nunca se imprime | Reemplaza la parte Nexo de `Install-Nexo.ps1` y funciona en las tres plataformas |
+| D-K2b-32 | Registro de las herramientas | Además de D-K2b-26: con la PC conectada (`nexo.json`) se registran con el perfil `agent` (el que escribe `engram setup`: `--tools=agent`) o sin allowlist. Sin conexión, un Engram con nube que no es Nexo no las ve | `engram setup` escribe `--tools=agent` en todos los agentes; cambiar cada escritor de MCP habría tocado muchos archivos de Engram |
+| D-K2b-33 | Protocolo en `engram setup` | Un enganche `// NX-10` en `setup.Install` llama a `nexoAfterInstall` (`internal/setup/nexo_setup.go`). **Decisión:** solo instala si la PC está conectada; sin conexión `engram setup` queda igual que en Engram. Destinos: claude-code -> `~/.claude/skills/nexo-protocol/SKILL.md` (respeta `CLAUDE_CONFIG_DIR`); codex -> `~/.codex/skills/` y `~/.agents/skills/`; opencode -> `~/.config/opencode/skills/`; pi -> `AGENTS.md` de Pi; gemini-cli y antigravity -> bloque en `~/.gemini/GEMINI.md`; windsurf, qwen, kiro, kilocode, commandcode, kimi -> bloque administrado (`<!-- BEGIN NEXO PROTOCOL (NX-10) ... -->`) en el mismo archivo de reglas que usa Engram, sin tocar el bloque de Engram; cursor -> `~/.cursor/nexo-protocol.md` para pegar como User Rule (como hace Engram); vscode-copilot -> `prompts/nexo.instructions.md` con `applyTo: "**"`. Un error al instalar el protocolo no hace fallar `engram setup` (aviso en stderr) y se instala aunque falle un paso propio de Engram (por ejemplo, sin el CLI de claude) | Coexistir con lo de Engram sin cambiar su comportamiento; el orden recomendado es conectar primero |
+| D-K2b-34 | Fuente única del texto | `internal/nexo/setup/SKILL.md` (embebido con `go:embed`); `go generate ./internal/nexo/setup/` copia a `plugin/claude-code/skills/nexo-protocol/SKILL.md` y `plugin/codex/skills/nexo-protocol/SKILL.md`; una prueba falla si divergen. Los archivos de reglas reciben el mismo texto sin front matter | Que no diverja |
+| D-K2b-35 | Marketplace del plugin de Claude Code y de Codex | **Sin cambio (decisión pendiente).** `engram setup claude-code` sigue instalando el plugin `engram` desde `Gentleman-Programming/engram`; la skill de Nexo no depende de él porque se escribe en `~/.claude/skills`. Para apuntar al fork bastaría cambiar `claudeCodeMarketplace` y `codexMarketplace` (`internal/setup/setup.go`) a `Adriel2503/engram-nexo` con una línea marcada; no se hizo porque el fork tendría que publicar su marketplace (`.claude-plugin/marketplace.json`, versión del plugin) y mantenerlo al día con Engram, y `isEngramClaudeCodePlugin` y las pruebas de setup asumen el marketplace original | Riesgo de que las PCs dejen de recibir las actualizaciones del plugin de Engram |
+
+Pruebas: `internal/setup/nexo_setup_test.go` (sin conexión no se toca nada; Windsurf con los dos
+bloques e idempotente; Cursor y VS Code con archivo propio; todos los agentes con destino;
+skill en claude-code y codex; `Install("claude-code")` deja la skill aunque falle el CLI; copias del
+plugin iguales a la fuente), `internal/nexo/nexocli/connection_test.go` (token inválido no guarda
+nada; token válido guarda sin el token en `nexo.json`, sincroniza; `status` con y sin servidor;
+`disconnect`), `client/local_test.go` (`TestEffectiveAllowlist`). E2E T2-21..T2-26.

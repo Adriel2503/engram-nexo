@@ -29,6 +29,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/diagnostic"
+	nexokbclient "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/client" // NX-10
 	projectpkg "github.com/Gentleman-Programming/engram/v3/internal/project"
 	"github.com/Gentleman-Programming/engram/v3/internal/store"
 	"github.com/Gentleman-Programming/engram/v3/internal/timeutil"
@@ -1161,6 +1162,7 @@ ERROR: Returns IsError=true if IDs are unknown, relation is invalid, or cross-pr
 			handleCompare(s, activity),
 		)
 	}
+	nexokbclient.RegisterTools(srv, s, allowlist) // NX-10: herramientas nexo_* de los espacios de conocimiento (internal/nexo/kb/client)
 }
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────

@@ -15,7 +15,6 @@ import (
 	"io"
 	"io/fs"
 	"mime/multipart"
-	"net/http"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -25,36 +24,6 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 )
-
-// DoMultipart envía un cuerpo multipart y decodifica la respuesta JSON.
-func (c *Client) DoMultipart(ctx context.Context, path string, body *bytes.Buffer, contentType string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", c.Server+path, body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "engram-nexo-kb/1")
-	req.Header.Set("Content-Type", contentType)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode >= 300 {
-		ae := &APIError{Status: resp.StatusCode}
-		_ = json.Unmarshal(raw, ae)
-		if ae.Msg == "" {
-			ae.Msg = strings.TrimSpace(string(raw))
-		}
-		return ae
-	}
-	return json.Unmarshal(raw, out)
-}
 
 // uploadable: extensiones que viajan en una carpeta (lo demás no se indexa).
 func uploadable(name string) bool {
