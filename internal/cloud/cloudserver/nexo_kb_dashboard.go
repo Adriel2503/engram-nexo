@@ -214,9 +214,6 @@ func kbHasCap(caps []string, c authz.Capability) bool {
 	return false
 }
 
-// kbBadge se conserva para las páginas que muestran resultados de lote.
-func kbBadge(status string) string { return kbResultChip(status) }
-
 // ─── Páginas ─────────────────────────────────────────────────────────────────
 
 type kbSpaceStats struct {

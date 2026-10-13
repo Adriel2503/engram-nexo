@@ -336,10 +336,12 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudserver/cloudserver.go:649` | NX-02 | `handlePullChunk`: registra `pull_chunk` |
 | `internal/cloud/cloudserver/cloudserver.go:821-823` | NX-01 | `handlePushChunk`: comentario marcado + `nexoActor := nexoResolveActor(...)` + `WriteChunk` recibe el actor por contexto y `nexoActor.Name` como `created_by` (antes `req.CreatedBy`) |
 | `internal/cloud/cloudserver/cloudserver.go:831` | NX-02 | `handlePushChunk`: registra `push_chunk` con lo declarado por la PC |
-| `internal/cloud/cloudserver/mutations.go:205-207` | NX-01 | `handleMutationPush`: comentario marcado + `nexoActor := nexoResolveActor(...)` + `createdBy := nexoActor.Name` (antes `mutationPushCreatedBy`, que se conserva sin uso) |
+| `internal/cloud/cloudserver/mutations.go:205-207` | NX-01 | `handleMutationPush`: comentario marcado + `nexoActor := nexoResolveActor(...)` + `createdBy := nexoActor.Name` (antes `mutationPushCreatedBy`) |
 | `internal/cloud/cloudserver/mutations.go:248` | NX-01 | `InsertMutationBatch` recibe el actor por contexto |
 | `internal/cloud/cloudserver/mutations.go:261` | NX-02 | `handleMutationPush`: registra `push_mutations` |
-| `internal/cloud/cloudserver/mutations.go:475` | NX-02 | `handleMutationPull`: registra `pull_mutations` (detalle solo si devuelve cambios) |
+| `internal/cloud/cloudserver/mutations.go:272` | NX-01 | Comentario marcado en el lugar de `mutationPushCreatedBy`, eliminada por no tener uso desde NX-01 (el autor lo da `nexoResolveActor`) |
+| `internal/cloud/cloudserver/principal_auth_test.go:136` | NX-01 | Comentario marcado en el lugar de `TestMutationPushCreatedByFallbacks` y `TestMutationPushCreatedByWithoutPrincipal`, eliminadas junto con la función |
+| `internal/cloud/cloudserver/mutations.go:463` | NX-02 | `handleMutationPull`: registra `pull_mutations` (detalle solo si devuelve cambios) |
 | `internal/cloud/cloudserver/dashboard_session.go:124` | NX-04 | `validateDashboardLoginToken` delega en la variante con contexto (`context.Background()`, misma semántica) |
 | `internal/cloud/cloudserver/dashboard_session.go:127-129` | NX-04 | Nueva firma `validateDashboardLoginTokenContext(ctx, token)`: el cuerpo es el original de Engram; solo se quitó su `ctx := context.Background()` (ahora es parámetro) |
 | `internal/cloud/cloudserver/dashboard_session.go:370-372` | NX-07 | `revalidateDashboardPrincipal`: `nexoRevalidateSessionToken` (la sesión del panel cae si su token se revoca o vence; alcance del token en el contexto) |

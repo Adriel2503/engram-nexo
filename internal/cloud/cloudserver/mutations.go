@@ -269,19 +269,7 @@ func (s *CloudServer) handleMutationPush(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func mutationPushCreatedBy(ctx context.Context) string {
-	principal, ok := PrincipalFromContext(ctx)
-	if !ok {
-		return "unknown"
-	}
-	if displayName := strings.TrimSpace(principal.DisplayName); displayName != "" {
-		return displayName
-	}
-	if id := strings.TrimSpace(principal.ID); id != "" {
-		return id
-	}
-	return "unknown"
-}
+// NX-01: mutationPushCreatedBy eliminada (sin uso desde NX-01; el autor lo da nexoResolveActor).
 
 // canonicalMutationEntry reuses the production chunk canonicalizer instead of
 // storing a payload form that would later fail during chunk materialization.

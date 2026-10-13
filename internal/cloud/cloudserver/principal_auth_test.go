@@ -133,39 +133,7 @@ func TestMutationPushUsesResolvedPrincipalNotEnvelopeCreatedBy(t *testing.T) {
 	}
 }
 
-func TestMutationPushCreatedByFallbacks(t *testing.T) {
-	tests := []struct {
-		name      string
-		principal cloudauth.Principal
-		want      string
-	}{
-		{
-			name:      "uses trimmed principal ID when display name is blank",
-			principal: cloudauth.Principal{DisplayName: " \t ", ID: " principal-1 "},
-			want:      "principal-1",
-		},
-		{
-			name:      "uses unknown when display name and ID are blank",
-			principal: cloudauth.Principal{DisplayName: " \t ", ID: " \n "},
-			want:      "unknown",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := WithPrincipal(context.Background(), tt.principal)
-			if got := mutationPushCreatedBy(ctx); got != tt.want {
-				t.Errorf("mutationPushCreatedBy() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMutationPushCreatedByWithoutPrincipal(t *testing.T) {
-	if got := mutationPushCreatedBy(context.Background()); got != "unknown" {
-		t.Errorf("mutationPushCreatedBy() = %q, want %q", got, "unknown")
-	}
-}
+// NX-01: pruebas de mutationPushCreatedBy eliminadas junto con la función (sin uso desde NX-01).
 
 func TestLegacyAuthServiceResolvesSyncPrincipalIntoRequestContext(t *testing.T) {
 	svc, err := cloudauth.NewService(&cloudstore.CloudStore{}, strings.Repeat("x", 32))
