@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -203,19 +204,33 @@ func parseMarkdownBlocks(ctx context.Context, lines []string, offset int) ([]Blo
 		}
 		return out
 	}
+	// anchorPath: solo si algún título difiere de su forma para el ancla.
+	anchorPath := func() []string {
+		differs := false
+		out := make([]string, len(stack))
+		for i, h := range stack {
+			out[i] = h.anchor
+			differs = differs || h.anchor != h.title
+		}
+		if !differs {
+			return nil
+		}
+		return out
+	}
 	emit := func(kind string, start, end int, extraction string) {
 		text := strings.Join(lines[start:end+1], "\n")
 		hp := path()
-		blocks = append(blocks, Block{Kind: kind, Text: text, HeadingPath: hp, Extraction: extraction,
+		blocks = append(blocks, Block{Kind: kind, Text: text, HeadingPath: hp, AnchorPath: anchorPath(), Extraction: extraction,
 			Location: domain.SourceLocation{"heading_path": hp, "line_start": start + offset + 1, "line_end": end + offset + 1}})
 	}
-	pushHeading := func(level int, title string, start, end int) {
+	// raw es el texto del título con sus marcas Markdown.
+	pushHeading := func(level int, raw string, start, end int) {
 		for len(stack) > 0 && stack[len(stack)-1].level >= level {
 			stack = stack[:len(stack)-1]
 		}
-		stack = append(stack, headingEntry{level: level, title: title})
+		stack = append(stack, headingEntry{level: level, title: cleanInline(raw), anchor: anchorInline(raw)})
 		hp := path()
-		blocks = append(blocks, Block{Kind: BlockHeading, Level: level, Text: strings.Join(lines[start:end+1], "\n"), HeadingPath: hp, Extraction: domain.ExtractionText,
+		blocks = append(blocks, Block{Kind: BlockHeading, Level: level, Text: strings.Join(lines[start:end+1], "\n"), HeadingPath: hp, AnchorPath: anchorPath(), Extraction: domain.ExtractionText,
 			Location: domain.SourceLocation{"heading_path": hp, "line_start": start + offset + 1, "line_end": end + offset + 1}})
 	}
 
@@ -252,7 +267,7 @@ func parseMarkdownBlocks(ctx context.Context, lines []string, offset int) ([]Blo
 			if title == "" {
 				title = strings.TrimSpace(m[2])
 			}
-			pushHeading(len(m[1]), cleanInline(title), i, i)
+			pushHeading(len(m[1]), title, i, i)
 			i++
 			continue
 		}
@@ -274,7 +289,7 @@ func parseMarkdownBlocks(ctx context.Context, lines []string, offset int) ([]Blo
 			if setext2Re.MatchString(lines[i+1]) {
 				level = 2
 			}
-			pushHeading(level, cleanInline(strings.TrimSpace(line)), i, i+1)
+			pushHeading(level, strings.TrimSpace(line), i, i+1)
 			i += 2
 			continue
 		}
@@ -296,8 +311,9 @@ func parseMarkdownBlocks(ctx context.Context, lines []string, offset int) ([]Blo
 }
 
 type headingEntry struct {
-	level int
-	title string
+	level  int
+	title  string // título visible (cleanInline)
+	anchor string // forma para el ancla (anchorInline)
 }
 
 // isFenceClose: la misma marca (``` o ~~~), al menos tan larga como la de
@@ -316,8 +332,67 @@ func isListItem(line string) bool { return listItemRe.MatchString(line) }
 
 var inlineRe = regexp.MustCompile("[*_`]+")
 
-// cleanInline quita marcas de énfasis y código de un título.
-func cleanInline(s string) string {
+// anchorInline es la forma del título que se usa para el ancla: quita todo
+// '*', '_' y '`'. Es la limpieza que antes se usaba también para el título
+// visible; se conserva para el ancla para que las anclas ya publicadas (y los
+// enlaces, el evaluador y "qué cambió", que comparan por ancla) no cambien.
+func anchorInline(s string) string {
 	s = inlineRe.ReplaceAllString(s, "")
 	return strings.TrimSpace(s)
 }
+
+// cleanInline quita las marcas de énfasis y de código de un título visible.
+// El texto dentro de `código` se conserva tal cual y un '_' entre letras o
+// dígitos no es énfasis (como en CommonMark): "trace_id" sigue "trace_id".
+func cleanInline(s string) string {
+	rs := []rune(s)
+	var b strings.Builder
+	for i := 0; i < len(rs); {
+		r := rs[i]
+		j := i
+		for j < len(rs) && rs[j] == r {
+			j++
+		}
+		switch r {
+		case '`':
+			if k := closingBackticks(rs, j, j-i); k >= 0 {
+				b.WriteString(string(rs[j:k]))
+				i = k + (j - i)
+				continue
+			}
+			// Sin cierre: las marcas se quitan.
+		case '*':
+			// Énfasis: se quita.
+		case '_':
+			if i > 0 && j < len(rs) && isWordRune(rs[i-1]) && isWordRune(rs[j]) {
+				b.WriteString(string(rs[i:j]))
+			}
+		default:
+			b.WriteString(string(rs[i:j]))
+		}
+		i = j
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// closingBackticks devuelve el inicio de la siguiente racha de exactamente n
+// '`' desde from, o -1.
+func closingBackticks(rs []rune, from, n int) int {
+	for k := from; k < len(rs); {
+		if rs[k] != '`' {
+			k++
+			continue
+		}
+		e := k
+		for e < len(rs) && rs[e] == '`' {
+			e++
+		}
+		if e-k == n {
+			return k
+		}
+		k = e
+	}
+	return -1
+}
+
+func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }

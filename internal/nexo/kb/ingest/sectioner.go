@@ -116,6 +116,7 @@ func Section(blocks []Block, opts SectionerOptions) []SectionDraft {
 	used := map[string]int{}
 	type acc struct {
 		path    []string
+		anchor  []string // ruta para el ancla (anchorPathOf)
 		heading *Block
 		blocks  []Block
 		tokens  int
@@ -139,7 +140,7 @@ func Section(blocks []Block, opts SectionerOptions) []SectionDraft {
 			kinds[b.Extraction] = true
 		}
 		body := strings.Join(parts, "\n\n")
-		base := anchorFor(cur.path)
+		base := anchorFor(cur.anchor)
 		if cur.part > 1 {
 			base = fmt.Sprintf("%s-p%d", base, cur.part)
 		}
@@ -159,11 +160,11 @@ func Section(blocks []Block, opts SectionerOptions) []SectionDraft {
 		if b.Kind == BlockHeading {
 			flush()
 			h := b
-			cur = &acc{path: b.HeadingPath, heading: &h, part: 1}
+			cur = &acc{path: b.HeadingPath, anchor: anchorPathOf(b), heading: &h, part: 1}
 			continue
 		}
 		if cur == nil {
-			cur = &acc{path: b.HeadingPath, part: 1}
+			cur = &acc{path: b.HeadingPath, anchor: anchorPathOf(b), part: 1}
 		}
 		if len(cur.blocks) > 0 && splitKeyChanged(cur.blocks[len(cur.blocks)-1].Location, b.Location, opts.SplitKeys) {
 			flush()
@@ -187,7 +188,7 @@ func Section(blocks []Block, opts SectionerOptions) []SectionDraft {
 			locs = append(locs, b.Location)
 		}
 		body := strings.Join(parts, "\n\n")
-		out = append(out, SectionDraft{Ordinal: 1, Anchor: anchorFor(blocks[0].HeadingPath), HeadingPath: blocks[0].HeadingPath,
+		out = append(out, SectionDraft{Ordinal: 1, Anchor: anchorFor(anchorPathOf(blocks[0])), HeadingPath: blocks[0].HeadingPath,
 			Body: body, TokenCount: CountTokens(body), Location: MergeLocations(locs), Extraction: domain.ExtractionText})
 	}
 	return out
@@ -285,6 +286,15 @@ func toInt(v any) int {
 func CountTokens(s string) int { return len(strings.Fields(s)) }
 
 // ─── Anclas y normalización ──────────────────────────────────────────────────
+
+// anchorPathOf: la ruta de títulos con la que se calcula el ancla del bloque
+// (AnchorPath si el conversor la dio; si no, HeadingPath).
+func anchorPathOf(b Block) []string {
+	if b.AnchorPath != nil {
+		return b.AnchorPath
+	}
+	return b.HeadingPath
+}
 
 // anchorFor: slug de cada título de la ruta unidos por "." ("intro" si no
 // hay títulos). Estable mientras no cambien los títulos.
