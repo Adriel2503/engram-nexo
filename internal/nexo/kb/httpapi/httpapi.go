@@ -535,7 +535,7 @@ func (a *api) search(w http.ResponseWriter, r *http.Request, svc *service.Servic
 		}
 	}
 	res, err := svc.Search(r.Context(), id, service.SearchRequest{Q: q.Get("q"), Spaces: spaces, Category: q.Get("category"), Tag: q.Get("tag"),
-		At: at, KnownAt: known, Limit: limit, Mode: q.Get("mode"), Neighbors: isTrue(q.Get("neighbors"))})
+		At: at, KnownAt: known, Limit: limit, Mode: q.Get("mode"), Neighbors: isTrue(q.Get("neighbors")), Rerank: q.Get("rerank")})
 	if err != nil {
 		writeErr(w, err)
 		return

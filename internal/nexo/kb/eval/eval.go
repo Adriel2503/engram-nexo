@@ -108,12 +108,18 @@ type Hit struct {
 	Anchor  string `json:"anchor"`
 	Version int    `json:"version,omitempty"`
 	Change  string `json:"change,omitempty"`
+	// PrePos (NX-10 R3): posición que tenía antes de reordenar (1 = primero);
+	// 0 si no se reordenó.
+	PrePos int `json:"pre_pos,omitempty"`
 }
 
 // Outcome es la respuesta de un motor a una pregunta.
 type Outcome struct {
 	Hits      []Hit
 	NoResults bool
+	// Rerank (NX-10 R3): lo que hizo el reordenador en esta pregunta (nil si
+	// no participó).
+	Rerank *RerankTrace
 }
 
 // Retriever es un motor a evaluar.
@@ -301,6 +307,9 @@ type QuestionResult struct {
 	AP        float64 `json:"ap"`
 	Top       []Hit   `json:"top"`
 	Error     string  `json:"error,omitempty"`
+	// Rerank (NX-10 R3): qué hizo el reordenador con esta pregunta, su
+	// latencia y la posición del primer acierto antes de reordenar.
+	Rerank *RerankTrace `json:"rerank,omitempty"`
 }
 
 // Metrics son métricas agregadas.
@@ -338,6 +347,8 @@ type Report struct {
 	Results    []QuestionResult   `json:"results"`
 	StartedAt  time.Time          `json:"started_at"`
 	DurationMS int64              `json:"duration_ms"`
+	// Rerank (NX-10 R3): resumen del reordenamiento (solo si participó).
+	Rerank *RerankSummary `json:"rerank,omitempty"`
 }
 
 // Options de una corrida.
@@ -377,6 +388,7 @@ func RunWith(ctx context.Context, set Set, r Retriever, o Options) Report {
 		res := QuestionResult{ID: q.ID, Class: q.Class, Status: q.Status, Question: q.Question}
 		var hits []Hit
 		var err error
+		var trace *RerankTrace
 		if q.Class == ClassChanges {
 			if cl, ok := r.(ChangeLister); ok {
 				since, _ := ParseTime(q.Since)
@@ -390,7 +402,7 @@ func RunWith(ctx context.Context, set Set, r Retriever, o Options) Report {
 			known, _ := ParseTime(q.KnownAt)
 			var out Outcome
 			out, err = r.Search(ctx, q, spaces, at, known, depth)
-			hits, res.NoResults = out.Hits, out.NoResults
+			hits, res.NoResults, trace = out.Hits, out.NoResults, out.Rerank
 			if len(hits) > depth {
 				hits = hits[:depth]
 			}
@@ -430,9 +442,12 @@ func RunWith(ctx context.Context, set Set, r Retriever, o Options) Report {
 			res.NDCG10 = NDCGAtK(rel, 10, n)
 			res.AP = AveragePrecision(rel, n)
 			res.Correct = res.Hit5 == 1
+			trace = traceWithRanks(trace, hits, rel, res.Rank)
 		}
+		res.Rerank = trace
 		rep.Results = append(rep.Results, res)
 	}
+	rep.Rerank = summarizeRerank(rep.Results)
 	rep.Questions = len(rep.Results)
 	rep.ByClass = map[string]Metrics{}
 	byClass := map[string][]QuestionResult{}

@@ -634,7 +634,9 @@ WeKnora en `nexo_ia/05-investigacion/analisis/WeKnora_conocimiento.md` (§17.5 a
 ### 17.2 Modelos
 
 > Reemplazado el 2026-10-13 por decisión del usuario: proveedores externos intercambiables
-> (RC-12). Implementación y matriz de modelos en §20 (D-R2-1).
+> (RC-12). Implementación y matriz de modelos en §20 (D-R2-1). El reordenamiento sigue el mismo
+> criterio (RC-13): interfaz `Reranker` y adaptadores en §21 (D-R3-1); un modelo local entra por
+> `tei` o `rerank-compatible`.
 
 Para el volumen previsto (miles a cientos de miles de secciones) se usan modelos abiertos
 multilingües ejecutados en el servidor de Nexo, sin GPU obligatoria, de modo que los documentos no
@@ -650,7 +652,7 @@ política de Real Plaza. Esto resuelve la decisión pendiente de §14.7 por defe
 | R0 | Conjunto de evaluación real (50+ preguntas): sin respuesta, de término exacto y temporales (`at`, `known_at`). El acierto se compara por ancla de sección y cada corrida se guarda en una tabla. Base: la wiki de arquitectura (§17.8). Prueba de calidad en CI | Con los primeros lineamientos reales. Los devs validan las preguntas borrador |
 | R1 | Sin modelos: tablas por filas, contexto del documento en el texto indexado, hash por sección, sinónimos del glosario, diversidad por documento, secciones vecinas, umbral "no hay estándar", enlace permanente, búsqueda exacta y por expresión regular (RC-22), cita textual en `source_location` (IN-07, solo `quote`) | Entrega 2b |
 | R2 | Híbrido: pgvector, modelo de embeddings local, RRF | Si R0 muestra fallos en paráfrasis o sinónimos tras R1 |
-| R3 | Reordenamiento local sobre los 50 mejores | Si R2 mejora candidatos pero no el orden |
+| R3 | Reordenamiento sobre los mejores resultados, con un proveedor externo intercambiable (hecho: §21; reemplaza el modelo local) | Si R2 mejora candidatos pero no el orden |
 | R4 | Varias formulaciones desde el asistente (herramienta MCP acepta varias consultas) | Con la entrega 3 |
 | R5 | Grafo temporal derivado | Solo si quedan preguntas de varios saltos sin resolver |
 
@@ -1318,3 +1320,330 @@ medir cuando 3 o 4 devs validen las preguntas.
 - **Primera carga.** Con la base vacía, la primera versión del índice se activa enseguida (no
   tiene trabajos). Lo que se publica después se encuentra por texto hasta tener su vector (aviso
   `index_lag`).
+
+## 21. R3: reordenamiento de los mejores resultados
+
+Fecha: 2026-10-13. Rama `feat/r3-rerank` (sobre `develop` `b76f069`). Decisión del usuario
+(opción C) sobre RC-13 y §17.2: el reordenador es una interfaz `Reranker` con adaptadores
+intercambiables por configuración, igual que `Embedder` en R2. Ya no se asume un modelo local
+(bge-reranker). Los criterios de §17.3 y RC-21 siguen vigentes: se acepta solo si mejora la
+medición de R0 sin empeorar el acierto de "no hay respuesta", y nunca se baja el umbral.
+
+### 21.1 Flujo
+
+```
+consulta (API, MCP, panel, CLI)  rerank = on | off | vacío (lo decide el servidor)
+   1. búsqueda como en R2 (texto, texto + vectores con RRF) con un límite que alcanza para TopN
+   2. filtro común (permisos, espacio, at / known_at) y umbral de "no hay estándar" (R1 y R2)
+   3. REORDENAR: los primeros TopN que sobrevivieron al paso 2
+        pasaje = ruta de títulos > título del documento > ruta de la sección + cuerpo
+                 (la misma composición que se vectoriza, RC-03), recortado al límite del modelo
+        puntaje del reordenador (0 a 1) mezclado con el de la búsqueda
+   4. diversidad por documento (RC-09) y límite
+   5. respuesta con rerank { status, provider, model, candidates, scored, reordered,
+      top_changed, dropped, latency_ms }, y por resultado rerank_score y pre_rerank_position
+   error, tiempo agotado, respuesta parcial o no válida -> el orden del paso 2, sin error,
+   con rerank.status = failed | partial y un aviso en notice
+```
+
+Garantías (RC-21):
+
+- Reordena solo lo que ya pasó el filtro y el umbral: **nunca agrega un resultado, ni rescata uno
+  que el umbral descartó, ni cambia la decisión "no existe un estándar oficial"**. Las 3
+  paráfrasis que R2 no encuentra (similitud menor que 0,70) siguen sin encontrarse.
+- Una pregunta sin respuesta (todo bajo el umbral) no hace ninguna llamada al proveedor: cuesta
+  cero y no tarda más.
+- El proveedor solo recibe pasajes que quien busca ya puede ver (un espacio restringido no sale
+  hacia el proveedor; hay prueba).
+- La copia local de la PC no reordena (RC-30). El modo `exact` tampoco: su orden lo da la
+  coincidencia literal.
+
+### 21.2 Interfaz y adaptadores
+
+`internal/nexo/kb/rerank`:
+
+```go
+type Reranker interface {
+    Name() string                      // "cohere", "llm-gemini", ...
+    Model() string
+    Rerank(ctx, query string, passages []Passage) ([]Score, error)
+}
+type Passage struct{ ID, Text string }   // Text = título + ruta + cuerpo
+type Score   struct{ Value float64; OK bool }  // Value en [0, 1]; OK falso = sin puntaje
+```
+
+Con un error, los puntajes que sí llegaron vienen con `OK` verdadero; la búsqueda no usa un
+resultado parcial (ver 21.3).
+
+**Capa común** (`resilient.go`, mismo diseño que `embed/resilient.go`), resuelta una sola vez:
+
+- lotes del tamaño del adaptador, en paralelo con tope (`NEXO_KB_RERANK_CONCURRENCY`);
+- reintentos con espera exponencial y fluctuación ante 408, 409, 425, 429, 5xx y errores de red;
+- respeta `Retry-After` y el `retryDelay` de Google;
+- límite propio por minuto (`NEXO_KB_RERANK_RPM`) y tiempo máximo por llamada;
+- comprobación de cada respuesta (cantidad de puntajes, valores numéricos); una respuesta no
+  válida se pide una vez más y, si vuelve a fallar, el lote queda sin puntaje;
+- recorte de cada pasaje al límite del modelo (`NEXO_KB_RERANK_MAX_CHARS`), sin partir un
+  carácter;
+- la clave solo viaja en un encabezado y se borra de cualquier error;
+- contadores de uso (llamadas, reintentos, lotes fallidos, tokens que informa el proveedor);
+- caché de puntajes en memoria en el servidor (una hora, por pregunta y texto del pasaje).
+
+| `NEXO_KB_RERANKER` | Qué es | Petición | Modelo por defecto | Lote | Pasaje máx. |
+|---|---|---|---|---|---|
+| `cohere` | Cohere Rerank API v2 | `POST {base}/v2/rerank` `{model, query, documents, top_n}` -> `{results:[{index, relevance_score}]}` | `rerank-v3.5` | 100 | 12 000 caracteres |
+| `cohere` en Azure AI | El mismo, en un despliegue de Azure AI | `NEXO_KB_RERANK_URL` con la URL del despliegue (si termina en `/rerank` se usa tal cual) y `NEXO_KB_RERANK_AUTH=api-key` (alias `azure-cohere`) | el del despliegue | 100 | 12 000 |
+| `jina` | Jina Rerank | `POST {base}/rerank` `{model, query, documents, top_n}` | `jina-reranker-v2-base-multilingual` | 100 | 3 000 |
+| `voyage` | Voyage Rerank | `POST {base}/rerank` `{model, query, documents, top_k}` -> `{data:[...]}` | `rerank-2.5` | 100 | 12 000 |
+| `tei` | Hugging Face TEI (por ejemplo `bge-reranker-v2-m3` local) | `POST {base}/rerank` `{query, texts}` -> `[{index, score}]` (los valores fuera de 0 a 1 se pasan por la sigmoide) | el del servidor | 32 | 2 000 |
+| `rerank-compatible` | La forma de Cohere v2 en una URL propia | como `cohere` | `NEXO_KB_RERANK_MODEL` | 100 | 12 000 |
+| `llm` (`NEXO_KB_RERANK_LLM`), `gemini` | Un LLM como reordenador, Gemini | `generateContent`, `x-goog-api-key`, respuesta JSON | `gemini-3.1-flash-lite` | 25 | 1 500 |
+| `llm` + `openai`, `azure-openai`, `openai-compatible` | Un LLM como reordenador, API de chat | `chat/completions`, `response_format: json_object`; Azure por despliegue y `api-version` | obligatorio (`NEXO_KB_RERANK_MODEL`; en Azure, el despliegue) | 25 | 1 500 |
+| `off` | Sin reordenamiento | — | — | — | — |
+
+Jina y Voyage entran por el mismo adaptador que Cohere porque la forma es la misma ("consulta +
+documentos -> índice + puntaje"): cambian la ruta, el cuerpo y el sobre de la respuesta.
+Cualquier otro servicio con esa forma entra por `rerank-compatible`.
+
+**Reordenador LLM** (`llm.go`, versión del prompt `llm1`):
+
+- Una instrucción de sistema con la rúbrica (entero de 0 a 10 por pasaje: 0 sin relación, 4 mismo
+  tema sin dar lo pedido, 8 responde, 10 responde por completo), la pregunta y los pasajes
+  numerados y delimitados (`<passage id="n">`), con la orden de tratar el texto del pasaje como
+  datos y de no obedecer instrucciones que contenga.
+- Respuesta en JSON estricto `{"scores":[{"id":1,"score":7}, ...]}`. Gemini la recibe con
+  `responseMimeType: application/json` y esquema; las APIs de chat, con `json_object`. Temperatura
+  0.
+- Lectura defensiva: cercas de código, texto alrededor del JSON, arreglo de números o de objetos,
+  mapa por id, números como texto (`"7/10"`), valores fuera de rango recortados. Si falta algún
+  pasaje, un id se repite o un puntaje no es numérico, el lote entero es una respuesta no válida
+  (`ErrMalformed`), no se adivina nada.
+- Lotes de 25 pasajes, hasta 4 en paralelo. Los puntajes de lotes distintos se comparan como si
+  fueran del mismo juicio; por eso `TopN` es 20 por defecto (un solo lote).
+- Gemini: los modelos `flash` van con `thinkingBudget: 0` (sin razonamiento, más rápido y barato
+  para puntuar); `NEXO_KB_RERANK_THINKING` lo cambia. El uso de tokens se informa con la
+  respuesta (`usageMetadata`, incluidos los de razonamiento).
+- `gemini-2.5-flash`, el modelo que se pensó usar, **ya no está disponible para cuentas nuevas**
+  (la API responde 404 y recomienda `gemini-3.8-flash`). Se midieron `gemini-3.8-flash` y
+  `gemini-3.1-flash-lite` (21.5).
+
+### 21.3 La tubería en la búsqueda
+
+`search/rerank.go`, dentro de `Searcher.Search`:
+
+- **Candidatos.** Los primeros `TopN` (20 por defecto, hasta 50) que pasaron filtro y umbral, en el
+  orden de la búsqueda. El motor recibe un límite que alcanza para ellos. Con menos de 2
+  candidatos no hay nada que reordenar (`status = skipped`, sin llamada).
+- **Puntaje final.** `Blend * puntaje del reordenador + (1 - Blend) * puntaje de la búsqueda`, con
+  el de la búsqueda normalizado entre los candidatos (mín-máx: el RRF casi no varía entre
+  posiciones vecinas). `Blend = 1` es el orden puro del reordenador y el orden de la búsqueda
+  desempata; `Blend = 0` es el orden de la búsqueda. Por defecto, 0,7.
+- **Descarte opcional** (`MinScore`, por defecto 0 = apagado). Quita los pasajes cuyo puntaje de
+  reordenador sea menor. Solo puede quitar: no baja el umbral. Es una opción medida (21.5), no el
+  comportamiento por defecto.
+- **Presupuesto** (`NEXO_KB_RERANK_BUDGET_SECONDS`, 6 s): incluye la lectura de los pasajes y los
+  reintentos. Pasado ese tiempo se responde con el orden de la búsqueda.
+
+| `rerank.status` | Cuándo | Qué recibe quien busca |
+|---|---|---|
+| `used` | Hubo puntaje para todos los candidatos | Orden nuevo, `rerank_score` y `pre_rerank_position` por resultado |
+| `skipped` | Menos de 2 candidatos, o modo `exact` | El orden de la búsqueda |
+| `unavailable` | Se pidió `rerank=on` y no hay reordenador configurado | El orden de la búsqueda y un aviso |
+| `failed` | Error, tiempo agotado, respuesta no válida, pánico o error al leer los pasajes | El orden de la búsqueda y un aviso (`notice`) |
+| `partial` | Faltaron puntajes de parte de los candidatos | El orden de la búsqueda (no se mezclan puntajes de unos con el orden de otros) y un aviso |
+
+El motivo que ve quien busca no repite el error del proveedor (que queda en el log del servidor,
+sin la clave).
+
+**Parámetro de consulta.** `rerank=on|off` (vacío o `auto` = lo decide el servidor). Se eligió un
+parámetro aparte, y no un modo `hybrid+rerank`, porque el reordenamiento también sirve sobre `fts`
+y combinar modos multiplicaría los valores de `mode`; es compatible hacia atrás (sin el
+parámetro, la respuesta es la de R2) y el campo `rerank` solo aparece si se pidió o está activo.
+Un valor inválido responde 400. La herramienta MCP `nexo_search` lo acepta (`rerank`), la CLI
+también (`search --rerank`, `eval --rerank`), y `GET /admin/index` informa el estado
+(`rerank`, para `platform.settings`). El nombre del motor en las corridas de evaluación es
+`hybrid+rerank`.
+
+**Medición.** Cada pregunta de una corrida de evaluación guarda su rastro (`rerank`: estado,
+latencia, candidatos, posición del primer acierto antes y después) y la corrida, un resumen con
+mejoradas, empeoradas y la latencia agregada p50, p95 y máxima. Va en `nexo_kb_eval_runs.results`
+y la configuración medida (`reranker`, `r3`, versión del prompt), en `config`; sin migración.
+
+### 21.4 Variables
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `NEXO_KB_RERANKER` | `off` | `cohere`, `jina`, `voyage`, `tei`, `rerank-compatible`, `llm`, `gemini`, `openai`, `azure-openai`, `openai-compatible` u `off` |
+| `NEXO_KB_RERANK_LLM` | `gemini` | API de chat con `NEXO_KB_RERANKER=llm`: `gemini`, `openai`, `azure-openai` u `openai-compatible` |
+| `NEXO_KB_RERANK_MODEL`, `_URL`, `_AUTH` | según el proveedor | Modelo, raíz de la API y encabezado de autenticación (`bearer`, `api-key`, `none`) |
+| `NEXO_KB_RERANK_API_KEY`, `_API_KEY_FILE` | vacías; también `COHERE_API_KEY`, `JINA_API_KEY`, `VOYAGE_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY` | La clave nunca se imprime ni se guarda |
+| `NEXO_KB_RERANK_DEPLOYMENT`, `_API_VERSION` | —, `2024-10-21` | Solo Azure OpenAI |
+| `NEXO_KB_RERANK_BATCH`, `_CONCURRENCY`, `_RPM` | según el proveedor, sin límite | Pasajes por llamada, llamadas en paralelo y límite por minuto |
+| `NEXO_KB_RERANK_CALL_TIMEOUT_SECONDS`, `_RETRIES`, `_MAX_CHARS` | 15 (LLM 30), 2, según el proveedor | Tiempo por llamada, reintentos y recorte de cada pasaje |
+| `NEXO_KB_RERANK_THINKING`, `_TEMPERATURE` | 0 en los `flash` de Gemini, `0` | Presupuesto de razonamiento de Gemini; `_TEMPERATURE=default` omite la temperatura 0 (modelos que no la aceptan) |
+| `NEXO_KB_RERANK_TOP_N` | `20` | Candidatos que se reordenan (2 a 50) |
+| `NEXO_KB_RERANK_BLEND` | `0.7` | Peso del reordenador (0 a 1; 1 = orden puro) |
+| `NEXO_KB_RERANK_MIN_SCORE` | `0` (apagado) | Descarta pasajes con puntaje menor (0 a 1); depende del modelo, recalibrar |
+| `NEXO_KB_RERANK_BUDGET_SECONDS` | `6` | Tiempo total que la consulta espera |
+| `NEXO_KB_RERANK_DEFAULT` | `off` | `on`: reordenar cuando la consulta no lo pide. Sin reordenador configurado no hace nada |
+| `NEXO_KB_RERANK_CACHE` | vacía | `off` desactiva la caché de puntajes en memoria |
+
+### 21.5 Medición R0 (wiki de arquitectura, 50 preguntas borrador)
+
+**Cómo se midió.** El mismo conjunto, el mismo corpus y el mismo overlay que §20.6; la línea base
+es el `hybrid` por defecto de R2 (pesos 0,7/0,3, similitud 0,70, con texto 0,65), con los vectores
+de la caché de R2. En proceso, con `TestEvalWikiCorpus` y `NEXO_KB_EVAL_RERANKS`; cada corrida
+queda en `nexo_kb_eval_runs`. Se reordenaron 28 de las 46 preguntas que usan la búsqueda: las
+otras 18 son las 8 de modo `exact` (no se reordenan) y 10 con menos de 2 candidatos tras el umbral
+(7 sin respuesta, 2 paráfrasis y 1 temporal). Candidatos por pregunta reordenada: mediana 7,
+media 10,5, percentil 90 de 28, máximo 36. En ninguna corrida hubo lotes fallidos, respuestas no
+válidas ni reintentos.
+
+| Configuración | Hit@5 | MRR | nDCG@3 | MRR paráfrasis | "no hay" | Mejoran / empeoran | Latencia agregada p50 / p95 / máx |
+|---|---|---|---|---|---|---|---|
+| `hybrid` (R2, línea base) | 92,9 % | 0,813 | 0,839 | 0,429 | 87,5 % | — | — |
+| `gemini-3.8-flash`, TopN 50, orden puro | 92,9 % | 0,871 | 0,868 | 0,571 | 87,5 % | 5 / 2 | 2,9 s / 5,3 s / 5,5 s |
+| `gemini-3.8-flash`, TopN 50, mezcla 0,7 | 92,9 % | 0,873 | 0,883 | 0,500 | 87,5 % | 4 / 1 | (mismos puntajes) |
+| `gemini-3.8-flash`, TopN 50, mezcla 0,5 | 92,9 % | 0,861 | 0,874 | 0,429 | 87,5 % | 3 / 1 | (mismos puntajes) |
+| `gemini-3.8-flash`, TopN 20, orden puro (puntajes nuevos) | 92,9 % | 0,858 | 0,859 | 0,500 | 87,5 % | 5 / 2 | 2,9 s / 4,9 s / 5,0 s |
+| `gemini-3.1-flash-lite`, TopN 50, orden puro | 92,9 % | 0,865 | 0,874 | 0,500 | 87,5 % | 4 / 1 | 1,1 s / 2,5 s / 3,0 s |
+| `gemini-3.1-flash-lite`, TopN 20, orden puro (puntajes nuevos) | 92,9 % | 0,865 | 0,874 | 0,500 | 87,5 % | 5 / 1 | 1,2 s / 1,9 s / 2,4 s |
+| `gemini-3.1-flash-lite`, TopN 50, mezcla 0,7 | 92,9 % | 0,865 | 0,874 | 0,500 | 87,5 % | 4 / 1 | (mismos puntajes) |
+
+La latencia es la que se agrega a la consulta (lectura de pasajes y llamada al proveedor),
+medida con llamadas reales a Gemini (una por pregunta, o dos si hay más de 25 candidatos).
+Las filas "mismos puntajes" reutilizan los puntajes guardados de la corrida anterior (la
+caché de la prueba), por eso no tienen latencia propia. Hit@5, exact, normal, temporal y cambios
+quedan en 100 % salvo las paráfrasis (57,1 %), igual que en la línea base.
+
+**Descarte por puntaje mínimo** (`MinScore`, sobre los mismos puntajes de `gemini-3.8-flash`,
+TopN 50, orden puro):
+
+| `MinScore` | Hit@5 | MRR | "no hay" | Qué pasa |
+|---|---|---|---|---|
+| 0 (apagado) | 92,9 % | 0,871 | 87,5 % | — |
+| 0,2 | 92,9 % | 0,871 | 87,5 % | Sin efecto |
+| 0,4 | 92,9 % | 0,871 | **100 %** | Descarta el vecino de `na-code-review` (el único falso "hay" que dejaba R2) sin perder ningún acierto |
+| 0,6 | 88,1 % | 0,839 | 100 % | Pierde `para-cobertura-codigo` y `temp-pk-antes` |
+
+Con `gemini-3.1-flash-lite` el mismo `MinScore` 0,4 **no** corrige ese caso (87,5 %): su escala de
+puntajes es otra. Por eso queda apagado por defecto, con un único caso de apoyo y una ventana
+estrecha entre 0,4 y 0,6; si se activa, hay que calibrarlo con las preguntas validadas y volver a
+hacerlo al cambiar de modelo.
+
+**Costo en tokens.** Las 28 consultas reordenadas con TopN 50 enviaron 77 473 tokens de entrada
+(unos 2 770 por consulta) y recibieron 5 485 de salida con `gemini-3.8-flash` (3 902 con
+`gemini-3.1-flash-lite`); con TopN 20, 66 431 de entrada (unos 2 370 por consulta). 31 llamadas
+con TopN 50 (3 consultas pasaron de 25 candidatos y usaron dos lotes) y 28 con TopN 20. Una
+consulta que no pasa el umbral, o con menos de 2 candidatos, no cuesta nada. Para estimar el gasto:
+tokens por consulta reordenada por las consultas por mes, al precio vigente del modelo (no se
+verificó en esta medición).
+
+**Lectura.**
+
+- Con cualquiera de los dos modelos, el reordenamiento sube el MRR de 0,813 a 0,858 - 0,873 y el
+  nDCG@3 de 0,839 a 0,859 - 0,883, sin cambiar Hit@5 ni el acierto de "no hay respuesta". La mejora
+  viene de 4 a 6 preguntas cuyo primer acierto pasa del lugar 2 o 3 al 1: `sql-scripts-reejecutables`,
+  `headers-seguridad-net5`, `trycommand-http-codes` y `temp-pk-hoy` con los dos modelos, más una
+  paráfrasis (`para-rutas-plural` o `para-cobertura-codigo`). Empeoran 1 o 2 (con `gemini-3.8-flash`,
+  `sql-prefijo-funciones-consulta` pasa del lugar 2 al 4).
+- Las paráfrasis suben en MRR (0,429 a 0,500 - 0,571) pero **no en Hit@5**: las 3 que no se
+  encuentran quedan bajo el umbral de similitud y el reordenador no puede rescatarlas (RC-21).
+- La mezcla 0,7 iguala o supera al orden puro en nDCG@3 con `gemini-3.8-flash` y empeora una
+  pregunta menos; con `gemini-3.1-flash-lite` da lo mismo. Con 0,5 se pierde la mejora de las
+  paráfrasis. La diferencia entre 1 y 0,7 es de una pregunta: no es concluyente.
+- TopN 20 frente a 50: con `gemini-3.1-flash-lite`, idéntico. Con `gemini-3.8-flash` el MRR varía
+  de 0,871 a 0,858 entre dos corridas con puntajes nuevos (hay variación propia del LLM aun con
+  temperatura 0), así que esa diferencia no se atribuye al TopN. Como casi nunca hay más de 20
+  candidatos, TopN 20 no pierde nada y deja siempre un solo lote.
+- La latencia agregada, sin carga, tiene un piso de unos 2 s con `gemini-3.8-flash` y 1 s con
+  `gemini-3.1-flash-lite` más unos 0,08 s por candidato. `gemini-3.1-flash-lite` acierta igual y
+  tarda menos de la mitad.
+- El conjunto es un **borrador**: 28 consultas reordenadas y 7 o 8 que cambian de lugar. Las cifras
+  indican la dirección y el costo, no un valor definitivo.
+
+### 21.6 Decisión del valor por defecto
+
+- **Sin proveedor, nunca se reordena**, aunque la consulta lo pida (`status = unavailable`).
+- **Con proveedor, el reordenamiento queda apagado por defecto** (`NEXO_KB_RERANK_DEFAULT=off`) y
+  se pide por consulta (`rerank=on`). Razones medidas: el MRR mejora 0,05 a 0,06 y no empeora ni
+  Hit@5 ni "no hay", pero (1) el asistente lee los 5 primeros y Hit@5 no cambia, (2) la mejora
+  sale de 7 preguntas de un borrador y (3) cuesta entre 1 y 5 s de p95 por consulta más unos 2 400
+  tokens de entrada. Es un beneficio real para quien lee solo el primer resultado (panel, CLI) que
+  todavía no justifica pagar esa latencia en cada consulta.
+- **Cuándo activarlo** (`NEXO_KB_RERANK_DEFAULT=on`): cuando los devs validen las preguntas y
+  confirmen la mejora, y se elija el proveedor de producción. Un reordenador dedicado (Cohere
+  Rerank y similares) puede cambiar la cuenta de latencia y de costo; no se pudo medir porque no
+  hay clave (`TestRerankerLive`, 21.10).
+- **Valores recomendados al activarlo:** `gemini-3.1-flash-lite` (o el reordenador dedicado que se
+  elija), `TopN` 20, mezcla 0,7, `MinScore` apagado. Presupuesto de 6 s.
+- **Descarte por puntaje:** apagado; solo con las preguntas validadas y calibrado por modelo.
+
+### 21.7 Qué se tomó de cada referencia
+
+| Idea | Fuente | En R3 |
+|---|---|---|
+| Pasaje del reordenador = título del documento + ruta de títulos + texto | WeKnora (`internal/reranking`) | Aplicada, con la composición de `VectorText` (RC-03) |
+| Resultado del reordenamiento registrado y caída segura al orden de la búsqueda | WeKnora (`internal/reranking/rerank.go`) | Aplicada: `rerank.status`, aviso y rastro por pregunta |
+| Degradar el umbral o conservar el mejor si el reordenador falla | WeKnora | **Descartada**: rompe HU-06 (RC-21) |
+| Interfaz común con adaptadores por configuración | Patrón de `Embedder` (R2) y de motores de WeKnora | Aplicada |
+| Reordenamiento local con bge-reranker | Estado del arte (RC-13) | Cubierta por el adaptador `tei` o `rerank-compatible`; no es la opción por defecto |
+
+No se portó código de WeKnora en R3 (solo ideas), así que `THIRD_PARTY_NOTICES.md` no cambia.
+
+### 21.8 Desviaciones
+
+| ID | Tema | Diseño | Implementado | Motivo |
+|---|---|---|---|---|
+| D-R3-1 | Origen del modelo | §17.2, §17.7(c) y RC-13: modelo local tipo bge-reranker | Proveedores externos intercambiables; el local entra por `tei` o `rerank-compatible` | Decisión del usuario (opción C), igual que D-R2-1 |
+| D-R3-2 | Firma de la interfaz | §17.7(c): `Reranker{Model(), Score(ctx, query, passages)}` | `Reranker{Name(), Model(), Rerank(ctx, query, []Passage) ([]Score, error)}` con `Score{Value, OK}` | Marcar los lotes sin puntaje para la caída segura |
+| D-R3-3 | Dónde actúa | §17.1: "sobre los 50 mejores" | Sobre los primeros `TopN` (20) que pasan filtro y umbral | Mismo resultado final (el umbral es propio de cada resultado) con menos llamadas; una pregunta sin respuesta no llama al proveedor |
+| D-R3-4 | Modelo de Gemini | RC-13 y encargo: `gemini-2.5-flash` | `gemini-3.1-flash-lite` (medido contra `gemini-3.8-flash`) | `gemini-2.5-flash` ya no está disponible para cuentas nuevas (404) |
+| D-R3-5 | Pedirlo | Un modo `hybrid+rerank` o un parámetro | Parámetro `rerank=on|off`; `hybrid+rerank` solo como nombre del motor en las corridas | Sirve también sobre `fts`; no multiplica los valores de `mode` |
+| D-R3-6 | Aprobación | §17.7(c): `NEXO_KB_ALLOW_EXTERNAL_MODELS=1` | No existe (como en R2): configurar un proveedor es la decisión explícita | Decisión del usuario (RC-12); falta informar a Real Plaza |
+| D-R3-7 | Rastro | Una tabla o columna nueva | En `nexo_kb_eval_runs.results` y `config` y en la respuesta; sin migración | El esquema ya lo admite |
+
+### 21.9 Riesgos
+
+- **Los datos salen de la empresa, en cada consulta.** Además de la pregunta, se envían al
+  proveedor hasta `TopN` pasajes con su título y su ruta (hasta 1 500 caracteres cada uno con un
+  LLM; hasta 12 000 con Cohere). En R2 el contenido salía una vez, al vectorizar; aquí se reenvían
+  fragmentos en cada consulta reordenada. Solo salen secciones que quien busca ya puede ver y que
+  pasaron el umbral. Hay que informar a Real Plaza y elegir el proveedor antes de producción
+  (decisión pendiente, RC-12).
+- **Costo.** Unos 2 400 tokens de entrada y 100 a 200 de salida por consulta reordenada con
+  TopN 20; cero para las que no pasan el umbral. La caché de una hora evita repetir la llamada
+  para la misma pregunta con los mismos pasajes.
+- **Latencia.** Entre 1 y 5 s por consulta con un LLM (21.5). El presupuesto de 6 s acota el peor
+  caso: pasado ese tiempo se responde con el orden de la búsqueda.
+- **Instrucciones dentro de un documento.** Un pasaje podría traer texto dirigido al modelo. Los
+  pasajes viajan delimitados y como datos, y la salida se valida de forma estricta: lo peor que
+  puede lograr es sesgar el puntaje de su propio lote, nunca agregar, mostrar ni ocultar contenido
+  distinto del ya autorizado. Lo que se publica pasa por quienes gobiernan el espacio.
+- **Variación del LLM.** Entre dos corridas con puntajes nuevos, el MRR de `gemini-3.8-flash`
+  varió 0,013. La caché de puntajes lo estabiliza en el servidor; las medidas deben compararse con
+  cuidado.
+- **Puntajes de lotes distintos.** Con más de 25 candidatos se hacen dos llamadas y sus puntajes no
+  son de un mismo juicio. TopN 20 lo evita.
+- **Modelos que se retiran.** `gemini-2.5-flash` dejó de aceptar cuentas nuevas. El modelo es
+  configuración y una baja se ve como `rerank.status = failed` con el orden de la búsqueda, nunca
+  como un error.
+- **`MinScore` depende del modelo.** Se calibra con las preguntas validadas y se vuelve a calibrar
+  al cambiar de modelo.
+- **Muestra pequeña.** 28 consultas reordenadas de un borrador. Repetir la medición cuando haya
+  preguntas validadas.
+
+### 21.10 Verificación y prueba con un proveedor real
+
+- Pruebas de contrato por adaptador (`rerank/rerank_test.go`): cuerpo, encabezados, orden por
+  índice, lotes, respuestas no válidas, reintentos ante 429 y 5xx con `Retry-After`, tiempo
+  máximo, límite por minuto, paralelismo y que la clave no aparezca en un error.
+- `search/rerank_test.go`: orden, mezcla, caída segura (error, parcial, pánico, tiempo agotado),
+  umbral y permisos que el reordenador no puede saltarse, parámetros de la consulta.
+- `service/r3_pg_test.go` (Postgres con pgvector) y la compuerta de CI
+  `eval/quality_test.go` `TestSearchQualityGateRerank`: hybrid + reordenamiento con un reordenador
+  simulado y determinista (`kbtest.FakeReranker`), sin red.
+- `TestRerankerLive` (`NEXO_KB_RERANK_LIVE=1`) llama a la API real del proveedor configurado. Con
+  Gemini se corrió y acierta. **Falta correrla con Cohere** cuando haya una clave:
+  `NEXO_KB_RERANK_LIVE=1 NEXO_KB_RERANKER=cohere NEXO_KB_RERANK_API_KEY=... go test -run TestRerankerLive ./internal/nexo/kb/rerank/`
+  (Azure AI: además `NEXO_KB_RERANK_URL` y `NEXO_KB_RERANK_AUTH=api-key`).

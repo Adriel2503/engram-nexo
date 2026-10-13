@@ -13,6 +13,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/cli"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/httpapi"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/kbtest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/routes"
 )
@@ -174,5 +175,87 @@ func TestCLIUsage(t *testing.T) {
 	}
 	if code, _, _ := run(t, "otra"); code != 2 {
 		t.Fatal("subcomando desconocido")
+	}
+}
+
+// TestCLIRerank (NX-10 R3): --rerank en search y eval contra un servidor con
+// el reordenador simulado, y contra uno sin reordenador (solo avisa).
+func TestCLIRerank(t *testing.T) {
+	fr := kbtest.NewFakeReranker()
+	o := search.DefaultRerankOptions
+	o.Blend = 1
+	env := kbtest.New(t, service.WithReranker(fr, fr.Config()), service.WithR3(o))
+	tm := env.NewTeam()
+	if _, err := env.KB.CreateSpace(env.Ctx(), env.ID(tm.Adm), service.CreateSpaceInput{Slug: "arq", Owner: "ana"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.KB.PublishBatch(env.Ctx(), env.ID(tm.Ana), "arq", service.BatchRequest{Documents: []service.PublishDoc{
+		{DocKey: "backend/logging", Category: "estandar", Content: "# Logging\n\n## Niveles\n\nUsa warning para errores recuperables.\n"},
+		{DocKey: "backend/reintentos", Category: "estandar", Content: "# Reintentos\n\n## Politica\n\nTres reintentos para errores en llamadas externas.\n"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	srv := server(t, env)
+	t.Setenv("ENGRAM_CLOUD_SERVER", srv.URL)
+	t.Setenv("ENGRAM_CLOUD_TOKEN", "tok-"+tm.Luis)
+	fr.SetBoost(map[string]float64{"Logging": -0.5}) // el segundo resultado de la búsqueda pasa a ser el primero
+	// Sin pedirlo no se reordena y la respuesta no trae el informe.
+	code, out, errOut := run(t, "kb", "search", "errores", "--mode", "fts")
+	if code != 0 || strings.Contains(out, "reordenado") || fr.Calls.Load() != 0 {
+		t.Fatalf("sin --rerank: %d %s %s", code, out, errOut)
+	}
+	first := strings.Index(out, "Logging")
+	if first < 0 || strings.Index(out, "Reintentos") < first {
+		t.Fatalf("orden de la búsqueda: %s", out)
+	}
+	code, out, errOut = run(t, "kb", "search", "errores", "--mode", "fts", "--rerank", "on")
+	if code != 0 || !strings.Contains(out, "(reordenado: era el 2)") || strings.Index(out, "Reintentos") > strings.Index(out, "Logging") {
+		t.Fatalf("--rerank on: %d %s %s", code, out, errOut)
+	}
+	code, out, _ = run(t, "kb", "search", "errores", "--mode", "fts", "--rerank", "on", "--json")
+	if code != 0 || !strings.Contains(out, `"rerank":{"status":"used"`) || !strings.Contains(out, `"rerank_score"`) {
+		t.Fatalf("--json: %d %s", code, out)
+	}
+	if code, _, errOut = run(t, "kb", "search", "errores", "--rerank", "quizas"); code == 0 || !strings.Contains(errOut, "rerank") {
+		t.Fatalf("valor inválido: %d %s", code, errOut)
+	}
+	// eval: sin --rerank mide sin reordenar; con --rerank on, el motor pgfts+rerank y su resumen.
+	set := filepath.Join(t.TempDir(), "q.yaml")
+	if err := os.WriteFile(set, []byte("version: 2\nname: r3\nspaces: [arq]\nquestions:\n  - {id: q1, question: \"errores\", expected: [{doc: backend/reintentos}]}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := fr.Calls.Load()
+	code, out, errOut = run(t, "kb", "eval", set)
+	if code != 0 || !strings.Contains(out, "motor pgfts: 1 preguntas") || strings.Contains(out, "reordenamiento:") || fr.Calls.Load() != before {
+		t.Fatalf("eval sin reordenar: %d %s %s", code, out, errOut)
+	}
+	code, out, errOut = run(t, "kb", "eval", set, "--rerank", "on")
+	if code != 0 || !strings.Contains(out, "motor pgfts+rerank: 1 preguntas") || !strings.Contains(out, "reordenamiento: 1 consultas (usado 1") || !strings.Contains(out, "mejoraron 1") {
+		t.Fatalf("eval --rerank on: %d %s %s", code, out, errOut)
+	}
+	if code, _, errOut = run(t, "kb", "eval", set, "--rerank", "x"); code == 0 || !strings.Contains(errOut, "--rerank") {
+		t.Fatalf("valor inválido en eval: %d %s", code, errOut)
+	}
+
+	// Servidor sin reordenador: el aviso llega a la CLI y el eval no falla.
+	env2 := kbtest.New(t)
+	tm2 := env2.NewTeam()
+	if _, err := env2.KB.CreateSpace(env2.Ctx(), env2.ID(tm2.Adm), service.CreateSpaceInput{Slug: "arq", Owner: "ana"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env2.KB.PublishBatch(env2.Ctx(), env2.ID(tm2.Ana), "arq", service.BatchRequest{Documents: []service.PublishDoc{
+		{DocKey: "backend/logging", Category: "estandar", Content: "# Logging\n\n## Niveles\n\nUsa warning para errores recuperables.\n"}}}); err != nil {
+		t.Fatal(err)
+	}
+	srv2 := server(t, env2)
+	t.Setenv("ENGRAM_CLOUD_SERVER", srv2.URL)
+	t.Setenv("ENGRAM_CLOUD_TOKEN", "tok-"+tm2.Luis)
+	code, out, errOut = run(t, "kb", "search", "errores", "--mode", "fts", "--rerank", "on")
+	if code != 0 || !strings.Contains(out, "Aviso:") || !strings.Contains(out, "NEXO_KB_RERANKER") || !strings.Contains(out, "Logging") {
+		t.Fatalf("sin reordenador: %d %s %s", code, out, errOut)
+	}
+	code, out, errOut = run(t, "kb", "eval", set, "--rerank", "on")
+	if code != 0 || !strings.Contains(out, "no disponible 1") {
+		t.Fatalf("eval sin reordenador: %d %s %s", code, out, errOut)
 	}
 }

@@ -84,6 +84,8 @@ func nexoResponseTypes() map[string]any {
 		"/nexo/kb/v1/eval-runs":                                        kbstore.EvalRun{},
 		"GET /nexo/kb/v1/admin/index":                                  kbstore.IndexState{},
 		"GET /nexo/kb/v1/admin/index (vector)":                         kbservice.VectorIndexState{},
+		"GET /nexo/kb/v1/admin/index (rerank)":                         kbservice.RerankState{},
+		"GET /nexo/kb/v1/search (rerank)":                              search.RerankInfo{},
 		"POST /nexo/kb/v1/admin/index:reindex":                         kbservice.ReindexResult{},
 	}
 }

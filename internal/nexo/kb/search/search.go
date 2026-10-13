@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/rerank"
 )
 
 // Coincidencia de un resultado con la consulta.
@@ -48,6 +49,8 @@ type Query struct {
 	// NX-10 2b: modo (fts o exact, RC-22) y secciones vecinas (RC-10).
 	Mode      string
 	Neighbors bool
+	// NX-10 R3: reordenamiento (vacío = lo decide el servidor, on u off).
+	Rerank string
 }
 
 // Filter son los filtros comunes. Solo este paquete los construye.
@@ -110,6 +113,10 @@ type Hit struct {
 	// vectorial activo) y qué búsquedas encontraron la sección (text, vector).
 	Similarity *float64 `json:"similarity,omitempty"`
 	MatchedBy  []string `json:"matched_by,omitempty"`
+	// NX-10 R3: puntaje del reordenador (0 a 1) y posición que tenía el
+	// resultado antes de reordenar (1 = primero). Solo si se reordenó.
+	RerankScore       *float64 `json:"rerank_score,omitempty"`
+	PreRerankPosition int      `json:"pre_rerank_position,omitempty"`
 	// Neighbors (RC-10): secciones anterior y siguiente, si se pidieron.
 	Neighbors []Neighbor `json:"neighbors,omitempty"`
 }
@@ -185,7 +192,10 @@ type Result struct {
 	// Vector (NX-10 R2): estado de la búsqueda por significado en esta
 	// consulta (usada, no disponible o fallida: en ese caso la respuesta es solo
 	// por texto y Notice lo explica).
-	Vector  *VectorInfo `json:"vector,omitempty"`
+	Vector *VectorInfo `json:"vector,omitempty"`
+	// Rerank (NX-10 R3): cómo participó el reordenamiento (solo si se pidió o
+	// está activo por defecto).
+	Rerank  *RerankInfo `json:"rerank,omitempty"`
 	Notice  string      `json:"notice,omitempty"`
 	Dropped int         `json:"-"`
 }
@@ -198,6 +208,10 @@ type Searcher struct {
 	r    Retriever
 	now  func() time.Time
 	opts SearcherOptions
+	// NX-10 R3 (rerank.go)
+	rr           rerank.Reranker
+	loadPassages PassageLoader
+	ropts        RerankOptions
 }
 
 // SetOptions fija las opciones comunes (R1).
@@ -262,14 +276,38 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 	default:
 		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "mode must be fts, exact or hybrid")
 	}
-	res := Result{At: f.at, KnownAt: f.knownAt, Retriever: s.r.Name(), Mode: q.Mode, Hits: []Hit{}, Vector: vinfo}
+	// NX-10 R3: reordenamiento. Pedido (on), apagado (off) o el del servidor.
+	rerankReq, okRerank := NormalizeRerank(q.Rerank)
+	if !okRerank {
+		return Result{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "rerank must be on, off or empty")
+	}
+	var rinfo *RerankInfo
+	rerankOn := false
+	switch {
+	case rerankReq == RerankOff:
+	case q.Mode == ModeExact: // literales y expresiones: el orden lo da la coincidencia
+		if rerankReq == RerankOn {
+			rinfo = &RerankInfo{Status: RerankSkipped, Reason: "el modo exact no se reordena"}
+		}
+	case s.rr == nil:
+		if rerankReq == RerankOn {
+			rinfo = &RerankInfo{Status: RerankUnavailable, Reason: "el reordenamiento no está configurado en el servidor (NEXO_KB_RERANKER)"}
+		}
+	default:
+		rerankOn = rerankReq == RerankOn || (rerankReq == "" && s.ropts.Default)
+	}
+	res := Result{At: f.at, KnownAt: f.knownAt, Retriever: s.r.Name(), Mode: q.Mode, Hits: []Hit{}, Vector: vinfo, Rerank: rinfo}
 	if len(f.spaceIDs) > 0 {
 		// Con umbral o diversidad se piden más candidatos para completar el
-		// límite después de filtrar.
+		// límite después de filtrar; con reordenamiento, al menos los N que se
+		// reordenan.
 		want := q.Limit
 		rq := q
 		if s.opts.MinCoverage > 0 || s.opts.MaxPerDoc > 0 || s.opts.MinSimilarity > 0 {
 			rq.Limit = min(q.Limit*3, MaxLimit)
+		}
+		if rerankOn {
+			rq.Limit = max(rq.Limit, s.rerankTopN())
 		}
 		var hits []Hit
 		var err error
@@ -292,6 +330,8 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 				rel.MinSimilarity = s.opts.MinSimilarity
 			}
 		}
+		// Filtro común y umbral: lo que sobrevive, en el orden del motor.
+		cands := make([]Hit, 0, len(hits))
 		for _, h := range hits {
 			if !f.Allows(h) {
 				res.Dropped++
@@ -310,8 +350,16 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 				}
 				rel.Above++
 			}
+			cands = append(cands, h)
+		}
+		// NX-10 R3: reordenar solo lo que ya pasó el filtro y el umbral (nunca
+		// agrega ni rescata resultados, RC-21).
+		if rerankOn {
+			cands, res.Rerank = s.rerankHits(ctx, rq, cands)
+		}
+		for _, h := range cands {
 			if len(res.Hits) == want {
-				continue // se sigue contando el umbral
+				break
 			}
 			if s.opts.MaxPerDoc > 0 && perDoc[h.DocumentID] >= s.opts.MaxPerDoc {
 				continue
@@ -336,6 +384,9 @@ func (s *Searcher) Search(ctx context.Context, q Query, visibleSpaceIDs []string
 		} else if res.Vector.IndexLag > 0 {
 			res.Notice = "Hay secciones recién publicadas que todavía no tienen vector; esas se encuentran solo por texto."
 		}
+	}
+	if r := res.Rerank; r != nil && r.Status != RerankUsed && r.Status != RerankSkipped {
+		res.Notice = joinNotice(res.Notice, "Sin reordenamiento: "+r.Reason+". Se muestra el orden de la búsqueda.")
 	}
 	if len(res.Hits) == 0 {
 		res.NoResults = true

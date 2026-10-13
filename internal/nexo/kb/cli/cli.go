@@ -29,6 +29,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/client"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 )
 
@@ -479,12 +480,16 @@ type SearchResponse struct {
 		Link           string                `json:"link"`
 		Match          string                `json:"match"`
 		SourceLocation domain.SourceLocation `json:"source_location"`
+		// NX-10 R3: posición antes de reordenar (0 si no se reordenó).
+		PreRerankPosition int `json:"pre_rerank_position"`
 	} `json:"results"`
 	NoResults bool   `json:"no_results"`
 	Message   string `json:"message"`
 	// NX-10 R2: modo efectivo y aviso (por ejemplo, respuesta solo por texto).
 	Mode   string `json:"mode"`
 	Notice string `json:"notice"`
+	// NX-10 R3: cómo participó el reordenamiento (nil si no se pidió).
+	Rerank *search.RerankInfo `json:"rerank"`
 }
 
 // SearchQuery arma la URL de búsqueda.
@@ -515,6 +520,7 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	knownAt := fsx.String("known-at", "", "publicado a esta fecha (YYYY-MM-DD)")
 	limit := fsx.Int("limit", 10, "resultados (máximo 50)")
 	mode := fsx.String("mode", "", "fts, exact (literal o /expresión/) o hybrid (texto y significado; por defecto si el servidor tiene índice vectorial)")
+	rerankFlag := fsx.String("rerank", "", "on (reordenar los mejores resultados con un modelo), off o vacío (lo decide el servidor)")
 	server := fsx.String("server", "", "URL del servidor")
 	asJSON := fsx.Bool("json", false, "salida JSON")
 	local := fsx.Bool("local", false, "buscar con la copia local (servidor primero si no se indica; tanda 2)")
@@ -536,6 +542,9 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	path := SearchQuery(q, spaces, *category, *tag, *at, *knownAt, *limit)
 	if *mode != "" {
 		path += "&mode=" + url.QueryEscape(*mode)
+	}
+	if *rerankFlag != "" {
+		path += "&rerank=" + url.QueryEscape(*rerankFlag)
 	}
 	if err := c.Do(context.Background(), "GET", path, nil, &raw); err != nil {
 		// Sin respuesta del servidor: la copia local, avisando (como get y
@@ -562,6 +571,9 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	}
 	for i, h := range res.Results {
 		fmt.Fprintf(stdout, "%d. %s\n", i+1, h.Citation)
+		if h.PreRerankPosition > 0 && h.PreRerankPosition != i+1 {
+			_, _ = fmt.Fprintf(stdout, "   (reordenado: era el %d)\n", h.PreRerankPosition)
+		}
 		if h.Match == "semantic" {
 			_, _ = fmt.Fprintln(stdout, "   (por significado: no contiene los términos de la consulta)")
 		}
