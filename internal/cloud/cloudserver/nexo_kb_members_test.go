@@ -208,8 +208,12 @@ func TestNexoKBMembersPanel(t *testing.T) {
 	}
 	// La fila de una cuenta de servicio no ofrece el rol responsable.
 	row := rec.Body.String()
-	if i := strings.Index(row, "ci-wiki, Cuenta de servicio"); i < 0 || strings.Contains(row[i:i+900], `value="responsable"`) {
-		t.Fatalf("la fila de la cuenta ofrece responsable: %s", row)
+	i := strings.Index(row, "Cuenta de servicio, con este rol desde")
+	if i < 0 {
+		t.Fatalf("la fila de la cuenta de servicio no aparece: %s", row)
+	}
+	if end := strings.Index(row[i:], "</li>"); end < 0 || strings.Contains(row[i:i+end], `value="responsable"`) {
+		t.Fatalf("la fila de la cuenta ofrece responsable")
 	}
 	rec = ana.post(base+"/remove", kbForm(anaCSRF, "member", env.ids["ana"]))
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "al menos un responsable activo") || env.binding("ana", "arq") != "responsable" {
