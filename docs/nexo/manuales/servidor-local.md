@@ -2,7 +2,7 @@
 
 **Para quién:** quien necesita un servidor Nexo propio para desarrollar, hacer una demostración o
 probar documentos antes de publicarlos en el servidor del equipo.
-**Versión:** `3.4.0-nexo.1` (imagen `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1`).
+**Versión:** `3.4.0-nexo.2` (imagen `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2`).
 **Tiempo:** unos 20 minutos.
 
 Este servidor escucha **solo en tu PC** (`127.0.0.1`), por HTTP y sin certificado. No lo uses para
@@ -38,7 +38,7 @@ Dos contenedores con Docker Compose:
 | Servicio | Imagen | Qué hace | Dónde escucha en tu PC |
 |---|---|---|---|
 | `postgres` | `postgres:16-alpine` | Base de datos `engram_cloud` con dos cuentas: `nexo_owner` (dueña, solo migra al arrancar) y `nexo_app` (la que usa el servidor) | `127.0.0.1:54330` (para DBeaver) |
-| `cloud` | `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1` | Servidor Nexo (`engram cloud serve`): API, panel web y espacios de conocimiento | `127.0.0.1:18095` |
+| `cloud` | `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2` | Servidor Nexo (`engram cloud serve`): API, panel web y espacios de conocimiento | `127.0.0.1:18095` |
 
 Es el mismo esquema con el que se probó el modo local (06-pruebas/conocimiento del repositorio de
 Nexo), sin el proxy HTTPS del despliegue de producción.
@@ -118,7 +118,7 @@ Elige una de las dos opciones.
 
 ### Opción A: imagen publicada en GHCR
 
-La imagen está en `ghcr.io/adriel2503/nexo-engram-cloud` con las etiquetas `3.4.0-nexo.1` y `latest`,
+La imagen está en `ghcr.io/adriel2503/nexo-engram-cloud` con las etiquetas `3.4.0-nexo.2` y `latest`,
 para `linux/amd64` y `linux/arm64`. Como el repositorio es privado, Docker necesita iniciar sesión en
 GHCR con un token de GitHub con permiso `read:packages`.
 
@@ -143,10 +143,10 @@ GHCR con un token de GitHub con permiso `read:packages`.
 3. Descarga la imagen:
 
    ```bash
-   docker pull ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1
+   docker pull ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2
    ```
 
-   Qué deberías ver: `Status: Downloaded newer image for ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1`.
+   Qué deberías ver: `Status: Downloaded newer image for ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2`.
 
 ### Opción B: construirla desde el código
 
@@ -154,8 +154,8 @@ GHCR con un token de GitHub con permiso `read:packages`.
 
 ```bash
 cd ~/engram-nexo                    # Windows: Set-Location "$HOME\engram-nexo"
-docker build -f deploy/nexo/Dockerfile --build-arg VERSION=3.4.0-nexo.1-dev -t nexo-engram-cloud:3.4.0-nexo.1-dev .
-docker run --rm nexo-engram-cloud:3.4.0-nexo.1-dev version     # engram 3.4.0-nexo.1-dev
+docker build -f deploy/nexo/Dockerfile --build-arg VERSION=3.4.0-nexo.2-dev -t nexo-engram-cloud:3.4.0-nexo.2-dev .
+docker run --rm nexo-engram-cloud:3.4.0-nexo.2-dev version     # engram 3.4.0-nexo.2-dev
 ```
 
 La imagen compila el binario dentro de Docker (no necesitas Go instalado). En una Mac con Apple
@@ -164,7 +164,7 @@ Silicon se construye para arm64; agrega `--platform linux/amd64` solo si necesit
 Para usarla en lugar de la publicada, define `CLOUD_IMAGE` en el `.env` (sección 6):
 
 ```text
-CLOUD_IMAGE=nexo-engram-cloud:3.4.0-nexo.1-dev
+CLOUD_IMAGE=nexo-engram-cloud:3.4.0-nexo.2-dev
 ```
 
 ## 5. El compose mínimo
@@ -199,7 +199,7 @@ services:
       retries: 30
 
   cloud:
-    image: ${CLOUD_IMAGE:-ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1}
+    image: ${CLOUD_IMAGE:-ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2}
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }

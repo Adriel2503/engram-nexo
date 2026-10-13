@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Versión de Nexo | `3.4.0-nexo.1` (etiqueta `v3.4.0-nexo.1`, base Engram v3.4.0) |
-| Imagen | `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1` (también `latest`), amd64 y arm64 |
+| Versión de Nexo | `3.4.0-nexo.2` (etiqueta `v3.4.0-nexo.2`, base Engram v3.4.0) |
+| Imagen | `ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2` (también `latest`), amd64 y arm64 |
 | Para quién | La persona que instala y opera el servidor de Nexo IA en Real Plaza |
 | Fecha | 2026-10-13 |
 
@@ -78,17 +78,17 @@ archivos versionados, en tickets ni en chats.
 ```sh
 # El token de GitHub (permiso read:packages) se lee de un archivo que no se versiona.
 docker login ghcr.io -u <usuario-github> --password-stdin < ~/ghcr-token.txt
-docker pull ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1
-docker run --rm ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1 version
-# Debe mostrar: engram 3.4.0-nexo.1
+docker pull ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2
+docker run --rm ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2 version
+# Debe mostrar: engram 3.4.0-nexo.2
 ```
 
-Use siempre la etiqueta exacta (`3.4.0-nexo.1`), no `latest`: así sabe qué versión corre y puede
+Use siempre la etiqueta exacta (`3.4.0-nexo.2`), no `latest`: así sabe qué versión corre y puede
 volver atrás (sección 10).
 
 ## 4. Variables de entorno
 
-Los valores por defecto de esta sección salen del código de la versión `3.4.0-nexo.1`. "Obligatoria"
+Los valores por defecto de esta sección salen del código de la versión `3.4.0-nexo.2`. "Obligatoria"
 significa que sin ella el servidor no arranca o queda inseguro para producción. La columna
 "Compose" indica el valor que trae `deploy/nexo/compose.example.yaml`.
 
@@ -408,11 +408,11 @@ ENGRAM_CLOUD_TOKEN_PEPPER=<secreto>
 NEXO_AUDIT_EXPORT_KEY=<secreto>
 NEXO_ALERT_WEBHOOK_URL=<url-del-webhook>          # opcional
 NEXO_DOMAIN=<dominio>
-CLOUD_IMAGE=ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.1
+CLOUD_IMAGE=ghcr.io/adriel2503/nexo-engram-cloud:3.4.0-nexo.2
 ENGRAM_CLOUD_ALLOWED_PROJECTS=nexo-transversal     # proyectos de memoria, separados por comas
 ```
 
-`CLOUD_IMAGE` es importante: sin ella el compose busca la imagen local `nexo-engram-cloud:3.4.0-nexo.1`.
+`CLOUD_IMAGE` es importante: sin ella el compose busca la imagen local `nexo-engram-cloud:3.4.0-nexo.2`.
 
 ### 6.3 Ajustar `compose.yaml` para producción
 
@@ -673,7 +673,7 @@ funciones seguras con mínimos y deja un ancla para que la verificación siga pa
 ### 10.1 Cómo se publican las versiones
 
 Cada versión del fork lleva una etiqueta `v<versión de Engram>-nexo.<n>` en la rama `main` (por
-ejemplo `v3.4.0-nexo.1`). Al subirla, GitHub construye la imagen
+ejemplo `v3.4.0-nexo.2`). Al subirla, GitHub construye la imagen
 `ghcr.io/adriel2503/nexo-engram-cloud:<versión>` y los binarios del release. El detalle está en
 `NEXO_CHANGES.md`, sección OP-01.
 

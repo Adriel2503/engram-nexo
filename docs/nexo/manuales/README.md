@@ -1,6 +1,6 @@
 # Manuales de Nexo IA
 
-Manuales de usuario del fork `engram-nexo` (versión `3.4.0-nexo.1`). Empieza por el que corresponda a
+Manuales de usuario del fork `engram-nexo` (versión `3.4.0-nexo.2`). Empieza por el que corresponda a
 tu rol.
 
 | Manual | Para quién | Qué cubre |

@@ -1,7 +1,7 @@
 # Instalar Nexo IA en tu PC (desarrolladores)
 
 **Para quién:** desarrolladores de Real Plaza en Windows, macOS o Linux.
-**Versión:** `3.4.0-nexo.1` (fork `engram-nexo`, basado en Engram v3.4.0).
+**Versión:** `3.4.0-nexo.2` (fork `engram-nexo`, basado en Engram v3.4.0).
 **Tiempo:** unos 15 minutos.
 
 Si vas a levantar un servidor Nexo en tu propia PC para pruebas, lee [servidor-local.md](servidor-local.md).
@@ -173,30 +173,30 @@ el plugin oficial: vuelve a ejecutar `engram setup claude-code`.
 
 ## 5. Instalar el binario
 
-La versión publicada es `v3.4.0-nexo.1` ("Nexo IA v3.4.0-nexo.1" en GitHub). Archivos del release:
+La versión publicada es `v3.4.0-nexo.2` ("Nexo IA v3.4.0-nexo.2" en GitHub). Archivos del release:
 
 | Sistema | Archivo |
 |---|---|
-| Windows, Intel o AMD | `engram_3.4.0-nexo.1_windows_amd64.zip` |
-| Windows, ARM | `engram_3.4.0-nexo.1_windows_arm64.zip` |
-| macOS, Apple Silicon (M1 o posterior) | `engram_3.4.0-nexo.1_darwin_arm64.tar.gz` |
-| macOS, Intel | `engram_3.4.0-nexo.1_darwin_amd64.tar.gz` |
-| Linux, x86-64 | `engram_3.4.0-nexo.1_linux_amd64.tar.gz` |
-| Linux, ARM64 | `engram_3.4.0-nexo.1_linux_arm64.tar.gz` |
+| Windows, Intel o AMD | `engram_3.4.0-nexo.2_windows_amd64.zip` |
+| Windows, ARM | `engram_3.4.0-nexo.2_windows_arm64.zip` |
+| macOS, Apple Silicon (M1 o posterior) | `engram_3.4.0-nexo.2_darwin_arm64.tar.gz` |
+| macOS, Intel | `engram_3.4.0-nexo.2_darwin_amd64.tar.gz` |
+| Linux, x86-64 | `engram_3.4.0-nexo.2_linux_amd64.tar.gz` |
+| Linux, ARM64 | `engram_3.4.0-nexo.2_linux_arm64.tar.gz` |
 | Todos | `checksums.txt` (huellas SHA-256 para verificar la descarga) |
 
 Cada archivo trae el binario `engram` (`engram.exe` en Windows) y una carpeta `tools/` que Nexo no
 necesita.
 
 También puedes descargarlo desde la web con tu sesión iniciada:
-`https://github.com/Adriel2503/engram-nexo/releases/tag/v3.4.0-nexo.1`. Desde la terminal es mejor
+`https://github.com/Adriel2503/engram-nexo/releases/tag/v3.4.0-nexo.2`. Desde la terminal es mejor
 (con `gh`), porque el sistema no marca el archivo como "descargado de internet".
 
 ### Windows (PowerShell)
 
 ```powershell
 # 1. Descargar (cambia amd64 por arm64 si tu equipo es ARM)
-$ver = "3.4.0-nexo.1"
+$ver = "3.4.0-nexo.2"
 $tmp = Join-Path $env:TEMP "engram-nexo"
 gh release download "v$ver" -R Adriel2503/engram-nexo -p "engram_${ver}_windows_amd64.zip" -p checksums.txt -D $tmp --clobber
 
@@ -218,7 +218,7 @@ descomprimir: `Unblock-File <ruta del zip>`.
 ### macOS (Terminal)
 
 ```bash
-ver=3.4.0-nexo.1
+ver=3.4.0-nexo.2
 arch=arm64                      # Apple Silicon; en una Mac Intel usa amd64
 tmp=$(mktemp -d)
 gh release download "v$ver" -R Adriel2503/engram-nexo -p "engram_${ver}_darwin_${arch}.tar.gz" -p checksums.txt -D "$tmp"
@@ -236,7 +236,7 @@ Si lo descargaste con el navegador y macOS no deja abrirlo, quita la marca de de
 ### Linux (bash)
 
 ```bash
-ver=3.4.0-nexo.1
+ver=3.4.0-nexo.2
 arch=amd64                      # o arm64
 tmp=$(mktemp -d)
 gh release download "v$ver" -R Adriel2503/engram-nexo -p "engram_${ver}_linux_${arch}.tar.gz" -p checksums.txt -D "$tmp"
@@ -257,7 +257,7 @@ engram version
 Qué deberías ver:
 
 ```text
-engram 3.4.0-nexo.1
+engram 3.4.0-nexo.2
 ```
 
 Si ves una versión sin `-nexo` (por ejemplo `engram 3.4.0`), tu PATH está usando otro Engram: vuelve a
