@@ -212,7 +212,7 @@ API (auditor, admin y superadmin; las acciones exigen además un token `write`):
 | `GET /nexo/admin/audit/verify[?table=]` | Verifica la cadena de `cloud_auth_audit_log`, `nexo_authz_events` y `nexo_kb_events`: `ok`, filas revisadas, primera fila alterada (`first_broken`), huecos y filas sin cadena |
 | `GET /nexo/admin/alerts?rule=&layer=&severity=&unacked=true&from=&to=&cursor=&limit=` | Alertas con su capa (`plataforma`, `proyectos`, `conocimiento`) y reconocimiento |
 | `POST /nexo/admin/alerts/{id}:ack` `{"note":"..."}` | Reconoce una alerta (una vez; 409 si ya estaba) |
-| `GET /nexo/admin/access-review[?inactive_days=90]` | Revisión de accesos: por persona, rol de plataforma y roles por ámbito con fecha y quién asignó, permisos de proyecto, tokens (caducidad, alcance, último uso), días de inactividad y marcas `inactive`, `token_no_expiry`, `token_never_used` |
+| `GET /nexo/admin/access-review[?inactive_days=90&format=csv]` | Revisión de accesos: por persona, rol de plataforma y roles por ámbito con fecha y quién asignó, permisos de proyecto, tokens (caducidad, alcance, último uso), días de inactividad y marcas `inactive`, `token_no_expiry`, `token_never_used`. Con `format=csv` o `format=json` se descarga como evidencia con una huella SHA-256 (ver el manual de administración, 9.5) |
 | `POST /nexo/admin/access-review:complete` `{"notes":"..."}` | Registra la revisión (quién, cuándo, notas y el hash del reporte revisado) |
 
 CLI (en el contenedor o con `ENGRAM_DATABASE_URL` de la cuenta de aplicación):
