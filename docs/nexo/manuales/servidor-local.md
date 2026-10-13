@@ -665,6 +665,43 @@ recrea el contenedor). Los valores por defecto están leídos del código.
 | `NEXO_KB_PUBLIC_URL` | vacía: el esquema y el host de la petición (detrás de un proxy de `NEXO_TRUSTED_PROXIES`, los que informa el proxy) | URL de los enlaces de las citas; si está, manda |
 | `NEXO_KB_DISABLE_UNACCENT` | vacía | `1` al crear la configuración de búsqueda: no usar la extensión `unaccent` |
 
+### Conocimiento: búsqueda por significado (R2, opcional)
+
+Para probar la búsqueda híbrida, que combina palabras y significado y encuentra un estándar aunque
+la pregunta use otras palabras:
+
+1. En el compose de la sección 5, cambia la imagen de `postgres` por `pgvector/pgvector:pg16`. Es
+   el Postgres oficial con la extensión pgvector; `01-cuentas.sh` la crea al iniciar el volumen.
+   - Si ya tenías un volumen creado, pide a la cuenta `postgres` que la cree:
+     `docker compose exec postgres psql -U postgres -d engram_cloud -c "CREATE EXTENSION IF NOT EXISTS vector SCHEMA public"`.
+2. Agrega al servicio `cloud` lo siguiente, con la clave en el `.env`, nunca en el compose:
+
+   ```yaml
+         NEXO_KB_EMBEDDER: ${NEXO_KB_EMBEDDER:-off}
+         NEXO_KB_EMBED_API_KEY: ${NEXO_KB_EMBED_API_KEY:-}
+   ```
+
+   En el `.env`: `NEXO_KB_EMBEDDER=gemini` y `NEXO_KB_EMBED_API_KEY=<tu clave de Google AI Studio>`.
+3. Ejecuta `docker compose up -d`.
+4. Comprueba el arranque: `docker compose logs cloud | grep "\[nexo\] kb"` debe mostrar
+   `pgvector ... disponible` e `indexador de vectores en marcha`. Unos segundos después de subir
+   documentos, debe mostrar `índice vectorial v1 activo`.
+5. Comprueba una búsqueda: `engram nexo kb search --json "<pregunta>"` debe devolver
+   `"mode":"hybrid"`. Para comparar con la búsqueda solo por palabras, usa `--mode fts`.
+
+| Variable | Por defecto | Efecto |
+|---|---|---|
+| `NEXO_KB_EMBEDDER` | `off` | `gemini`, `openai`, `azure-openai` u `openai-compatible`. Con `off` (o sin pgvector) todo funciona como antes, solo por texto |
+| `NEXO_KB_EMBED_API_KEY` | — | Clave del proveedor. También sirven `GEMINI_API_KEY` y `OPENAI_API_KEY` |
+| `NEXO_KB_EMBED_MODEL`, `NEXO_KB_EMBED_DIMS` | `gemini-embedding-001`, 768 | Modelo y dimensión. Cambiarlos crea un índice nuevo, construido en segundo plano |
+| `NEXO_KB_EMBED_URL` | — | Para un modelo local con Ollama: `NEXO_KB_EMBEDDER=openai-compatible`, `NEXO_KB_EMBED_URL=http://host.docker.internal:11434/v1`, `NEXO_KB_EMBED_MODEL=bge-m3`, `NEXO_KB_EMBED_DIMS=1024` |
+| `NEXO_KB_MIN_SIMILARITY`, `NEXO_KB_MIN_TEXT_SIMILARITY` | `0.70`, `0.65` | Umbral de "no existe un estándar oficial" en el modo híbrido (calibrado con Gemini a 768 dimensiones) |
+| `NEXO_KB_RRF_VECTOR_WEIGHT`, `NEXO_KB_RRF_TEXT_WEIGHT` | `0.7`, `0.3` | Pesos de la fusión entre significado y palabras |
+| `NEXO_KB_VECTOR_WORKER` | activo | `off` apaga el indexador en segundo plano |
+
+Con un proveedor externo, el texto de los documentos y las preguntas sale de tu PC hacia el
+proveedor. Para una demo con documentos internos, confirma que está permitido.
+
 ### Conocimiento: límites de subida y publicación
 
 | Variable | Por defecto | Efecto |

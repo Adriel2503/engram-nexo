@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -97,9 +98,14 @@ const pgftsTemporalWhere = `s.recorded_from <= $4 AND (s.recorded_until IS NULL 
 // Parámetros: $1 texto, $2 espacios, $3 at, $4 known_at, $5 categoría, $6
 // etiqueta, $7 límite, $8 texto sin tildes, $9 expansión de sinónimos (texto
 // websearch, ” = ninguna), $10 lexemas de la consulta (cobertura).
-const pgftsQuery = `
+
+// pgftsHead son la consulta estricta y la elegida (%MODE%); la comparten la
+// búsqueda de texto y el detalle de los resultados vectoriales (R2).
+const pgftsHead = `
 WITH strict AS (SELECT websearch_to_tsquery('` + store.TSConfig + `', $1) || %UNACCENT% AS query, $8::text AS folded),
-q AS (SELECT %MODE% AS query FROM strict),
+q AS (SELECT %MODE% AS query FROM strict),`
+
+const pgftsQuery = pgftsHead + `
 cand AS (
 	SELECT s.id, s.tsv
 	FROM nexo_kb_sections s, q
@@ -121,7 +127,10 @@ hits AS (
 	FROM top t, q
 	ORDER BY rank DESC, t.id
 	LIMIT $7
-)
+)` + pgftsSelect
+
+// pgftsSelect arma los resultados de los ids de hits (id, rank).
+const pgftsSelect = `
 SELECT s.id::text, s.space_id::text, sp.slug, d.id::text, d.doc_key, v.title, s.category, array_to_json(s.tags)::text, v.owner_label,
 	v.version, s.anchor, array_to_json(s.heading_path)::text,
 	ts_headline('` + store.TSConfig + `', s.body, q.query, 'MaxFragments=2, MaxWords=35, MinWords=12, StartSel=**, StopSel=**, FragmentDelimiter=" ... "'),
@@ -148,9 +157,23 @@ func (p *PGFTS) Search(ctx context.Context, q Query, f Filter) ([]Hit, error) {
 	if strings.EqualFold(strings.TrimSpace(q.Mode), ModeExact) {
 		return p.exactSearch(ctx, q, f)
 	}
+	out, _, err := p.search(ctx, q, f)
+	return out, err
+}
+
+// textQuery es lo que la búsqueda de texto calculó para una consulta y el
+// modo híbrido reutiliza para armar los resultados que vienen solo de los
+// vectores (extracto y cobertura con los mismos argumentos y el mismo modelo).
+type textQuery struct {
+	args    []any
+	weights *coverageModel
+	unacc   string
+}
+
+func (p *PGFTS) search(ctx context.Context, q Query, f Filter) ([]Hit, *textQuery, error) {
 	unacc, err := p.st.UnaccentQuery(ctx, "$1", "$8")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	where := pgftsTemporalWhere
 	if f.Current() {
@@ -169,19 +192,20 @@ func (p *PGFTS) Search(ctx context.Context, q Query, f Filter) ([]Hit, error) {
 	if p.opts.Coverage {
 		weights, err = p.coverage(ctx, q.Text, f.SpaceIDs(), syn)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		lexemes = weights.all
 	}
 	args := []any{q.Text, f.SpaceIDs(), f.At(), f.KnownAt(), strings.TrimSpace(q.Category), strings.TrimSpace(q.Tag), q.Limit, ingest.Fold(q.Text),
 		expansion, nonNilStrings(lexemes)}
+	tq := &textQuery{args: slices.Clone(args), weights: weights, unacc: unacc}
 	// 1. Todos los términos (AND de websearch_to_tsquery). La expansión no se
 	// usa aquí ($9 se referencia solo en la segunda pasada).
 	strictSQL := strings.Replace(base, "%MODE%", "strict.query", 1)
 	strictSQL = strings.Replace(strictSQL, "$8::text AS folded", "$8::text AS folded, $9::text AS expansion", 1)
 	out, err := p.run(ctx, strictSQL, args, MatchAllTerms, weights)
 	if err != nil || len(out) >= q.Limit {
-		return out, err
+		return out, tq, err
 	}
 	// 2. Preguntas en lenguaje natural: si faltan resultados, cualquiera de
 	// los términos (OR) más sus sinónimos, ordenado por ts_rank_cd (más
@@ -190,7 +214,7 @@ func (p *PGFTS) Search(ctx context.Context, q Query, f Filter) ([]Hit, error) {
 	args[6] = q.Limit + len(out)
 	loose, err := p.run(ctx, strings.Replace(base, "%MODE%", pgftsLooseQuery, 1), args, MatchSomeTerms, weights)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	seen := map[string]bool{}
 	for _, h := range out {
@@ -204,7 +228,29 @@ func (p *PGFTS) Search(ctx context.Context, q Query, f Filter) ([]Hit, error) {
 			out = append(out, h)
 		}
 	}
-	return out, nil
+	return out, tq, nil
+}
+
+// details arma los resultados de unas secciones (ids con su puntaje) con los
+// mismos campos, extracto y cobertura que la búsqueda de texto: lo usan los
+// resultados que solo encontró la búsqueda por vectores (R2). El extracto
+// resalta cualquier término de la consulta (consulta amplia).
+func (p *PGFTS) details(ctx context.Context, tq *textQuery, ids []string, ranks []float64, match string) ([]Hit, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	sqlText := strings.Replace(pgftsHead, "%UNACCENT%", tq.unacc, 1)
+	sqlText = strings.Replace(sqlText, "%MODE%", pgftsLooseQuery, 1)
+	sqlText += `
+hits AS (
+	SELECT x.id, x.rank FROM unnest($11::uuid[], $12::float8[]) AS x(id, rank)
+	WHERE $2::uuid[] IS NOT NULL AND $3::timestamptz IS NOT NULL AND $4::timestamptz IS NOT NULL AND $5::text IS NOT NULL AND $6::text IS NOT NULL
+	LIMIT $7
+)` + pgftsSelect
+	args := slices.Clone(tq.args)
+	args[6] = len(ids)
+	args = append(args, ids, ranks)
+	return p.run(ctx, sqlText, args, match, tq.weights)
 }
 
 // coverageModel es la cobertura por concepto (RC-07): cada palabra de la

@@ -269,6 +269,25 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `cloudserver/nexo_kb_dashboard.go` (páginas rediseñadas, activa la marca), `cloudserver/nexo_kb_dashboard_test.go` (texto "Resultado de la subida").
 
+### NX-10 · R2: búsqueda por significado (híbrida palabras + vectores)
+
+**Especificación.** `docs/nexo/conocimiento/design.md` §20 (diseño, desviaciones D-R2-1..D-R2-12 y medición R0), `tasks.md` (R2), backlog `docs/nexo/mejoras-y-referencias.md` (RC-05, RC-07, RC-11, RC-12, RC-16, RC-19, RC-20, RC-21, RC-23, RC-29, RC-30).
+
+**Motivo.** Tras R1, la medición R0 sobre la wiki dejaba las paráfrasis en 0 % y 3 falsos "no hay estándar": las preguntas formuladas con otras palabras no se encuentran por texto. Decisión del usuario (2026-10-13): proveedores externos de embeddings intercambiables por configuración, Postgres oficial con pgvector, y que todo se degrade a la búsqueda por texto si falta algo.
+
+**Qué hace.**
+- **Proveedores** (`internal/nexo/kb/embed`): interfaz `Embedder` (proveedor, modelo, dimensiones, `Embed(ctx, textos, documento|consulta)`) con una capa común que resuelve lotes, reintentos con espera exponencial (respeta `Retry-After` y `retryDelay`), límites por minuto (`RPM`, `TPM`), tiempo máximo por llamada, comprobación de cantidad y dimensión de cada respuesta, normalización y borrado de la clave en los errores. Adaptadores: Gemini (`batchEmbedContents`, `RETRIEVAL_DOCUMENT`/`RETRIEVAL_QUERY`, `outputDimensionality`, clave en `x-goog-api-key`), OpenAI (`text-embedding-3-small`, `-3-large`, `ada-002`), Azure OpenAI (despliegue, `api-version`, `api-key`) y compatible con OpenAI (Ollama, vLLM, TEI, URL propia). Tabla de modelos con dimensión nativa, rango, reducción, lote, tokens y normalización; la configuración se valida al arrancar. Prueba de contrato común con un servidor HTTP simulado.
+- **Datos** (`store/vectors.go`, migración aditiva): extensión `vector` tolerante (sin ella, solo texto), `nexo_kb_section_vectors` (vector por sección y versión de índice, con hash del texto para reutilizar), índices HNSW parciales por dimensión sobre `embedding::vector(D)` (768, 1024, 1536 y la configurada) y `embedding::halfvec(D)` por encima de 2000 (3072), cola `nexo_kb_index_jobs` (`FOR UPDATE SKIP LOCKED`, deduplicada por versión y sección, `fail_count`) y cartas muertas `nexo_kb_index_dead` con la alerta `kb_index_dead_letter`. Versiones de índice `vector` en `nexo_kb_index_versions` (proveedor, modelo, dimensiones, composición del texto) con `feed_seq`.
+- **Indexador** (`service/r2.go`): en segundo plano dentro de `engram cloud serve`; se alimenta de `nexo_kb_changes`; vectoriza solo el texto con encabezado de contexto (RC-03); reutiliza vectores de secciones idénticas (RC-05); cambio de proveedor, modelo o dimensión = versión nueva construida en segundo plano y activada al terminar (RC-16); el trabajo de una versión retirada se descarta.
+- **Búsqueda** (`search/{hybrid,vector,rrf}.go`): modo `hybrid` con la misma consulta y los mismos filtros (permisos, espacio, `at`/`known_at`, retirados) por texto (pgfts con R1) y por vectores (HNSW con `ef_search` e `iterative_scan`, o recorrido exacto con pocas secciones y en consultas históricas, RC-19), fusión RRF ponderada y normalizada (portada de WeKnora, MIT), un solo modelo por consulta (RC-23), umbral de "no hay estándar" recalibrado con cobertura y similitud, diversidad y vecinas de R1. Si el proveedor falla, la respuesta es solo por texto con `vector.status` y `notice`, sin error. Por defecto `hybrid` con índice activo y `fts` sin él.
+- **Superficies**: `mode=hybrid` en la API, `nexo_search` (MCP), panel (selector "Cómo buscar"), `engram nexo kb search --mode hybrid`, `eval --retriever hybrid [--wait-index]`, `reindex --vectors [--requeue-dead]`; `GET /admin/index` informa la cola. La copia local de la PC sigue solo con BM25 (RC-30).
+
+**Archivos nuevos.** `internal/nexo/kb/embed/{embed,models,resilient,gemini,openai}.go` (+ `embed_test.go`); `internal/nexo/kb/store/vectors.go`; `internal/nexo/kb/search/{hybrid,vector}.go`, `search/rrf.go` (derivado de WeKnora, aviso MIT en la cabecera); `internal/nexo/kb/service/r2.go` (+ `r2_pg_test.go`); `internal/nexo/kb/kbtest/embedder.go` (embedder simulado determinista para pruebas sin red).
+
+**Archivos Nexo modificados.** `kb/store/{migrate,store}.go` (llama a `migrateR2`; estado de pgvector), `kb/search/{search,pgfts}.go` (modo `hybrid`, similitud, umbral combinado, aviso; consulta de texto partida para armar los resultados que solo encontró el vector), `kb/service/{service,r1,evalrun}.go` (motor híbrido si hay proveedor; umbral; modo y configuración en las corridas), `kb/httpapi/routes2b.go` (estado y reconstrucción del índice vectorial), `kb/cli/{cli,eval,upload,local}.go`, `kb/client/{kb,mcp}.go`, `kb/eval/quality_test.go` (prueba de calidad del modo hybrid con el embedder simulado), `kb/service/wiki_eval_test.go` (medición con proveedor real y caché de vectores), `cloudserver/nexo_kb_bridge.go` (arranca el indexador), `cloudserver/nexo_activity.go` (llamada al arranque, sin enganche nuevo en `Start()`), `cloudserver/nexo_kb_dashboard{,_view}.go` (selector de modo y aviso). **Sin enganches nuevos en archivos de Engram.**
+
+**Paso de actualización.** Postgres con la extensión `vector` (imagen `pgvector/pgvector:pg16` o `CREATE EXTENSION vector` hecho por un DBA, pgvector 0.8 o superior para `iterative_scan`), `NEXO_KB_EMBEDDER` y su clave en el entorno del servidor. Al arrancar se crea la versión de índice y el indexador vectoriza todo en segundo plano; mientras tanto la búsqueda sigue por texto. Las secciones y las preguntas se envían al proveedor: informar a Real Plaza antes de producción.
+
 ### OP-01 · Publicación de versiones del fork (workflows)
 
 Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram crearon un release con los binarios originales e intentaron actualizar el Homebrew de Gentleman Programming (falló por credenciales). Desde el 2026-10-13:
@@ -381,6 +400,8 @@ Archivo nuevo de configuración: `.goreleaser.nexo.yaml` (OP-01). `.goreleaser.y
 
 Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: secretos y archivos locales»).
 
+NX-10 R2 no agrega líneas en archivos de Engram: el indexador arranca desde `nexo_activity.go` (archivo propio, llamado por la línea NX-02 de `Start()`) y el resto vive en `internal/nexo/kb/` y en los archivos `nexo_kb_*` de `cloudserver`.
+
 Archivos nuevos fuera de `internal/`: `plugin/claude-code/skills/nexo-protocol/SKILL.md` y `plugin/codex/skills/nexo-protocol/SKILL.md` (NX-10, copias generadas de `internal/nexo/setup/SKILL.md`), `deploy/nexo/Dockerfile`, `deploy/nexo/Dockerfile.dockerignore`, `deploy/nexo/postgres-init/01-cuentas.sh`, `deploy/nexo/compose.example.yaml`, `deploy/nexo/Caddyfile.example`, `deploy/nexo/.gitattributes` (NX-07), `docs/nexo/**`, este archivo.
 
 ## 5. Variables de entorno nuevas
@@ -412,6 +433,22 @@ Archivos nuevos fuera de `internal/`: `plugin/claude-code/skills/nexo-protocol/S
 | `NEXO_KB_MIN_COVERAGE` (NX-10 2b, RC-07) | `0.3` | Umbral de cobertura ponderada para responder "no existe un estándar oficial" |
 | `NEXO_KB_MAX_PER_DOC` (NX-10 2b, RC-09) | `2` | Máximo de secciones de un mismo documento por respuesta |
 | `NEXO_KB_PUBLIC_URL` (NX-10 2b, RC-08) | vacía: esquema y host de la petición (detrás de un proxy de `NEXO_TRUSTED_PROXIES`, los de `X-Forwarded-Proto` y `X-Forwarded-Host`) | URL pública de Nexo para los enlaces permanentes de las citas; si está, manda sobre lo anterior |
+| `NEXO_KB_EMBEDDER` (NX-10 R2, RC-12) | `off` | Proveedor de embeddings: `gemini`, `openai`, `azure-openai`, `openai-compatible` u `off`. Sin proveedor (o sin pgvector) la búsqueda es solo por texto, como en R1 |
+| `NEXO_KB_EMBED_MODEL` (NX-10 R2) | `gemini-embedding-001` (gemini), `text-embedding-3-small` (openai, azure) | Modelo (en Azure, el modelo detrás del despliegue: fija las capacidades). Matriz de modelos en `design.md` §20.2 |
+| `NEXO_KB_EMBED_DIMS` (NX-10 R2) | 768 (gemini), nativa del modelo (openai, azure); obligatoria en `openai-compatible` y modelos desconocidos | Dimensión de los vectores (1 a 4000; hasta 2000 se indexa como `vector`, de 2001 a 4000 como `halfvec`). Cambiarla = versión de índice nueva |
+| `NEXO_KB_EMBED_URL` (NX-10 R2) | URL del proveedor (gemini, openai); obligatoria en `azure-openai` (`https://<recurso>.openai.azure.com`) y `openai-compatible` | Raíz de la API |
+| `NEXO_KB_EMBED_API_KEY`, `NEXO_KB_EMBED_API_KEY_FILE` (NX-10 R2) | vacías; se aceptan también `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY` | Clave del proveedor (o archivo con la clave, para secretos de Docker). Nunca se imprime, ni se guarda en la base, en logs ni en las corridas |
+| `NEXO_KB_EMBED_DEPLOYMENT`, `NEXO_KB_EMBED_API_VERSION` (NX-10 R2, Azure) | —, `2024-10-21` | Despliegue de Azure OpenAI y versión de la API |
+| `NEXO_KB_EMBED_AUTH` (NX-10 R2) | `api-key` (azure), `bearer` (compatible con clave), `none` (compatible sin clave) | Encabezado de autenticación |
+| `NEXO_KB_EMBED_SEND_DIMS` (NX-10 R2) | vacía | `1`: enviar `dimensions` a un modelo que no está en la tabla (por defecto no se envía) |
+| `NEXO_KB_EMBED_BATCH`, `NEXO_KB_EMBED_RPM`, `NEXO_KB_EMBED_TPM` (NX-10 R2) | máximo del modelo, sin límite, sin límite | Textos por llamada y límites propios por minuto (llamadas y tokens estimados); sin límite propio un 429 se reintenta con la espera que indica el proveedor |
+| `NEXO_KB_EMBED_TIMEOUT_SECONDS`, `NEXO_KB_EMBED_RETRIES`, `NEXO_KB_EMBED_MAX_CHARS` (NX-10 R2) | `30`, `5`, según el modelo | Tiempo por llamada, reintentos ante errores transitorios y recorte de cada texto |
+| `NEXO_KB_EMBED_QUERY_PREFIX`, `NEXO_KB_EMBED_DOC_PREFIX` (NX-10 R2) | vacías | Prefijos para modelos que los esperan (multilingual-e5: `query: `, `passage: `), solo `openai-compatible` |
+| `NEXO_KB_RRF_K`, `NEXO_KB_RRF_VECTOR_WEIGHT`, `NEXO_KB_RRF_TEXT_WEIGHT` (NX-10 R2, RC-11) | `60`, `0.7`, `0.3` | Fusión RRF del modo `hybrid` (medido en R0, `design.md` §20.6) |
+| `NEXO_KB_MIN_SIMILARITY`, `NEXO_KB_MIN_TEXT_SIMILARITY` (NX-10 R2) | ver `design.md` §20.5 | Umbral de "no hay estándar" del modo `hybrid`: un resultado pasa con similitud >= `MIN_SIMILARITY`, o con cobertura >= `NEXO_KB_MIN_COVERAGE` y similitud >= `MIN_TEXT_SIMILARITY`. Depende del modelo: recalibrar al cambiarlo |
+| `NEXO_KB_VECTOR_EXACT_MAX`, `NEXO_KB_VECTOR_CANDIDATES`, `NEXO_KB_VECTOR_ITERATIVE_SCAN` (NX-10 R2, RC-19) | `20000`, `200`, `relaxed_order` | Recorrido exacto si los espacios visibles tienen hasta esa cantidad de secciones vigentes; candidatos de la subconsulta HNSW (y `ef_search`); `strict_order`, `relaxed_order` u `off` |
+| `NEXO_KB_VECTOR_WORKER`, `NEXO_KB_VECTOR_BATCH`, `NEXO_KB_VECTOR_POLL_SECONDS` (NX-10 R2, RC-20) | activo, `100`, `5` | Indexador en segundo plano (`off` lo apaga en esa réplica), trabajos por pasada y espera entre pasadas |
+| `NEXO_KB_EMBED_CACHE`, `NEXO_KB_EVAL_CONFIGS`, `NEXO_KB_EMBED_LIVE` | — | Solo tests: caché de vectores de la medición sobre la wiki, configuraciones del modo `hybrid` a comparar y prueba con la API real de Gemini |
 | `NEXO_KB_LOCAL_DB` (NX-10 2b tanda 2, cliente) | `$NEXO_HOME/kb.db` o `~/.nexo/kb.db` | Ruta de la copia local de los espacios (SQLite propio, separado de `engram.db`) |
 | `NEXO_TOKEN` (cliente, `engram nexo connect`) | vacía | Token para `connect` sin pasarlo como argumento (alternativa a `--token-stdin`); no se guarda en ningún archivo salvo `cloud.json` |
 | `NEXO_HOME` (cliente, kit) | `~/.nexo` | Carpeta de Nexo en la PC (la copia local va en `kb.db` dentro de ella) |
@@ -467,6 +504,10 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `nexo_kb_publish_runs` (NX-10 2b, KP-02) | Una fila por lote, subida o aprobación (quién, origen, resumen, rechazados, poda); solo inserción (trigger y tabla de evidencia de NX-07) |
 | `nexo_kb_eval_runs` (NX-10 2b, RC-28) | Corridas de evaluación (motor, configuración y su hash, conjunto, métricas totales y por clase, resultado por pregunta, aceptada, commit, autor); solo inserción |
 | `nexo_kb_index_versions` (NX-10 2b) | El reindexado registra `pgfts` v2 (`building` -> `active`, la anterior `retired`) con `doc_context` en su configuración |
+| `nexo_kb_index_versions.feed_seq` (NX-10 R2) | Último `seq` de `nexo_kb_changes` encolado por cada versión del índice vectorial (`index_kind = 'vector'`, configuración con proveedor, modelo, dimensiones, firma y composición del texto) |
+| Extensión `vector` (NX-10 R2) | `CREATE EXTENSION IF NOT EXISTS vector` en `public` dentro de un savepoint: si no está instalada o la cuenta no tiene permiso, la migración sigue y la búsqueda queda solo por texto (aviso en el log) |
+| `nexo_kb_section_vectors` (NX-10 R2) | Solo con la extensión. Vector por `(index_version, section_id)`, `space_id`, `text_sha256`, `dims`, `embedding vector` sin dimensión fija; FK a `nexo_kb_sections`; índice `(index_version, text_sha256)`; índices HNSW parciales `idx_nexo_kb_section_vectors_hnsw_<D>` sobre `embedding::vector(D)` (768, 1024, 1536 y la configurada hasta 2000) y `embedding::halfvec(D)` (3072 y la configurada de 2001 a 4000), `WHERE dims = D`, `m = 16`, `ef_construction = 64` |
+| `nexo_kb_index_jobs`, `nexo_kb_index_dead` (NX-10 R2, RC-20) | Cola de vectorización (`UNIQUE (index_version, section_id)`, prioridad, `claimed_at`, `fail_count`, `last_error`) y cartas muertas con la carga intacta |
 | Configuraciones de búsqueda (NX-10) | `nexo_es` (copia de `spanish`) y, si la extensión `unaccent` existe o se puede crear (en `public`), `nexo_es_unaccent`. Si no se puede crear, la migración sigue sin ella (aviso en el log) |
 | `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events` (NX-07 S4) | Columnas `nexo_chain_seq BIGINT`, `nexo_prev_hash BYTEA`, `nexo_hash BYTEA` (filas previas: NULL); índice único parcial `uq_<tabla>_nexo_chain_seq`; funciones `nexo_chain_canon_<tabla>` y `nexo_chain_link_<tabla>`; trigger `zz_nexo_chain_<tabla>` (`BEFORE INSERT`); función `nexo_chain_ts` |
 | `nexo_audit_chain_anchors` (NX-07 S4) | Anclas de la cadena (`genesis` al migrar, `purge` en cada depuración); solo de la dueña (la aplicación lee) |
@@ -514,6 +555,10 @@ $env:NEXO_AUTHZ_PERF = "1"; go test -count=1 -v -run TestPGAuthorizationCostWith
 # NX-10 2b: medición R0/R1 sobre la wiki real (fuera del fork; el corpus no se versiona)
 $env:NEXO_KB_WIKI_DIR = '<carpeta de la wiki>'; $env:NEXO_KB_EVAL_SET = '<preguntas-wiki.yaml>'; $env:NEXO_KB_EVAL_OVERLAY = '<eval/overlay>'
 go test -count=1 -v -run TestEvalWikiCorpus ./internal/nexo/kb/service/   # NEXO_KB_EVAL_BASELINE=1 y NEXO_KB_R1=off: línea base
+# NX-10 R2: las pruebas de pgvector necesitan un CLOUDSTORE_TEST_DSN con la extensión (imagen pgvector/pgvector:pg16); sin ella se saltan
+# Prueba de humo con la API real del proveedor (Gemini por defecto; OpenAI o Azure con sus variables NEXO_KB_EMBED_*):
+NEXO_KB_EMBED_LIVE=1 go test -count=1 -v -run TestEmbedderLive ./internal/nexo/kb/embed/
+# Medición R2 sobre la wiki: además NEXO_KB_EMBEDDER, la clave, NEXO_KB_EMBED_CACHE (vectoriza una sola vez), NEXO_KB_EVAL_CONFIGS y NEXO_KB_EVAL_DEBUG=1 (design.md §20.6)
 # En Windows, si Defender bloquea un binario de prueba ("Acceso denegado"): go test -c -o <carpeta>\x.exe <paquete> y ejecutarlo desde la carpeta del paquete
 # Panel: regenerar las plantillas siempre con la versión fijada en go.mod (templ v0.3.1001)
 go tool templ generate -path ./internal/cloud/dashboard

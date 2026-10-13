@@ -633,6 +633,9 @@ WeKnora en `nexo_ia/05-investigacion/analisis/WeKnora_conocimiento.md` (§17.5 a
 
 ### 17.2 Modelos
 
+> Reemplazado el 2026-10-13 por decisión del usuario: proveedores externos intercambiables
+> (RC-12). Implementación y matriz de modelos en §20 (D-R2-1).
+
 Para el volumen previsto (miles a cientos de miles de secciones) se usan modelos abiertos
 multilingües ejecutados en el servidor de Nexo, sin GPU obligatoria, de modo que los documentos no
 salen de la empresa: embeddings tipo bge-m3 o multilingual-e5 y reordenamiento tipo bge-reranker-v2-m3,
@@ -1000,3 +1003,318 @@ skill en claude-code y codex; `Install("claude-code")` deja la skill aunque fall
 plugin iguales a la fuente), `internal/nexo/nexocli/connection_test.go` (token inválido no guarda
 nada; token válido guarda sin el token en `nexo.json`, sincroniza; `status` con y sin servidor;
 `disconnect`), `client/local_test.go` (`TestEffectiveAllowlist`). E2E T2-21..T2-26.
+
+## 20. R2: búsqueda por significado (híbrida palabras + vectores)
+
+Fecha: 2026-10-13. Rama `feat/r2-hibrido` (sobre `develop` `fcae084`), sin commit. Decisiones del
+usuario que mandan sobre §14.7, §17.2 y §17.7(c):
+
+1. Proveedores **externos** de embeddings, intercambiables por configuración sin tocar la búsqueda (RC-12).
+2. Postgres oficial con extensiones estándar (pgvector); nada de extensiones de nicho (RC-17).
+3. Si falta pgvector o el proveedor, el servidor funciona igual que con R1, sin errores.
+4. La copia local de la PC sigue solo con BM25 (RC-30).
+5. La clave nunca se imprime ni se guarda en la base, los logs, el repositorio, los documentos ni los reportes.
+
+### 20.1 Flujo
+
+```
+publicar (lote, subida, propuesta) --> nexo_kb_sections + nexo_kb_changes (misma transacción)
+                                              |
+indexador (engram cloud serve, cada 5 s) -----+--> nexo_kb_index_jobs (FOR UPDATE SKIP LOCKED)
+   - encola las secciones sin vector de los documentos cambiados (feed_seq + ventana de 5 min)
+   - reutiliza el vector de un texto idéntico (hash) en la misma versión de índice (RC-05)
+   - vectoriza por lotes "ruta > título > sección" + cuerpo (RC-03), RETRIEVAL_DOCUMENT
+   - guarda en nexo_kb_section_vectors y borra el trabajo (misma transacción)
+   - 5 fallos permanentes -> nexo_kb_index_dead + alerta kb_index_dead_letter
+   - activa la versión en construcción cuando no le quedan trabajos (RC-16)
+
+consulta (API, MCP, panel, CLI); por defecto mode = hybrid si hay una versión activa:
+   1. vector de la pregunta con el modelo de la versión activa, una sola vez (RC-23), caché de 1 h
+   2. en paralelo y con los mismos filtros (espacios visibles, at/known_at, categoría, etiqueta):
+        texto:    pgfts con R1 (sinónimos, cobertura)
+        vectores: HNSW (ef_search, iterative_scan) o recorrido exacto (pocas secciones, consulta histórica)
+   3. fusión RRF (k 60, vector 0,7, texto 0,3), normalizada a [0, 1]
+   4. similitud de los resultados que solo encontró el texto; extracto y cobertura de los que
+      solo encontró el vector
+   5. Searcher: umbral (20.5), diversidad, vecinas, cita, enlace; vector.status y notice
+   proveedor caído o sin índice activo -> solo texto, con vector.status = failed | unavailable
+```
+
+### 20.2 Proveedores y modelos
+
+**Interfaz común.** En `internal/nexo/kb/embed`:
+`Embedder{Provider(), Model(), Dims(), Embed(ctx, textos, documento|consulta)}`.
+
+**Capa común (`client`).** Se resuelve una sola vez para todos los proveedores:
+
+- lotes del tamaño del modelo;
+- reintentos con espera exponencial y fluctuación ante 408, 409, 425, 429, 5xx y errores de red;
+- respeta `Retry-After` y el `retryDelay` de Google;
+- límites propios opcionales `RPM` y `TPM`;
+- tiempo máximo por llamada;
+- comprobación de la cantidad y la dimensión de **cada** respuesta;
+- normalización L2 cuando el modelo no entrega vectores unitarios;
+- borrado de la clave en cualquier error.
+
+Cada adaptador solo arma la petición HTTP y lee la respuesta.
+
+**Prueba de contrato.** `embed_test.go` la corre contra un servidor HTTP simulado, por proveedor y
+modelo. Comprueba:
+
+- el cuerpo de la petición (dimensión presente o ausente);
+- los encabezados;
+- los lotes y el orden;
+- la normalización;
+- los reintentos ante 429 y 5xx;
+- el error ante una dimensión distinta, sin que aparezca la clave.
+
+| `NEXO_KB_EMBEDDER` | Modelo | Dimensión nativa | Por defecto | Admitidas | Parámetro de dimensión | Lote | Tokens por texto | Normalizado |
+|---|---|---|---|---|---|---|---|---|
+| `gemini` | `gemini-embedding-001` | 3072 | **768** | 128 a 3072 (recomendadas 768, 1536, 3072) | `outputDimensionality` | 100 | 2048 | solo a 3072 (Nexo normaliza) |
+| `gemini` | `text-embedding-004` | 768 | 768 | 1 a 768 | `outputDimensionality` | 100 | 2048 | a 768 |
+| `openai`, `azure-openai` | `text-embedding-3-small` | 1536 | 1536 | 1 a 1536 | `dimensions` | 2048 | 8191 | sí |
+| `openai`, `azure-openai` | `text-embedding-3-large` | 3072 | 3072 (`halfvec`) | 1 a 3072 | `dimensions` | 2048 | 8191 | sí |
+| `openai`, `azure-openai` | `text-embedding-ada-002` | 1536 | 1536 | solo 1536 (otra dimensión: error al arrancar) | no se envía | 2048 | 8191 | sí |
+| cualquiera | modelo fuera de la tabla (Ollama `bge-m3`, vLLM, TEI, despliegue propio) | — | `NEXO_KB_EMBED_DIMS` obligatoria | 1 a 4000 | solo con `NEXO_KB_EMBED_SEND_DIMS=1` | 32 (compatible) o el del proveedor | — | Nexo normaliza |
+
+**Gemini.**
+
+- Ruta: `POST {base}/models/{modelo}:batchEmbedContents`.
+- `taskType`: `RETRIEVAL_DOCUMENT` para las secciones y `RETRIEVAL_QUERY` para las preguntas.
+- La clave va en el encabezado `x-goog-api-key`, nunca en la URL: una URL con `?key=` aparecería en
+  los errores de red.
+
+**OpenAI.**
+
+- Ruta: `POST {base}/embeddings`, con `Authorization: Bearer`.
+- Cuerpo: `model`, `input` en lote y `encoding_format: float`, más `dimensions` si el modelo lo admite.
+
+**Azure OpenAI** (`azure-openai`).
+
+- Ruta: `POST {recurso}/openai/deployments/{despliegue}/embeddings?api-version=2024-10-21`.
+- Encabezado `api-key`, o `bearer` con un token de Entra ID.
+- El cuerpo no lleva `model`: el despliegue va en la ruta.
+- `NEXO_KB_EMBED_MODEL` es el modelo detrás del despliegue y fija sus capacidades en la tabla.
+
+**Compatible con OpenAI.**
+
+- URL base propia, con consulta si hace falta.
+- Autenticación `bearer`, `api-key` o ninguna.
+- Prefijos opcionales `query: ` y `passage: ` (los usa multilingual-e5).
+
+**Dimensión de Gemini: 768, con el tipo `vector`.**
+
+- El tipo `vector` de pgvector se indexa con HNSW hasta 2000 dimensiones.
+- `gemini-embedding-001` reduce la dimensión por Matryoshka. Según Google, la pérdida de calidad es
+  mínima: el MTEB multilingüe es prácticamente igual en 768, 1536 y 3072.
+- 768 ocupa 3 KB por sección, cuatro veces menos que 3072, y mide bien en R0 (20.6).
+- Más de 2000 dimensiones (3072 nativa de Gemini o de `text-embedding-3-large`) se admite y se
+  indexa como `halfvec` (media precisión, HNSW hasta 4000) sobre la expresión `embedding::halfvec(D)`.
+- Más de 4000 dimensiones se rechaza al arrancar.
+
+### 20.3 Datos y ciclo de vida del índice
+
+**Tabla `nexo_kb_section_vectors`.** Columnas `index_version`, `section_id`, `space_id`,
+`text_sha256`, `dims` y `embedding vector`. Hay una fila por sección (vigente o histórica, §14.3
+regla 1) y por versión de índice. La columna `vector` no tiene dimensión fija, para que dos modelos
+convivan durante una transición.
+
+**Índices HNSW parciales por dimensión.** Se crean sobre la misma expresión que usa la consulta
+(patrón de WeKnora 000002 y 000059), con `WHERE dims = D`, `m = 16` y `ef_construction = 64`:
+
+- `embedding::vector(D)` para 768, 1024 y 1536;
+- `embedding::halfvec(3072)`;
+- además, la dimensión configurada.
+
+**Versiones en `nexo_kb_index_versions`** (`index_kind = 'vector'`).
+
+- `config` guarda el proveedor, el modelo, las dimensiones, los prefijos, la composición del texto
+  (`ctx1`) y su firma; además hay una columna `feed_seq`.
+- Estados `building` -> `active` -> `retired` (equivalentes a FUTURE, PRESENT y PAST de Onyx).
+- Al arrancar, si la configuración no tiene versión, se crea una en construcción y se encola todo:
+  primero lo vigente, después lo histórico.
+- La búsqueda usa **solo** la versión activa. Mientras la nueva se construye sigue la anterior: con
+  un Embedder de su modelo si el proveedor es el mismo; si cambió el proveedor, solo por texto hasta
+  que la nueva termine.
+- Al activarse la nueva, la anterior pasa a `retired` y sus vectores y trabajos se borran por lotes
+  (trabajo superado).
+
+**Administración.**
+
+- `engram nexo kb reindex --vectors` (o `POST /admin/index:reindex?kind=vector`, con
+  `platform.settings`) fuerza una versión nueva con la misma configuración.
+- `--requeue-dead` vuelve a encolar las cartas muertas.
+- `engram nexo kb reindex --status` (`GET /admin/index`) informa, por versión, los vectores, los
+  pendientes, los tomados, los que tienen fallos, las cartas muertas, la antigüedad del más viejo y
+  `feed_lag` (cambios publicados que el indexador todavía no leyó).
+
+### 20.4 Consulta vectorial y fusión
+
+**Filtros comunes en la misma consulta** (RC-19). Con JOIN a `nexo_kb_sections`:
+
+- `space_id = ANY(visibles)`;
+- vigencia por `is_current` (lo de hoy) o por `valid_*` y `recorded_*` (`at`, `known_at`);
+- categoría y etiqueta.
+
+El `Searcher` vuelve a comprobar cada resultado (§14.3 regla 4).
+
+**Recorrido HNSW.**
+
+- Subconsulta con `LIMIT` de 200 candidatos y `SET LOCAL hnsw.ef_search = 200`.
+- Con pgvector 0.8 o superior, además `hnsw.iterative_scan = relaxed_order`: HNSW sigue buscando
+  hasta llenar el LIMIT aunque el filtro descarte la mayoría de los candidatos.
+- La consulta externa reordena por distancia.
+- Si la versión de pgvector no conoce un parámetro, se repite la consulta sin él.
+
+**Recorrido exacto.** Se usa cuando los espacios visibles tienen hasta 20 000 secciones vigentes
+(`NEXO_KB_VECTOR_EXACT_MAX`) o cuando la consulta es histórica (`at` o `known_at`). Primero se
+eligen las secciones que cumplen el filtro (CTE materializada) y después se calcula su distancia.
+El recall es perfecto y no depende del índice.
+
+**Verificación.**
+
+- Las pruebas comprueban que HNSW con filtro de espacio devuelve lo mismo que el recorrido exacto
+  (un espacio de 3 documentos dentro de una tabla de 600 secciones).
+- También comprueban que el plan usa el índice parcial, tanto `vector` como `halfvec`.
+- En la wiki, la medición con HNSW forzado da exactamente los mismos números que la exacta.
+
+**Fusión RRF** (portada de WeKnora, aviso MIT en `search/rrf.go`).
+
+- Fórmula: `(wv/(k+rango_v) + wt/(k+rango_t)) / ((wv+wt)/(k+1))`.
+- El rango es la mejor posición de la sección en cada lista. El puntaje queda normalizado: vale 1
+  para la sección que es primera en ambas listas.
+- Pesos por defecto: 0,7 vector y 0,3 texto (los de WeKnora, que fueron los mejores en R0); k = 60.
+
+### 20.5 Umbral de "no hay estándar" con vectores
+
+Con vectores siempre aparece algo parecido, y el umbral de R1 (cobertura) por sí solo dejaba pasar
+resultados que solo encontró el vector. Regla (RC-07, RC-21; nunca se conserva el mejor resultado
+por debajo del umbral):
+
+- cada resultado del modo `hybrid` trae su cobertura (R1) **y** su similitud de coseno;
+- un resultado pasa si su similitud llega a `NEXO_KB_MIN_SIMILARITY` (**0,70**: el significado
+  alcanza por sí solo);
+- también pasa si su cobertura llega a `NEXO_KB_MIN_COVERAGE` (0,3) **y** su similitud a
+  `NEXO_KB_MIN_TEXT_SIMILARITY` (**0,65**: el texto coincide y el significado no lo contradice);
+- sin similitud (modo `fts`, o proveedor caído) rige solo la cobertura, como en R1.
+
+`relevance` informa el umbral aplicado, la mejor cobertura, la mejor similitud y cuántos
+resultados pasaron.
+
+Los valores dependen del modelo: con otro proveedor o dimensión hay que recalibrarlos con R0. Para
+eso, `NEXO_KB_EVAL_DEBUG=1` en `TestEvalWikiCorpus` imprime la cobertura y la similitud de las
+preguntas sin respuesta y de paráfrasis.
+
+### 20.6 Medición R0 (wiki de arquitectura, 50 preguntas borrador)
+
+**Corpus.** 161 documentos vigentes y 2 129 secciones, de las cuales 1 902 tienen vector: las de
+`[TO_REMOVE]`, que nunca estuvieron publicadas, no se vectorizan. Se usa el overlay de 4 páginas
+cargado después de `@base`.
+
+**Proveedor.** `gemini-embedding-001`, 768 dimensiones.
+
+**Cómo se midió.** En proceso, con `TestEvalWikiCorpus`; cada corrida queda registrada en
+`nexo_kb_eval_runs`. El E2E contra el servidor (`engram cloud serve` con dos cuentas, indexador en
+segundo plano, `engram nexo kb eval --record`) repitió la línea base y la configuración por
+defecto con los mismos números. Detalle y comandos en
+`nexo_ia/06-pruebas/conocimiento/RESULTADOS.md` §5.
+
+| Configuración | Hit@5 total | MRR | nDCG@10 | normal | exact | paráfrasis | temporal | cambios | "no hay" |
+|---|---|---|---|---|---|---|---|---|---|
+| R1 (`fts`, línea base) | 76,2 % | 0,616 | 0,654 | 80,0 % | 100 % | 0 % | 100 % | 100 % | 50 % |
+| hybrid 0,5/0,5, solo cobertura | 88,1 % | 0,754 | 0,782 | 100 % | 100 % | 28,6 % | 100 % | 100 % | 38 % |
+| hybrid 0,5/0,5, similitud 0,65 | 97,6 % | 0,809 | 0,857 | 93,3 % | 100 % | 100 % | 100 % | 100 % | 12 % |
+| hybrid 0,5/0,5, similitud 0,70 | 92,9 % | 0,790 | 0,821 | 100 % | 100 % | 57,1 % | 100 % | 100 % | 38 % |
+| hybrid 0,5/0,5, similitud 0,70, con texto 0,65 | 92,9 % | 0,792 | 0,822 | 100 % | 100 % | 57,1 % | 100 % | 100 % | 88 % |
+| hybrid 0,3/0,7, similitud 0,70, con texto 0,65 | 81,0 % | 0,681 | 0,715 | 86,7 % | 100 % | 14,3 % | 100 % | 100 % | 100 % |
+| **hybrid 0,7/0,3, similitud 0,70, con texto 0,65 (por defecto)** | **92,9 %** | **0,813** | **0,839** | **100 %** | **100 %** | **57,1 %** | **100 %** | **100 %** | **88 %** |
+
+**Lectura.**
+
+- El modo `hybrid` sube el acierto total de 76,2 % a 92,9 % y la posición media (MRR) de 0,616 a
+  0,813.
+- Las paráfrasis pasan de 0 % a 57,1 % (4 de 7) y el acierto de "no hay respuesta" sube de 50 % a
+  88 % (7 de 8).
+- Sin el piso de similitud para lo que encuentra el texto, el acierto de "no hay" **empeora**
+  (38 %). El piso de 0,65 es lo que cumple la condición de §17.3.
+- Con más peso al texto (0,3/0,7), "no hay" llega a 100 %, pero se pierde lo que se buscaba: las
+  paráfrasis bajan a 14 %.
+
+**Lo que queda sin resolver.**
+
+- 3 paráfrasis: las que piden un nombre o una convención con palabras muy distintas. El vector las
+  acerca, pero por debajo de 0,70.
+- Una pregunta sin respuesta (`na-code-review`) con un vecino a 0,69.
+
+El conjunto es un **borrador** (50 preguntas, 8 sin respuesta): los umbrales se deben volver a
+medir cuando 3 o 4 devs validen las preguntas.
+
+**Costo de Gemini.**
+
+- La wiki completa (1 876 textos distintos, unos 340 000 tokens estimados) son unas 20 llamadas de
+  lote: 48 s la primera vez.
+- Cada pregunta es una llamada, con caché de una hora en el servidor.
+- Una corrida de evaluación nueva son 50 llamadas; las siguientes, ninguna (caché).
+
+### 20.7 Qué se tomó de cada referencia
+
+| Idea | Fuente | En R2 |
+|---|---|---|
+| Consulta pgvector con LIMIT ampliado, `ef_search`, `iterative_scan` y reintento sin parámetros | WeKnora `retriever/postgres/repository.go:291-469` | Aplicada, con `relaxed_order` (como Utopia; WeKnora usa `strict_order`) |
+| Índice HNSW parcial sobre la expresión exacta de la consulta | WeKnora 000002, 000059 | Aplicada, por dimensión (ver D-R2-2) |
+| `halfvec` | WeKnora (todas sus dimensiones) | Solo por encima de 2000 dimensiones; 768 con `vector` |
+| RRF ponderado, normalizado, rango por lista | WeKnora `knowledgebase_search_fusion.go` | Portado (MIT); pesos medidos |
+| Un solo modelo por consulta multiespacio; vector de la pregunta calculado una vez | WeKnora `knowledgebase_search.go:199-247` | Aplicada (una sola versión activa) |
+| Cola en Postgres con deduplicación, `fail_count`, `SKIP LOCKED` y cartas muertas | WeKnora 000041, `asynqdl` | Aplicada, sin asynq ni Redis |
+| Embeddings por lotes con reintento exponencial | WeKnora `keywords_vector_hybrid_indexer.go` | Aplicada en la capa común |
+| Descartar el trabajo superado | WeKnora `knowledge_process.go` | Por versión de índice retirada (las secciones son inmutables) |
+| Ciclo de vida del índice con cambio atómico | Onyx `IndexModelStatus`, `swap_index.py` | Aplicada (`building`, `active`, `retired`) |
+| Híbrido 0,5/0,5 | Onyx | Medido: 0,7/0,3 da mejor MRR con el mismo acierto |
+| Hash por sección y reutilización de vectores | Onyx y Utopia (A1) | Aplicada, por hash del texto vectorizado |
+| Umbral y `no_results` en el híbrido | Análisis Onyx/Utopia (A4) | Aplicada (20.5) |
+| Filtro por espacio compatible con HNSW; recorrido exacto con conjuntos chicos | Utopia (A5) | Aplicada |
+| Título y ruta antepuestos al texto que se vectoriza | Onyx (B1), WeKnora | Aplicada (RC-03) |
+| Rerank con caída segura | WeKnora | Para R3 (RC-13, RC-21) |
+| ParadeDB `pg_search` (BM25) | WeKnora | Descartado (decisión del usuario: Postgres oficial) |
+| MMR, preguntas sintéticas por sección, reescritura de la consulta por LLM | WeKnora | No en R2: RC-09 sigue como tope por documento; RC-24 y RC-14 quedan para después |
+
+### 20.8 Desviaciones
+
+| ID | Tema | Diseño | Implementado | Motivo |
+|---|---|---|---|---|
+| D-R2-1 | Origen de los embeddings | §17.2 y §17.7(c): modelos locales; una API externa solo con `NEXO_KB_ALLOW_EXTERNAL_MODELS=1` | Proveedores externos por `NEXO_KB_EMBEDDER` (Gemini en la prueba); un modelo local entra por `openai-compatible`. No existe `NEXO_KB_ALLOW_EXTERNAL_MODELS` | Decisión del usuario (RC-12): configurar un proveedor externo ya es la decisión explícita. Falta informar a Real Plaza |
+| D-R2-2 | Índice HNSW | §14.4 y análisis de WeKnora: índice parcial por `index_version` | Índice parcial **por dimensión**, creado por la migración (768, 1024, 1536, 3072 y la configurada) | `CREATE INDEX` exige ser dueño de la tabla y, con dos cuentas (NX-07), la aplicación no lo es; la versión de índice se crea en tiempo de ejecución. En una transición entre dos modelos de la misma dimensión, ambos comparten el índice: `iterative_scan` cubre el filtro por versión, y al activarse la nueva se borran los vectores de la anterior |
+| D-R2-3 | Tabla | §14.4: `nexo_kb_section_embeddings (section_id, index_version, vector)` | `nexo_kb_section_vectors`, con `space_id`, `text_sha256` y `dims` | Filtrar por espacio sin JOIN en el índice; reutilizar por hash; varios modelos en la misma columna |
+| D-R2-4 | Cola | §17.5: `nexo_kb_index_jobs` con `op` (`upsert`, `drop`), `body_sha256` y `claimed_by` | Sin `op` ni `body_sha256`. Solo hay altas: las secciones son inmutables y lo retirado se descarta borrando la versión de índice. El hash se calcula sobre el texto vectorizado al tomar el trabajo | Más simple, con el mismo efecto |
+| D-R2-5 | Reintentos de un trabajo | — | Un fallo permanente deja el trabajo tomado hasta el umbral de abandono (10 min), que sirve de espera entre intentos. Un error transitorio (429, 5xx, red) **no** cuenta como fallo: libera el trabajo y el indexador espera cada vez más, hasta 5 min | Una caída del proveedor no debe llevar toda la cola a cartas muertas |
+| D-R2-6 | Lote con un texto rechazado | — | Si un lote falla de forma permanente, se vectoriza de a un texto para aislar el que falla | Un texto malo no bloquea a los demás |
+| D-R2-7 | Feed | §17.5: el productor lee `nexo_kb_changes` desde `feed_seq` | Igual, más una relectura de los cambios de los últimos 5 minutos | Riesgo D-K2b-17 (un `seq` menor confirmado después de leer el máximo); encolar es idempotente |
+| D-R2-8 | Umbral | RC-07: revisarlo con R2 | Cobertura **y** similitud (20.5). Sin el piso de similitud, el acierto de "no hay" empeoraba | Medido en R0 |
+| D-R2-9 | `index_lag` | §17.5: la respuesta híbrida indica los trabajos pendientes | `vector.index_lag` y un `notice` cuando hay secciones sin vector en los espacios consultados; `feed_lag` en el estado del índice | Igual que el diseño, más el atraso del feed |
+| D-R2-10 | Modo por defecto | §17.7: "el valor por defecto se configura por espacio" | Global: `hybrid` si hay una versión activa, `fts` si no | Hay un solo índice por servidor; el modo por espacio queda pendiente si hace falta |
+| D-R2-11 | Extensión con dos cuentas | La migración crea la extensión | La migración la intenta; con dos cuentas la crea el superusuario en `postgres-init/01-cuentas.sh` | pgvector no es una extensión "trusted" y la cuenta dueña no es superusuario |
+| D-R2-12 | Medición con la API real | — | `TestEvalWikiCorpus` usa un archivo de caché de vectores (solo pruebas): la wiki se vectoriza una vez por modelo y dimensión | Cuota gratuita de Gemini |
+| D-R2-13 | Texto de búsqueda inválido | — | `q` con bytes que no son UTF-8 responde 400; antes llegaba a Postgres y daba 500 | Hallazgo del E2E (curl en Windows convierte los argumentos con tildes a otra codificación) |
+
+### 20.9 Riesgos
+
+- **Los datos salen de la empresa.** Con un proveedor externo, las secciones (con su contexto) y
+  cada pregunta se envían al proveedor. Hay que informar a Real Plaza antes de producción
+  (decisión de política pendiente, RC-12).
+- **Umbrales calibrados con un borrador.** El conjunto tiene 50 preguntas sin validar, 8 de ellas
+  sin respuesta. Los valores 0,70 y 0,65 son de `gemini-embedding-001` a 768 dimensiones; otro
+  modelo exige recalibrar.
+- **Planificador y HNSW.** Con pocas filas, Postgres prefiere ordenar (recorrido exacto), lo cual es
+  correcto; con cientos de miles de filas debe elegir el índice. Las pruebas verifican que el
+  índice es usable; en producción conviene revisar `EXPLAIN` con datos reales.
+- **pgvector en el Postgres administrado.** Hace falta la versión 0.8 o superior para
+  `iterative_scan` (sin ella, el `ef_search` ampliado y el recorrido exacto mitigan) y que el
+  proveedor permita la extensión (OP-05).
+- **Latencia.** Cada consulta híbrida suma una llamada al proveedor, unos 100 a 300 ms con Gemini.
+  El tope es de 6 s; pasado ese tiempo se responde solo por texto. La caché de una hora evita
+  repetir la llamada.
+- **Cuota.** La capa común respeta los 429 y el `retryDelay`. Con la cuota gratuita, una
+  vectorización grande puede tardar más, pero se reanuda sola.
+- **Primera carga.** Con la base vacía, la primera versión del índice se activa enseguida (no
+  tiene trabajos). Lo que se publica después se encuentra por texto hasta tener su vector (aviso
+  `index_lag`).

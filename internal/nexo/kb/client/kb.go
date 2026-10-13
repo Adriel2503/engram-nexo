@@ -274,11 +274,16 @@ type SearchResult struct {
 	Results   []Hit             `json:"results"`
 	Relevance *search.Relevance `json:"relevance,omitempty"`
 	Guidance  string            `json:"guidance"`
+	// NX-10 R2: modo usado por el servidor (fts, exact o hybrid) y estado de
+	// la búsqueda por significado.
+	Mode   string             `json:"mode,omitempty"`
+	Vector *search.VectorInfo `json:"vector,omitempty"`
 }
 
 const searchGuidance = "Cita cada resultado usado con su 'citation' y su 'link' (y 'source_url' si existe) e indica su 'status'. " +
 	"Si no_results es true, responde literalmente: \"No existe un estándar oficial publicado sobre este tema.\" y marca cualquier recomendación propia como tal. " +
-	"Si source es local_copy, avisa que la respuesta viene de la copia local (con su fecha) y que no pudo verificarse con el servidor."
+	"Si source es local_copy, avisa que la respuesta viene de la copia local (con su fecha) y que no pudo verificarse con el servidor." +
+	" Si hay un notice del servidor (por ejemplo, respuesta solo por texto), tenlo en cuenta: una pregunta formulada con otras palabras puede no encontrarse."
 
 // serverHit es un resultado de GET /search.
 type serverHit struct {
@@ -306,6 +311,10 @@ type serverSearch struct {
 	Results   []serverHit       `json:"results"`
 	NoResults bool              `json:"no_results"`
 	Relevance *search.Relevance `json:"relevance"`
+	// NX-10 R2: modo efectivo y aviso del servidor (respuesta solo por texto).
+	Mode   string             `json:"mode"`
+	Notice string             `json:"notice"`
+	Vector *search.VectorInfo `json:"vector"`
 }
 
 // hitStatus describe el estado de un resultado hoy y, con at, en la fecha.
@@ -394,7 +403,8 @@ func (k *KB) searchServer(ctx context.Context, p SearchParams) (SearchResult, er
 		return SearchResult{}, err
 	}
 	now := k.now()
-	res := SearchResult{Source: SourceServer, At: p.At, KnownAt: p.KnownAt, NoResults: sr.NoResults, Relevance: sr.Relevance, Results: []Hit{}, Guidance: searchGuidance}
+	res := SearchResult{Source: SourceServer, At: p.At, KnownAt: p.KnownAt, NoResults: sr.NoResults, Relevance: sr.Relevance, Results: []Hit{}, Guidance: searchGuidance,
+		Mode: sr.Mode, Notice: sr.Notice, Vector: sr.Vector}
 	for _, h := range sr.Results {
 		res.Results = append(res.Results, Hit{Status: hitStatus(h.DocStatus, h.SupersededBy, h.ValidFrom, h.ValidUntil, p.At, now), Citation: h.Citation,
 			Link: h.Link, SourceURL: h.SourceURL, Space: h.Space, DocKey: h.DocKey, Title: h.Title, HeadingPath: h.HeadingPath, Anchor: h.Anchor,

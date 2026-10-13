@@ -284,7 +284,7 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 
 	// Buscador en todos los espacios visibles.
 	if len(spaces) > 0 {
-		b.WriteString(kbSearchForm("/dashboard/kb", q, atRaw, "en todos tus espacios"))
+		b.WriteString(kbSearchForm("/dashboard/kb", q, atRaw, "en todos tus espacios", kbMode(r)))
 		if q != "" {
 			b.WriteString(s.kbSearchBlock(r, svc, id, nil, q, atRaw, true))
 		}
@@ -379,6 +379,15 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 	s.kbRender(w, r, http.StatusOK, "Conocimiento", b.String())
 }
 
+// kbMode es el modo pedido en el buscador (NX-10 R2); vacío = el del servidor.
+func kbMode(r *http.Request) string {
+	switch m := r.URL.Query().Get("mode"); m {
+	case "fts", "exact", "hybrid":
+		return m
+	}
+	return ""
+}
+
 // kbSearchBlock ejecuta la búsqueda con el mismo servicio que /nexo/kb/v1
 // (permisos, vigencia y R1) y dibuja la respuesta.
 func (s *CloudServer) kbSearchBlock(r *http.Request, svc *kbservice.Service, id authz.Identity, spaces []string, q, atRaw string, showSpace bool) string {
@@ -386,7 +395,7 @@ func (s *CloudServer) kbSearchBlock(r *http.Request, svc *kbservice.Service, id 
 	if msg != "" {
 		return `<div class="nx-answers"><div class="nx-note nx-note-error" role="alert"><p>` + esc(msg) + `</p></div></div>`
 	}
-	res, err := svc.Search(r.Context(), id, kbservice.SearchRequest{Q: q, Spaces: spaces, At: at, Limit: 5})
+	res, err := svc.Search(r.Context(), id, kbservice.SearchRequest{Q: q, Spaces: spaces, At: at, Limit: 5, Mode: kbMode(r)})
 	if err != nil {
 		text := "No se pudo buscar. Vuelve a intentarlo."
 		var de *domain.Error
@@ -454,7 +463,7 @@ func (s *CloudServer) kbSpace(w http.ResponseWriter, r *http.Request, svc *kbser
 
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	atRaw := r.URL.Query().Get("at")
-	b.WriteString(kbSearchForm(base, q, atRaw, "en "+name))
+	b.WriteString(kbSearchForm(base, q, atRaw, "en "+name, kbMode(r)))
 	if q != "" {
 		b.WriteString(s.kbSearchBlock(r, svc, id, []string{sp.Slug}, q, atRaw, false))
 	}

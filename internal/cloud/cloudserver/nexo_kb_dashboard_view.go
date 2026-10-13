@@ -113,13 +113,24 @@ func kbPlural(n int, one, many string) string {
 
 // kbSearchForm dibuja el buscador. action es la página que lo recibe (GET:
 // la URL se puede compartir y funciona sin JavaScript).
-func kbSearchForm(action, q, at, scopeLabel string) string {
+func kbSearchForm(action, q, at, scopeLabel, mode string) string {
 	var b strings.Builder
 	b.WriteString(`<section class="nx-search" aria-labelledby="nx-search-title"><h2 class="nx-h2" id="nx-search-title">Buscar un estándar</h2>`)
 	fmt.Fprintf(&b, `<form method="get" action="%s" role="search">`, esc(action))
 	fmt.Fprintf(&b, `<label for="nx-q">Pregunta o tema <span class="nx-hint">%s</span><input id="nx-q" type="search" name="q" value="%s" maxlength="500" placeholder="Por ejemplo: nivel de log para errores de negocio" autocomplete="off" required/></label>`,
 		esc(scopeLabel), esc(q))
 	fmt.Fprintf(&b, `<label for="nx-at">En fecha <span class="nx-hint">opcional</span><input id="nx-at" type="date" name="at" value="%s"/></label>`, esc(at))
+	// NX-10 R2: modo de búsqueda (vacío: el servidor elige hybrid si tiene índice
+	// vectorial).
+	b.WriteString(`<label for="nx-mode">Cómo buscar<select id="nx-mode" name="mode">`)
+	for _, o := range [][2]string{{"", "Automático"}, {"hybrid", "Palabras y significado"}, {"fts", "Solo palabras"}, {"exact", "Texto exacto o /expresión/"}} {
+		sel := ""
+		if o[0] == mode {
+			sel = " selected"
+		}
+		fmt.Fprintf(&b, `<option value="%s"%s>%s</option>`, esc(o[0]), sel, esc(o[1]))
+	}
+	b.WriteString(`</select></label>`)
 	b.WriteString(`<button type="submit">Buscar</button></form>`)
 	return b.String()
 }
@@ -152,9 +163,15 @@ func kbSearchResults(res search.Result, at *time.Time, showSpace bool) string {
 	if at != nil {
 		ref = *at
 	}
+	if res.Notice != "" && (res.NoResults || len(res.Hits) == 0) {
+		b.WriteString(`<p class="nx-note" role="status">` + esc(res.Notice) + `</p>`)
+	}
 	if res.NoResults || len(res.Hits) == 0 {
 		b.WriteString(`<div class="nx-none" role="status"><strong>` + esc(kbNoStandard) + `</strong><p>Si tu asistente propone algo sobre este tema, es una recomendación propia, no un estándar. Prueba con otras palabras o pide al responsable del espacio que lo publique.</p></div></div>`)
 		return b.String()
+	}
+	if res.Notice != "" { // NX-10 R2: respuesta solo por texto u otro aviso
+		b.WriteString(`<p class="nx-note" role="status">` + esc(res.Notice) + `</p>`)
 	}
 	when := "vigentes hoy"
 	if at != nil {

@@ -167,6 +167,95 @@ NAT, suba `sync.ip` (600 por minuto alcanza para unas 100 PCs con sincronizació
 | `NEXO_KB_PUBLIC_URL` | vacía | Ver 4.3 |
 | `NEXO_KB_DISABLE_UNACCENT` | vacía | Ver 4.1 |
 
+### 4.6.1 Búsqueda por significado (R2, opcional)
+
+La búsqueda híbrida combina palabras y significado. Con ella el asistente encuentra un estándar
+aunque la pregunta use otras palabras: en la wiki de arquitectura, las paráfrasis pasaron de 0 % a
+57 % y el acierto total de 76 % a 93 % (`docs/nexo/conocimiento/design.md` §20).
+
+Es **opcional**. Sin proveedor configurado, o sin la extensión pgvector, el servidor funciona igual
+que antes, solo con búsqueda por texto, y sin errores.
+
+**Requisitos.**
+
+| Qué | Detalle |
+|---|---|
+| Extensión `vector` (pgvector) | Versión 0.8 o superior, que permite el recorrido filtrado (`iterative_scan`). Con el compose de ejemplo, use la imagen `pgvector/pgvector:pg16`: `postgres-init/01-cuentas.sh` crea la extensión con el superusuario. En un Postgres administrado, un DBA ejecuta `CREATE EXTENSION IF NOT EXISTS vector;` en la base `engram_cloud` antes del primer arranque. La cuenta dueña no puede crearla, porque pgvector no es una extensión "trusted". Para ver la versión disponible: `SELECT * FROM pg_available_extension_versions WHERE name = 'vector';` |
+| Proveedor de embeddings | Gemini, OpenAI, Azure OpenAI o un servidor compatible con OpenAI (Ollama, vLLM, TEI) |
+| Política de datos | Cada sección publicada (con su título y su ruta) y cada pregunta se envían al proveedor. Hace falta la aprobación de Real Plaza antes de activarlo en producción |
+| Salida a internet | Desde el contenedor `cloud` hacia la API del proveedor (Gemini: `generativelanguage.googleapis.com`; OpenAI: `api.openai.com`; Azure: `<recurso>.openai.azure.com`) |
+
+**Variables.**
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `NEXO_KB_EMBEDDER` | `off` | `gemini`, `openai`, `azure-openai`, `openai-compatible` u `off` |
+| `NEXO_KB_EMBED_API_KEY` o `NEXO_KB_EMBED_API_KEY_FILE` | — | Clave del proveedor, o un archivo con ella (secreto de Docker). También se aceptan `GEMINI_API_KEY`, `OPENAI_API_KEY` y `AZURE_OPENAI_API_KEY`. Nunca se imprime ni se guarda en la base |
+| `NEXO_KB_EMBED_MODEL` | `gemini-embedding-001` (gemini) o `text-embedding-3-small` (openai y azure) | Modelo. En Azure, es el modelo que hay detrás del despliegue |
+| `NEXO_KB_EMBED_DIMS` | 768 (gemini) o la nativa del modelo | Dimensión de los vectores. Cambiarla, o cambiar el proveedor o el modelo, crea un índice nuevo (ver abajo) |
+| `NEXO_KB_EMBED_URL` | URL pública del proveedor | Obligatoria en `azure-openai` (`https://<recurso>.openai.azure.com`) y en `openai-compatible` |
+| `NEXO_KB_EMBED_DEPLOYMENT`, `NEXO_KB_EMBED_API_VERSION` | —, `2024-10-21` | Solo en Azure: nombre del despliegue y versión de la API |
+| `NEXO_KB_EMBED_AUTH` | `api-key` (azure) o `bearer` | `api-key`, `bearer` (por ejemplo, un token de Entra ID) o `none` |
+| `NEXO_KB_EMBED_RPM`, `NEXO_KB_EMBED_TPM` | sin límite | Límites propios por minuto (llamadas y tokens estimados). Sin ellos, un 429 del proveedor se reintenta con la espera que indica |
+| `NEXO_KB_MIN_SIMILARITY`, `NEXO_KB_MIN_TEXT_SIMILARITY` | `0.70`, `0.65` | Umbral de "no existe un estándar oficial" en el modo híbrido. Están calibrados para Gemini a 768 dimensiones: con otro modelo, recalíbrelos con la evaluación |
+| `NEXO_KB_RRF_VECTOR_WEIGHT`, `NEXO_KB_RRF_TEXT_WEIGHT`, `NEXO_KB_RRF_K` | `0.7`, `0.3`, `60` | Pesos de la fusión |
+| `NEXO_KB_VECTOR_WORKER` | activo | `off` apaga el indexador en esa réplica. Con varias réplicas pueden quedar todos activos: la cola reparte el trabajo |
+
+La lista completa de variables está en `NEXO_CHANGES.md` §5.
+
+**Modelos admitidos** (la configuración se valida al arrancar; un error deja el servidor solo con
+texto y lo explica en el log).
+
+| Proveedor | Modelo | Dimensiones |
+|---|---|---|
+| `gemini` | `gemini-embedding-001` | 128 a 3072. Por defecto 768; recomendadas 768, 1536 y 3072 |
+| `gemini` | `text-embedding-004` | Hasta 768 |
+| `openai`, `azure-openai` | `text-embedding-3-small` | Hasta 1536 (por defecto 1536) |
+| `openai`, `azure-openai` | `text-embedding-3-large` | Hasta 3072 (por defecto 3072) |
+| `openai`, `azure-openai` | `text-embedding-ada-002` | Solo 1536 |
+| cualquiera | otro modelo (por ejemplo `bge-m3` en Ollama) | Hay que declarar `NEXO_KB_EMBED_DIMS`; se comprueba en cada respuesta |
+
+Hasta 2000 dimensiones se indexa con el tipo `vector`; de 2001 a 4000, con `halfvec`. Más de 4000
+no se admite.
+
+**Ejemplo con Gemini** (en el `.env`, nunca en `compose.yaml`):
+
+```
+NEXO_KB_EMBEDDER=gemini
+NEXO_KB_EMBED_API_KEY=<clave de Google AI Studio>
+```
+
+**Ejemplo con Azure OpenAI:**
+
+```
+NEXO_KB_EMBEDDER=azure-openai
+NEXO_KB_EMBED_URL=https://<recurso>.openai.azure.com
+NEXO_KB_EMBED_DEPLOYMENT=<despliegue>
+NEXO_KB_EMBED_MODEL=text-embedding-3-small
+NEXO_KB_EMBED_DIMS=1536
+NEXO_KB_EMBED_API_KEY=<clave>
+```
+
+**Qué pasa al arrancar.**
+
+1. El log dice `pgvector X disponible`.
+2. Luego dice `índice vectorial vN en construcción` e `indexador de vectores en marcha`.
+3. El indexador vectoriza todo en segundo plano. La wiki de arquitectura (unas 1 900 secciones)
+   tarda menos de un minuto con Gemini.
+4. Mientras tanto la búsqueda sigue por texto. Cuando termina, el log dice `índice vectorial vN
+   activo` y la búsqueda pasa a ser híbrida.
+5. Las publicaciones nuevas se vectorizan en segundos. Hasta entonces se encuentran por texto, y la
+   respuesta lo avisa (`index_lag`).
+
+**Cambiar de proveedor, modelo o dimensión.** Cambie las variables y reinicie. Se construye un
+índice nuevo en segundo plano mientras la búsqueda sigue con el anterior (o solo por texto, si
+cambió el proveedor). El nuevo se activa al terminar. Nunca se mezclan vectores de modelos
+distintos. El estado y la reconstrucción se ven en el manual de administración (sección 5.12).
+
+**Si el proveedor falla** (clave inválida, cuota agotada o caída), la búsqueda responde solo por
+texto con `notice: "Respuesta solo por texto: ..."`, sin error. El indexador espera y reintenta
+solo.
+
 ### 4.7 Evidencia, retención y alertas
 
 | Variable | Por defecto | Qué hace |

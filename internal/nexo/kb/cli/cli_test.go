@@ -151,9 +151,11 @@ func TestCLIPublishSearchEval(t *testing.T) {
 		t.Fatalf("eval: %d %s %s", code, out, errOut)
 	}
 	t.Log(strings.SplitN(out, "\n", 2)[0])
-	code, _, errOut = run(t, "kb", "eval", evalFile, "--retriever", "hybrid")
-	if code != 2 || !strings.Contains(errOut, "R2") {
-		t.Fatalf("hybrid aún no: %d %s", code, errOut)
+	// NX-10 R2: hybrid contra un servidor sin proveedor de embeddings responde
+	// por texto (sin error).
+	code, out, errOut = run(t, "kb", "eval", evalFile, "--retriever", "hybrid")
+	if code != 0 || !strings.Contains(out, "motor hybrid: 11 preguntas") {
+		t.Fatalf("hybrid: %d %s %s", code, out, errOut)
 	}
 	// Sin token.
 	t.Setenv("ENGRAM_CLOUD_TOKEN", "")

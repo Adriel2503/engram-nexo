@@ -40,7 +40,7 @@ Comandos:
           [--branch B] [--category C] [--owner O] [--base DIR] <rutas...>
                                           Publica archivos .md y .txt (directorios recursivos)
   search [--space S]... [--category C] [--tag T] [--at FECHA] [--known-at FECHA]
-         [--limit N] [--mode fts|exact] [--local] [--json] <consulta>
+         [--limit N] [--mode fts|exact|hybrid] [--local] [--json] <consulta>
                                           Busca en los espacios visibles (--local: solo la copia local;
                                           si el servidor no responde, también la usa, con aviso)
   get --space S [--version N] [--anchor A] [--local] [--json] <doc_key>[#ancla]
@@ -55,9 +55,11 @@ Comandos:
                                           Sube archivos sueltos (.md, .txt, .docx), una carpeta o un zip
   changes --since FECHA [--until FECHA] [--space S]... [--clock valid|recorded]
                                           Secciones agregadas, modificadas y retiradas (RC-27)
-  eval <preguntas.yaml> [--retriever pgfts|local-bm25] [--k 5] [--validated-only] [--record [--accept]] [--min-hit 0.8] [--json]
+  eval <preguntas.yaml> [--retriever pgfts|hybrid|local-bm25] [--wait-index] [--k 5] [--validated-only] [--record [--accept]] [--min-hit 0.8] [--json]
                                           Mide la búsqueda por clase (Hit@5, Recall@5, MRR, nDCG, MAP, sin respuesta)
   reindex [--status]                      Reindexa el texto (superadmin) tras cambiar NEXO_KB_R1
+  reindex --vectors [--requeue-dead [--version N]]
+                                          Reconstruye el índice vectorial (R2) o reencola fallidos
 
 Servidor y token: engram cloud config / ENGRAM_CLOUD_SERVER y ENGRAM_CLOUD_TOKEN.
 En CI (GitHub Actions) el origen sale de GITHUB_REPOSITORY, GITHUB_SHA,
@@ -480,6 +482,9 @@ type SearchResponse struct {
 	} `json:"results"`
 	NoResults bool   `json:"no_results"`
 	Message   string `json:"message"`
+	// NX-10 R2: modo efectivo y aviso (por ejemplo, respuesta solo por texto).
+	Mode   string `json:"mode"`
+	Notice string `json:"notice"`
 }
 
 // SearchQuery arma la URL de búsqueda.
@@ -509,7 +514,7 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	at := fsx.String("at", "", "vigente en esta fecha (YYYY-MM-DD)")
 	knownAt := fsx.String("known-at", "", "publicado a esta fecha (YYYY-MM-DD)")
 	limit := fsx.Int("limit", 10, "resultados (máximo 50)")
-	mode := fsx.String("mode", "", "fts (por defecto) o exact (literal o /expresión/)")
+	mode := fsx.String("mode", "", "fts, exact (literal o /expresión/) o hybrid (texto y significado; por defecto si el servidor tiene índice vectorial)")
 	server := fsx.String("server", "", "URL del servidor")
 	asJSON := fsx.Bool("json", false, "salida JSON")
 	local := fsx.Bool("local", false, "buscar con la copia local (servidor primero si no se indica; tanda 2)")
@@ -548,12 +553,18 @@ func runSearch(args []string, dataDir string, stdout io.Writer) error {
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return err
 	}
+	if res.Notice != "" {
+		fmt.Fprintln(stdout, "Aviso: "+res.Notice)
+	}
 	if res.NoResults {
 		fmt.Fprintln(stdout, res.Message)
 		return nil
 	}
 	for i, h := range res.Results {
 		fmt.Fprintf(stdout, "%d. %s\n", i+1, h.Citation)
+		if h.Match == "semantic" {
+			fmt.Fprintln(stdout, "   (por significado: no contiene los términos de la consulta)")
+		}
 		if h.Match == "some_terms" {
 			fmt.Fprintln(stdout, "   (coincidencia parcial: no contiene todos los términos)")
 		}

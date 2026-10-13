@@ -19,6 +19,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/embed"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
@@ -64,6 +65,14 @@ type Service struct {
 	upload   UploadLimits // NX-10 2b
 	r1       R1Options
 	r1Set    *R1Options
+	// NX-10 R2 (r2.go)
+	emb    embed.Embedder
+	embCfg embed.Config
+	embSet bool
+	r2     R2Options
+	r2Set  bool
+	hybrid *search.Hybrid
+	vec    *vectorState
 }
 
 // WithUploadLimits fija los límites de subida (NX-10 2b).
@@ -109,6 +118,7 @@ func New(db *sql.DB, roles *authz.Service, opts ...Option) *Service {
 	for _, o := range opts {
 		o(s)
 	}
+	s.setupR2()         // NX-10 R2: motor híbrido si hay proveedor de embeddings (r2.go)
 	if s.r1Set != nil { // NX-10 2b: opciones de R1 (r1.go)
 		s.ApplyR1(*s.r1Set)
 	} else {

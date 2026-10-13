@@ -7,6 +7,7 @@ package cloudserver
 // cloudserver (design §4).
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -61,4 +62,20 @@ func nexoWithKBPublicOrigin(r *http.Request) *http.Request {
 		return r
 	}
 	return r.WithContext(httpapi.WithForwardedOrigin(r.Context(), cc.ForwardedProto, cc.ForwardedHost))
+}
+
+// nexoStartKBVectorWorker arranca el indexador de vectores de R2 en segundo
+// plano (cola nexo_kb_index_jobs, design §20). Solo si hay proveedor de
+// embeddings configurado (NEXO_KB_EMBEDDER) y NEXO_KB_VECTOR_WORKER no es
+// off; sin pgvector, el indexador no hace nada. Lo llama
+// nexoStartActivityRetention (sin un enganche nuevo en Start()).
+func (s *CloudServer) nexoStartKBVectorWorker() {
+	if s.nexoDB() == nil {
+		return
+	}
+	svc, err := s.nexoKBService(nil)
+	if err != nil || !svc.VectorEnabled() {
+		return
+	}
+	go svc.RunVectorWorker(context.Background())
 }

@@ -14,7 +14,7 @@ package httpapi
 //	POST /eval-runs                          space.publish en los espacios medidos (RC-28)
 //	GET  /eval-runs[?set=&accepted=]         identidad con algún espacio visible
 //	GET  /admin/index                       platform.settings (estado del índice)
-//	POST /admin/index:reindex               platform.settings (reindexado seguro, RC-03)
+//	POST /admin/index:reindex               platform.settings (reindexado seguro, RC-03) y ?kind=vector (R2)
 
 import (
 	"crypto/sha256"
@@ -35,6 +35,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/source"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
 )
 
 // EnvPublicURL es la URL pública de Nexo para los enlaces permanentes de las
@@ -487,10 +488,32 @@ func (a *api) indexState(w http.ResponseWriter, r *http.Request, svc *service.Se
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
+	// NX-10 R2: estado del índice vectorial y de su cola.
+	vs, err := svc.VectorState(r.Context(), id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		store.IndexState
+		Vector service.VectorIndexState `json:"vector"`
+	}{st, vs})
 }
 
 func (a *api) reindex(w http.ResponseWriter, r *http.Request, svc *service.Service, id authz.Identity) {
+	// NX-10 R2: kind=vector reconstruye el índice vectorial en segundo plano
+	// (requeue_dead=1 vuelve a encolar las cartas muertas de version o de la
+	// versión activa).
+	if q := r.URL.Query(); q.Get("kind") == store.IndexKindVector {
+		version, _ := strconv.Atoi(q.Get("version"))
+		st, err := svc.ReindexVectors(r.Context(), id, isTrue(q.Get("requeue_dead")), version)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, st)
+		return
+	}
 	res, err := svc.Reindex(r.Context(), id)
 	if err != nil {
 		writeErr(w, err)
