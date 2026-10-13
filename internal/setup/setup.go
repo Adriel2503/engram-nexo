@@ -91,7 +91,7 @@ type Result struct {
 
 const claudeCodeMarketplace = "Adriel2503/engram-nexo" // NX-10: plugin desde el fork (trae la skill nexo-protocol); rama por defecto develop
 const codexMarketplace = "Adriel2503/engram-nexo"      // NX-10: plugin desde el fork (trae la skill nexo-protocol)
-const codexMarketplaceRef = "develop"                  // NX-10: la rama main del fork es la de Engram original
+const codexMarketplaceRef = "develop"                  // NX-10: rama de trabajo del fork (main es la estable; engram-upstream, la copia de Engram)
 const claudeCodeSlimPluginFloor = "0.1.1"
 const claudeCodePluginListTimeout = 2 * time.Second // bounds only the read-only Claude plugin capability probe
 
