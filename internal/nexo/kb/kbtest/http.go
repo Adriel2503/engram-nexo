@@ -15,6 +15,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/httpapi"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/routes"
 )
 
 // Server es el servidor de prueba.
@@ -45,7 +46,7 @@ func (e *Env) HTTPServer() *Server {
 			next(w, r.WithContext(authz.WithIdentity(r.Context(), id)))
 		}
 	}
-	httpapi.Register(mux, func(*http.Request) (*service.Service, error) { return e.KB, nil }, wrap)
+	httpapi.RegisterRoutes(new(routes.Registry).Registrar(mux), func(*http.Request) (*service.Service, error) { return e.KB, nil }, wrap)
 	mux.HandleFunc("GET /nexo/authz/v1/me", wrap(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := authz.IdentityFrom(r.Context())
 		me, err := e.Roles.Me(authz.WithRequestCache(r.Context()), id)

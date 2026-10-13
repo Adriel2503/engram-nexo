@@ -97,7 +97,7 @@ Detalle técnico en `docs/nexo/conocimiento/design.md` §14 y §17.
 
 | ID | Idea | Origen | Mejora | Etapa | Prior. | Estado |
 |---|---|---|---|---|---|---|
-| SG-01 | Respuestas sin campos internos (BOPLA), registro de rutas con su capacidad, prueba de secretos en logs, pruebas de seguridad en CI | Plan S5, OWASP API | Defensa en profundidad | S5 (pospuesta) | M | pendiente |
+| SG-01 | Respuestas sin campos internos (BOPLA), registro de rutas con su capacidad, prueba de secretos en logs, pruebas de seguridad en CI | Plan S5, OWASP API | Defensa en profundidad | S5 | M | hecho (2026-10-13, rama `feat/seguridad-s5`: registro de rutas con capacidad, respuestas y registros sin secretos, workflow `nexo-security.yml`; design §8.5 de seguridad) |
 | SG-02 | Segundo factor para superadmin vía OIDC corporativo | ASVS 8.4.2, ISO 8.5 | Administración más segura | Cuando haya OIDC | M | pendiente |
 | SG-03 | Row-Level Security de Postgres en tablas de conocimiento | OWASP DB CS | Un error de código no filtra datos | Posterior | B | pendiente |
 | SG-04 | Límite de peticiones compartido entre réplicas (proxy o almacén común) | Riesgo D-S2 | Con varias réplicas el límite se multiplica | Al escalar | B | pendiente |

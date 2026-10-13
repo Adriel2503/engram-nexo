@@ -20,7 +20,7 @@ import (
 const nexoReadyTimeout = 2 * time.Second
 
 func (s *CloudServer) registerNexoHealthRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /nexo/health/ready", s.handleNexoReady)
+	s.nexoRoute(mux, "GET", "/nexo/health/ready", "public", s.handleNexoReady)
 }
 
 // nexoReadyDB devuelve la base del almacén (nil si el almacén no es Postgres).

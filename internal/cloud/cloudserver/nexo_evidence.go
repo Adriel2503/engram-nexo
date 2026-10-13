@@ -57,11 +57,11 @@ const (
 )
 
 func (s *CloudServer) registerNexoEvidenceRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /nexo/admin/audit/verify", s.nexoAuthzRoute(s.handleNexoChainVerify))
-	mux.HandleFunc("GET /nexo/admin/alerts", s.nexoAuthzRoute(s.handleNexoAlerts))
-	mux.HandleFunc("POST /nexo/admin/alerts/{idAction}", s.nexoAuthzRoute(s.handleNexoAlertAction))
-	mux.HandleFunc("GET /nexo/admin/access-review", s.nexoAuthzRoute(s.handleNexoAccessReview))
-	mux.HandleFunc("POST /nexo/admin/access-review:complete", s.nexoAuthzRoute(s.handleNexoAccessReviewComplete))
+	s.nexoRoute(mux, "GET", "/nexo/admin/audit/verify", "platform.audit.read", s.nexoAuthzRoute(s.handleNexoChainVerify))
+	s.nexoRoute(mux, "GET", "/nexo/admin/alerts", "platform.audit.read", s.nexoAuthzRoute(s.handleNexoAlerts))
+	s.nexoRoute(mux, "POST", "/nexo/admin/alerts/{idAction}", "platform.audit.read+token.write", s.nexoAuthzRoute(s.handleNexoAlertAction))
+	s.nexoRoute(mux, "GET", "/nexo/admin/access-review", "platform.audit.read", s.nexoAuthzRoute(s.handleNexoAccessReview))
+	s.nexoRoute(mux, "POST", "/nexo/admin/access-review:complete", "platform.audit.read+token.write", s.nexoAuthzRoute(s.handleNexoAccessReviewComplete))
 }
 
 // nexoRequireAudit exige platform.audit.read (y, con write, un token write).
@@ -125,7 +125,7 @@ func (s *CloudServer) handleNexoChainVerify(w http.ResponseWriter, r *http.Reque
 	defer cancel()
 	rep, err := evidence.VerifyAll(ctx, s.nexoDB(), tables)
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo audit verify: %v", err))
+		nexoInternalError(w, "nexo audit verify", err)
 		return
 	}
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionChainVerifyRead, map[string]any{"tables": tables, "ok": rep.OK}) {
@@ -174,7 +174,7 @@ func (s *CloudServer) handleNexoAlerts(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo alerts: %v", err))
+		nexoInternalError(w, "nexo alerts", err)
 		return
 	}
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionAlertsRead, map[string]any{"filters": p.filters(), "result_count": len(items)}) {
@@ -215,7 +215,7 @@ func (s *CloudServer) handleNexoAlertAction(w http.ResponseWriter, r *http.Reque
 		writeActionableError(w, http.StatusConflict, constants.UpgradeErrorClassPolicy, "already_acknowledged", "alert already acknowledged")
 		return
 	case err != nil:
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo alert ack: %v", err))
+		nexoInternalError(w, "nexo alert ack", err)
 		return
 	}
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionAlertAck, map[string]any{"alert_id": alertID}) {
@@ -249,7 +249,7 @@ func (s *CloudServer) handleNexoAccessReview(w http.ResponseWriter, r *http.Requ
 	}
 	rep, err := evidence.BuildAccessReview(r.Context(), s.nexoDB(), days, time.Now())
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo access review: %v", err))
+		nexoInternalError(w, "nexo access review", err)
 		return
 	}
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionAccessReview, map[string]any{"inactive_days": days, "people": rep.Summary.People}) {
@@ -279,14 +279,14 @@ func (s *CloudServer) handleNexoAccessReviewComplete(w http.ResponseWriter, r *h
 	}
 	rep, err := evidence.BuildAccessReview(r.Context(), s.nexoDB(), body.InactiveDays, time.Now())
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo access review: %v", err))
+		nexoInternalError(w, "nexo access review", err)
 		return
 	}
 	rec, err := evidence.CompleteReview(r.Context(), s.nexoDB(), rep, evidence.Reviewer{
 		PrincipalID: id.PrincipalID, TokenID: id.TokenID, Label: id.Label, ClientIP: id.ClientIP, UserAgent: id.UserAgent,
 	}, body.Notes)
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo access review: %v", err))
+		nexoInternalError(w, "nexo access review", err)
 		return
 	}
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionReviewComplete, map[string]any{"review_id": rec.ID, "report_sha256": rec.ReportSHA256}) {

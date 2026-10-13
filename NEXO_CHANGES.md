@@ -207,6 +207,28 @@ Lo que **no** cambia:
 
 **Archivos Nexo modificados.** `internal/nexo/security/lockout.go` (A1), `tokens.go` (huella en el contenedor del contexto), `dbaccounts.go` (`nexo_audit_chain_checkpoints` en `EvidenceTables`, `OwnerManagedTables`, `DefinerFunctions`), `internal/nexo/authz/migrate.go` y `internal/nexo/kb/store/migrate.go` (los triggers de solo inserción de `nexo_authz_events` y `nexo_kb_events` admiten el `DELETE` de la depuración segura), `internal/nexo/authz/events.go` (acción `principal.disabled_inactive`), `cloudstore/nexo_migrations.go` (llama a `evidence.Migrate`), `cloudserver/nexo_security.go` (agrupador en el contexto, huella del rechazo, estado del monitor), `cloudserver/nexo_admin_routes.go` (registra las rutas de S4), `cloudserver/nexo_activity.go` (arranca el monitor). Tests ajustados: `cloudserver/nexo_security_test.go` (D-S2-8 cuenta filas y resúmenes), `cloudstore/nexo_security_test.go` (tabla de evidencia ficticia), `internal/nexo/security/lockout_test.go`, `internal/nexo/authz/pg_test.go` (`TestPGAuthorizationCostWith100kBindings` con `NEXO_AUTHZ_PERF=1`).
 
+### NX-07 · Endurecimiento de seguridad, fase S5 (respuestas y pruebas)
+
+**Especificación.** `docs/nexo/seguridad/` (`requirements.md` RS-40..RS-43, CA-S13, CA-S14, `design.md` §6 con desviaciones en §8.5, `tasks.md` S5-01..S5-04). Backlog SG-01.
+
+**Motivo.** Nada impedía que una ruta Nexo nueva saliera sin capacidad declarada, que una ruta nueva de Engram entrara sin revisión al integrar una versión, que un campo nuevo de una estructura saliera en una respuesta o que un token terminara en un log; y las pruebas de autorización no corrían como puerta en CI.
+
+**Qué hace.**
+- **Respuestas** (S5-01): revisión estática de los tipos de respuesta de `/admin/*`, `/nexo/*` y `/nexo/kb/v1` (etiqueta `json` explícita, sin nombres de secreto ni tipos de `database/sql`), contrato de campos de `/admin/*` de Engram y revisión de todas las respuestas reales de una corrida en el proceso. Corrige: los 500 de las rutas Nexo ya no devuelven el detalle del error (SQL, tablas; queda en el log) y `source_blob_ref` deja de salir en la API de conocimiento.
+- **Registro de rutas** (S5-02): `internal/nexo/routes` y `s.nexoRoute(mux, método, ruta, capacidad, handler)`; todas las rutas `/nexo/*` y `/dashboard/kb*` declaran su capacidad (validada al registrar). `TestNexoRouteRegistryCoversMux` recorre el mux y falla con una ruta Nexo fuera del registro o una ruta de Engram fuera de `cloudserver/testdata/nexo_engram_routes.txt`.
+- **Secretos en registros** (S5-03): corrida en el proceso (panel, emisión de tokens, sync, conocimiento, tokens inválidos, revocados y compartido, monitor) que revisa logs (`log`, `log/slog`), todas las filas del esquema, el webhook y las exportaciones.
+- **CI** (S5-04): `.github/workflows/nexo-security.yml` con Postgres de servicio (`pgvector/pgvector:pg16`) corre las pruebas de autorización y seguridad como puerta (solo en `Adriel2503/engram-nexo`).
+
+**Archivos nuevos.**
+- `internal/nexo/routes/routes.go` — `Registry`, `Validate`, `Func`, marcadores `public`, `identity`, `token.write`.
+- `internal/cloud/cloudserver/nexo_routes.go` — `nexoRoute` y cómo agregar una ruta.
+- `internal/cloud/cloudserver/nexo_responses.go` — `nexoInternalError` (500 sin detalle).
+- `internal/cloud/cloudserver/testdata/nexo_engram_routes.txt` — rutas de Engram revisadas.
+- `.github/workflows/nexo-security.yml`.
+- Tests: `internal/nexo/routes/routes_test.go`, `cloudserver/nexo_response_fields_test.go`, `nexo_leakscan_test.go`, `nexo_flow_test.go`, `nexo_routes_test.go`, `nexo_secrets_test.go`.
+
+**Archivos Nexo modificados.** `cloudserver/nexo_admin_routes.go`, `nexo_authz_routes.go`, `nexo_tokens.go`, `nexo_evidence.go`, `nexo_health.go`, `nexo_kb_dashboard.go` (rutas con `nexoRoute` y 500 sin detalle), `nexo_kb_bridge.go` (`httpapi.RegisterRoutes`), `nexo_security.go` (campo `routes` en `nexoState`), `nexo_authz_bridge.go` (500 sin detalle), `internal/nexo/kb/httpapi/httpapi.go` y `routes2b.go` (capacidad por ruta; `Register` pasa a `RegisterRoutes`), `internal/nexo/kb/domain/domain.go` (`source_blob_ref` fuera de la API), `internal/nexo/kb/kbtest/http.go` y `kb/cli/cli_test.go` (registrador de prueba). Sin cambios en archivos de Engram.
+
 ### NX-10 · Espacios de conocimiento, entrega 2b tanda 1 (subida, formatos, gobierno, R0 y R1)
 
 **Especificación.** `docs/nexo/conocimiento/` (`design.md` §17 y desviaciones D-K2b-1..D-K2b-21 en §18, `tasks.md`, `requirements.md` ajustado por las decisiones del 2026-10-13). Requisitos de producto: `nexo_ia/01-requisitos/Nexo_IA_Requisitos_e_Historias.md` (HU-29, HU-30, HU-33, HU-35..HU-39, RN-14, RN-15).
@@ -402,7 +424,9 @@ Otros archivos originales modificados sin código: `.gitignore` (bloque «Nexo: 
 
 NX-10 R2 no agrega líneas en archivos de Engram: el indexador arranca desde `nexo_activity.go` (archivo propio, llamado por la línea NX-02 de `Start()`) y el resto vive en `internal/nexo/kb/` y en los archivos `nexo_kb_*` de `cloudserver`.
 
-Archivos nuevos fuera de `internal/`: `plugin/claude-code/skills/nexo-protocol/SKILL.md` y `plugin/codex/skills/nexo-protocol/SKILL.md` (NX-10, copias generadas de `internal/nexo/setup/SKILL.md`), `deploy/nexo/Dockerfile`, `deploy/nexo/Dockerfile.dockerignore`, `deploy/nexo/postgres-init/01-cuentas.sh`, `deploy/nexo/compose.example.yaml`, `deploy/nexo/Caddyfile.example`, `deploy/nexo/.gitattributes` (NX-07), `docs/nexo/**`, este archivo.
+NX-07 S5 no agrega líneas en archivos de Engram: las rutas Nexo se registran con `nexoRoute` dentro de los `register*` de archivos Nexo (llamados por las líneas NX-03 y NX-10 de `routes()`), y las rutas de Engram quedan en la lista revisada `internal/cloud/cloudserver/testdata/nexo_engram_routes.txt` (al integrar una versión nueva de Engram, `TestNexoRouteRegistryCoversMux` señala cada ruta nueva para revisarla).
+
+Archivos nuevos fuera de `internal/`: `.github/workflows/nexo-security.yml` (NX-07 S5), `plugin/claude-code/skills/nexo-protocol/SKILL.md` y `plugin/codex/skills/nexo-protocol/SKILL.md` (NX-10, copias generadas de `internal/nexo/setup/SKILL.md`), `deploy/nexo/Dockerfile`, `deploy/nexo/Dockerfile.dockerignore`, `deploy/nexo/postgres-init/01-cuentas.sh`, `deploy/nexo/compose.example.yaml`, `deploy/nexo/Caddyfile.example`, `deploy/nexo/.gitattributes` (NX-07), `docs/nexo/**`, este archivo.
 
 ## 5. Variables de entorno nuevas
 
@@ -544,6 +568,9 @@ $env:CLOUDSTORE_TEST_DSN = '<DSN de un Postgres de pruebas>'   # p. ej. un postg
 go build ./... ; go vet ./internal/cloud/... ./internal/nexo/...
 go test -count=1 ./internal/cloud/... ./internal/nexo/...
 go test -count=1 -run TestCloudRuntime ./cmd/engram/
+# NX-07 S5: la puerta de seguridad de CI (.github/workflows/nexo-security.yml), en local
+go test -count=1 -p 1 ./internal/nexo/authz/... ./internal/nexo/security/... ./internal/nexo/routes/...
+go test -count=1 -p 1 -run TestNexo ./internal/cloud/cloudserver/ ./internal/cloud/cloudstore/
 $env:NEXO_KB_PERF_SECTIONS = "200000"; go test -count=1 -v -timeout 40m -run TestPerfSearch ./internal/nexo/kb/service/   # RNF-K1 (NX-10)
 go test -run '^$' -bench NexoOverhead -benchtime 200x ./internal/cloud/cloudserver/   # RNF-03
 git grep -n "// NX-" -- ':!docs' ':!internal/nexo'

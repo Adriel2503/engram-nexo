@@ -73,12 +73,12 @@ func newNexoPage[T any](items []T, next string, limit int) nexoPage[T] {
 // registerNexoAdminRoutes registra las rutas de NX-03. Se llama una vez desde
 // routes() (// NX-03).
 func (s *CloudServer) registerNexoAdminRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /nexo/admin/audit", s.withAuth(s.handleNexoAdminAudit))
-	mux.HandleFunc("GET /nexo/admin/activity", s.withAuth(s.handleNexoAdminActivity))
-	mux.HandleFunc("GET /nexo/admin/presence", s.withAuth(s.handleNexoAdminPresence))
-	mux.HandleFunc("GET /nexo/admin/history/{entityKey}", s.withAuth(s.handleNexoAdminHistory))
+	s.nexoRoute(mux, "GET", "/nexo/admin/audit", "platform.audit.read", s.withAuth(s.handleNexoAdminAudit))
+	s.nexoRoute(mux, "GET", "/nexo/admin/activity", "platform.audit.read", s.withAuth(s.handleNexoAdminActivity))
+	s.nexoRoute(mux, "GET", "/nexo/admin/presence", "platform.audit.read", s.withAuth(s.handleNexoAdminPresence))
+	s.nexoRoute(mux, "GET", "/nexo/admin/history/{entityKey}", "platform.audit.read", s.withAuth(s.handleNexoAdminHistory))
 	// NX-05: eventos de roles (también en /nexo/authz/v1/events) y API de roles.
-	mux.HandleFunc("GET /nexo/admin/authz-events", s.withAuth(s.handleNexoAuthzEvents))
+	s.nexoRoute(mux, "GET", "/nexo/admin/authz-events", "platform.audit.read", s.withAuth(s.handleNexoAuthzEvents))
 	s.registerNexoAuthzRoutes(mux)
 	s.registerNexoEvidenceRoutes(mux) // NX-07 S4: verificación de la cadena, alertas y revisión de accesos
 	s.registerNexoHealthRoutes(mux)   // NX-10: /nexo/health/ready (disponibilidad con la base; sin autenticación)
@@ -255,7 +255,7 @@ func nexoWriteQueryError(w http.ResponseWriter, err error) bool {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, "invalid cursor")
 		return true
 	}
-	writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("nexo query: %v", err))
+	nexoInternalError(w, "nexo query", err)
 	return true
 }
 

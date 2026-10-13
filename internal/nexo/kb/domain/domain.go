@@ -205,7 +205,7 @@ type Version struct {
 	SourceMIME      string     `json:"source_mime,omitempty"`
 	SourceSHA256    string     `json:"source_sha256,omitempty"`
 	SourceSizeBytes int64      `json:"source_size_bytes"`
-	SourceBlobRef   string     `json:"source_blob_ref,omitempty"`
+	SourceBlobRef   string     `json:"-"` // NX-07 S5: referencia interna de almacenamiento, no sale en la API
 	Origin          Origin     `json:"origin"`
 	ChangeNote      string     `json:"change_note,omitempty"`
 	ValidFrom       time.Time  `json:"valid_from"`

@@ -1,0 +1,69 @@
+name: Nexo Security
+
+# Nexo IA · NX-07 fase S5 (S5-04, RS-42): las pruebas de autorización (matriz
+# de roles, BOLA, BFLA) y de seguridad corren como puerta contra un Postgres
+# real (imagen pgvector/pgvector:pg16, solo Postgres oficial + pgvector).
+# Incluye el registro de rutas con capacidad (CA-S14), las respuestas y los
+# registros sin secretos (CA-S13), límites, bloqueo, tokens y evidencia.
+# Solo corre en el fork (como los demás workflows Nexo).
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexo-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nexo-security:
+    name: Nexo Security Gate
+    if: github.repository == 'Adriel2503/engram-nexo' # NX-07
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          # Contenedor desechable del job, solo accesible desde el runner.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: engram_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CLOUDSTORE_TEST_DSN: postgres://postgres@127.0.0.1:5432/engram_test?sslmode=disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.10"
+
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./internal/nexo/... ./internal/cloud/...
+
+      - name: Authorization and security packages
+        run: go test -count=1 -p 1 ./internal/nexo/authz/... ./internal/nexo/security/... ./internal/nexo/routes/...
+
+      - name: Server and store security tests (HTTP against Postgres)
+        run: go test -count=1 -p 1 -run 'TestNexo' ./internal/cloud/cloudserver/ ./internal/cloud/cloudstore/
+
+      - name: Knowledge spaces authorization (BOLA and BFLA)
+        run: go test -count=1 -p 1 ./internal/nexo/kb/service/ ./internal/nexo/kb/httpapi/

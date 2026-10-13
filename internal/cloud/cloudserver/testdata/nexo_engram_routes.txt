@@ -1,0 +1,94 @@
+# Nexo IA · NX-07 fase S5 (S5-02, RS-41) — rutas de Engram revisadas.
+#
+# TestNexoRouteRegistryCoversMux (nexo_routes_test.go) falla si el mux del
+# servidor tiene una ruta que no es Nexo (registro internal/nexo/routes) y no
+# está en esta lista, o si la lista nombra una ruta que ya no existe.
+#
+# Al integrar una versión nueva de Engram y aparecer una ruta nueva:
+#   1. revisar su autenticación (withAuth, sesión del panel o pública), su
+#      autorización (requireManagedAdmin / authz.Can) y si un token read debe
+#      poder usarla (D-S3-8: las rutas de Engram que no son GET/HEAD se niegan
+#      a un token read por defecto);
+#   2. revisar que su respuesta no exponga hashes, tokens ni campos internos
+#      (si es JSON, agregar su tipo a nexo_response_fields_test.go);
+#   3. agregarla aquí, en su grupo, con el formato "MÉTODO /ruta" exacto del mux.
+#
+# Revisada el 2026-10-13 sobre Engram v3.4.0 (develop 42f5f35).
+
+# Públicas (sin datos sensibles): raíz, salud, login y recursos estáticos.
+GET /{$}
+GET /health
+GET /dashboard/health
+GET /dashboard/login
+POST /dashboard/login
+POST /dashboard/logout
+GET /dashboard/static/
+
+# Bootstrap del primer administrador (solo sin administradores; Engram).
+GET /dashboard/bootstrap
+POST /dashboard/bootstrap
+
+# Sincronización (withAuth; permisos de proyecto de Engram; token read solo GET y verify, D-S3-8).
+GET /sync/pull
+GET /sync/pull/{chunkID}
+POST /sync/push
+POST /sync/session-authorities
+POST /sync/prompt-pair-claims
+POST /sync/prompt-source-attestations
+POST /sync/prompt-source-attestations/verify
+POST /sync/mutations/push
+GET /sync/mutations/pull
+
+# Administración JSON (withAuth + requireManagedAdmin, capacidad de plataforma por NX-05/NX-07).
+GET /admin/users
+POST /admin/users
+POST /admin/users/{principalID}/enable
+POST /admin/users/{principalID}/disable
+GET /admin/users/{principalID}/tokens
+POST /admin/users/{principalID}/tokens
+POST /admin/tokens/{tokenID}/revoke
+GET /admin/users/{principalID}/grants
+POST /admin/users/{principalID}/grants
+POST /admin/users/{principalID}/grants/{project}/revoke
+
+# Panel (sesión del panel revalidada en cada petición; alcance del token, D-S3-9).
+GET /dashboard
+GET /dashboard/
+GET /dashboard/stats
+GET /dashboard/activity
+GET /dashboard/browser
+GET /dashboard/browser/observations
+GET /dashboard/browser/sessions
+GET /dashboard/browser/sessions/{sessionID}
+GET /dashboard/browser/prompts
+GET /dashboard/projects
+GET /dashboard/projects/list
+GET /dashboard/projects/{project}
+GET /dashboard/projects/{name}/observations
+GET /dashboard/projects/{name}/sessions
+GET /dashboard/projects/{name}/prompts
+GET /dashboard/contributors
+GET /dashboard/contributors/list
+GET /dashboard/contributors/{contributor}
+GET /dashboard/sessions/{project}/{sessionID}
+GET /dashboard/observations/{project}/{sessionID}/{syncID}
+GET /dashboard/prompts/{project}/{sessionID}/{syncID}
+
+# Administración en el panel (sesión + rol admin; capacidad de plataforma por NX-05/NX-07).
+GET /dashboard/admin
+GET /dashboard/admin/health
+GET /dashboard/admin/projects
+GET /dashboard/admin/projects/{name}/sync/form
+POST /dashboard/admin/projects/{name}/sync
+GET /dashboard/admin/users
+GET /dashboard/admin/users/list
+GET /dashboard/admin/users/{principalID}
+POST /dashboard/admin/users
+POST /dashboard/admin/users/{principalID}/enable
+POST /dashboard/admin/users/{principalID}/disable
+POST /dashboard/admin/users/{principalID}/tokens
+POST /dashboard/admin/tokens/{tokenID}/revoke
+POST /dashboard/admin/users/{principalID}/grants
+POST /dashboard/admin/users/{principalID}/grants/{project}/revoke
+GET /dashboard/admin/audit-log
+GET /dashboard/admin/audit-log/list

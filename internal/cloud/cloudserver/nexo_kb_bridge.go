@@ -42,7 +42,7 @@ func (s *CloudServer) nexoKBService(_ *http.Request) (*kbservice.Service, error)
 
 // registerNexoKBRoutes registra /nexo/kb/v1 (enganche // NX-10 en routes()).
 func (s *CloudServer) registerNexoKBRoutes(mux *http.ServeMux) {
-	httpapi.Register(mux, s.nexoKBService, func(next http.HandlerFunc) http.HandlerFunc {
+	httpapi.RegisterRoutes(s.nexo.routes.Registrar(mux), s.nexoKBService, func(next http.HandlerFunc) http.HandlerFunc {
 		return s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 			r, _ = nexoWithAuthzIdentity(r)
 			r = nexoWithKBPublicOrigin(r)

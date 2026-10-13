@@ -42,19 +42,19 @@ import (
 // citas (RC-08). Sin ella se usa el host de la petición.
 const EnvPublicURL = "NEXO_KB_PUBLIC_URL"
 
-func (a *api) register2b(h func(string, handler)) {
-	h("POST "+Prefix+"/spaces/{slug}/uploads", a.upload)
-	h("GET "+Prefix+"/spaces/{slug}/publish-runs", a.publishRuns)
-	h("POST "+Prefix+"/spaces/{slug}/proposals", a.createProposal)
-	h("GET "+Prefix+"/proposals", a.listProposals)
-	h("GET "+Prefix+"/proposals/{id}", a.getProposal)
-	h("POST "+Prefix+"/proposals/{idAction}", a.proposalAction)
-	h("GET "+Prefix+"/changes", a.changes)
-	h("GET "+Prefix+"/sync", a.sync)
-	h("POST "+Prefix+"/eval-runs", a.recordEvalRun)
-	h("GET "+Prefix+"/eval-runs", a.listEvalRuns)
-	h("GET "+Prefix+"/admin/index", a.indexState)
-	h("POST "+Prefix+"/admin/index:reindex", a.reindex)
+func (a *api) register2b(h func(method, path, capability string, fn handler)) {
+	h("POST", "/spaces/{slug}/uploads", "space.publish", a.upload)
+	h("GET", "/spaces/{slug}/publish-runs", "space.audit.read|platform.audit.read", a.publishRuns)
+	h("POST", "/spaces/{slug}/proposals", "space.propose", a.createProposal)
+	h("GET", "/proposals", "identity|space.review", a.listProposals)
+	h("GET", "/proposals/{id}", "identity|space.review", a.getProposal)
+	h("POST", "/proposals/{idAction}", "space.review|identity", a.proposalAction)
+	h("GET", "/changes", "space.read", a.changes)
+	h("GET", "/sync", "identity", a.sync)
+	h("POST", "/eval-runs", "space.publish", a.recordEvalRun)
+	h("GET", "/eval-runs", "identity", a.listEvalRuns)
+	h("GET", "/admin/index", "platform.settings", a.indexState)
+	h("POST", "/admin/index:reindex", "platform.settings", a.reindex)
 }
 
 // BaseURL devuelve la URL pública para los enlaces: NEXO_KB_PUBLIC_URL si

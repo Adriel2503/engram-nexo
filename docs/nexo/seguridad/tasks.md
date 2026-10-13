@@ -83,6 +83,14 @@ con `NEXO_AUTHZ_PERF=1`.
 | S5-03 | Prueba de secretos en logs y eventos | CA-S13 |
 | S5-04 | Workflow de CI de seguridad | RS-42 |
 
+Estado S5 (2026-10-13): S5-01..S5-04 implementadas en `feat/seguridad-s5` (sobre `develop` 42f5f35),
+un commit por tarea, pendientes de revisión y fusión. Desviaciones en `design.md` §8.5 (D-S5-1..D-S5-10).
+Hallazgos corregidos: los 500 de las rutas Nexo devolvían el detalle del error (SQL) y la API de
+conocimiento exponía `source_blob_ref`; no se encontraron tokens, hashes ni cabeceras `Authorization`
+en respuestas, logs, filas, webhook ni exportaciones. Pruebas: `internal/nexo/routes/routes_test.go`,
+`cloudserver/nexo_response_fields_test.go`, `nexo_routes_test.go`, `nexo_secrets_test.go` (con
+`nexo_flow_test.go` y `nexo_leakscan_test.go`); puerta de CI `.github/workflows/nexo-security.yml`.
+
 ## Cierre
 
 | ID | Tarea |

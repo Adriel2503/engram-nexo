@@ -155,8 +155,8 @@ type nexoIssueTokenBody struct {
 }
 
 func (s *CloudServer) registerNexoTokenRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET "+nexoAuthzPrefix+"/tokens", s.nexoAuthzRoute(s.handleNexoAuthzListTokens))
-	mux.HandleFunc("POST "+nexoAuthzPrefix+"/tokens", s.nexoAuthzRoute(s.handleNexoAuthzIssueToken))
+	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/tokens", "self.read|platform.tokens.manage", s.nexoAuthzRoute(s.handleNexoAuthzListTokens))
+	s.nexoRoute(mux, "POST", nexoAuthzPrefix+"/tokens", "platform.tokens.manage", s.nexoAuthzRoute(s.handleNexoAuthzIssueToken))
 }
 
 func (s *CloudServer) handleNexoAuthzListTokens(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity) {
@@ -242,12 +242,12 @@ func (s *CloudServer) handleNexoAuthzIssueToken(w http.ResponseWriter, r *http.R
 	actor, _ := PrincipalFromContext(r.Context())
 	managedToken, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("generate token: %v", err))
+		nexoInternalError(w, "generate token", err)
 		return
 	}
 	tokenHash, err := s.managedHasher.Hash(managedToken.Raw)
 	if err != nil {
-		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("hash token: %v", err))
+		nexoInternalError(w, "hash token", err)
 		return
 	}
 	name := strings.TrimSpace(body.Name)
