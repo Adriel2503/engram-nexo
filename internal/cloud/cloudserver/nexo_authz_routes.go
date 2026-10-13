@@ -20,6 +20,7 @@ package cloudserver
 //	GET    /nexo/authz/v1/tokens[?principal=]                       self.read o platform.tokens.manage (NX-07)
 //	POST   /nexo/authz/v1/tokens  {principal,name,expires_in_days,scope}
 //	                                                                platform.tokens.manage (NX-07)
+//	/nexo/authz/v1/service-accounts[...]                            SG-10, ver nexo_service_accounts.go
 //
 // Errores como NX-03 ({error_class, error_code, error}): 401 sin token
 // válido, 403 sin capacidad (y evento authz.denied), 404 ámbito no visible o
@@ -55,6 +56,7 @@ func (s *CloudServer) registerNexoAuthzRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE "+nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", s.nexoAuthzRoute(s.handleNexoAuthzDeleteScopeMember))
 	mux.HandleFunc("GET "+nexoAuthzPrefix+"/events", s.withAuth(s.handleNexoAuthzEvents))
 	s.registerNexoTokenRoutes(mux) // NX-07 (S3-03): emisión y listado de tokens con caducidad y alcance
+	s.registerNexoServiceAccountRoutes(mux) // SG-10: cuentas de servicio (nexo_service_accounts.go)
 }
 
 type nexoAuthzHandler func(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity)
