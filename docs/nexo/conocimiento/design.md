@@ -601,4 +601,67 @@ visibles; se acota con el tope de candidatos, a costa de rankear un subconjunto 
 no discriminan). Si la medición con datos reales lo exige, el paso siguiente es una extensión de
 índice con ranking (RUM o BM25, §14.7) detrás del mismo `Retriever`.
 
+## 17. Estrategia de recuperación (frente propio)
+
+Decisión (2026-10-12): la calidad de la recuperación es el valor principal del conocimiento para los
+desarrolladores y se trata como un frente propio, al mismo nivel que el gobierno y la seguridad. Se
+complementa §14 (arquitectura de indexación) con la estrategia completa. Insumos: comparación con
+Onyx y Utopia en `nexo_ia/05-investigacion/analisis/Onyx_vs_Utopia_conocimiento.md`.
+
+### 17.1 Etapas del pipeline de recuperación
+
+| Etapa | Hoy (2a) | Objetivo |
+|---|---|---|
+| Corte del contenido | Secciones por títulos, tablas y código sin partir | Tablas y hojas grandes partidas por filas repitiendo la cabecera (de Utopia); título del documento y ruta de títulos antepuestos al texto indexado de cada fragmento (contexto); hash por sección para no recalcular índices de lo que no cambió |
+| Comprensión de la consulta | Raíces en español, plegado de tildes, segunda pasada con cualquier término | Expansión con sinónimos y siglas del glosario del espacio (documentos de categoría `glosario`); términos técnicos español/inglés; varias formulaciones enviadas por el asistente y fusionadas |
+| Candidatos | Texto (FTS) | Texto + vectores (pgvector, filtro por espacio compatible con HNSW) fusionados por RRF |
+| Orden | `ts_rank` y `ts_rank_cd` en dos etapas | Reordenamiento con un modelo multilingüe sobre los 50 mejores |
+| Resultado | Lista de secciones con cita | Máximo de secciones por documento (diversidad); secciones vecinas como contexto opcional; umbral de relevancia para responder "no hay estándar oficial" (HU-06), indispensable al agregar vectores; enlace permanente a la fuente en cada cita |
+| Medición | 11 preguntas sintéticas | 50 o más preguntas reales por espacio, incluidas preguntas sin respuesta; Recall@5, MRR, nDCG y acierto de "no hay respuesta"; prueba de regresión en CI; señal "útil / no útil" por sección que alimenta el conjunto de evaluación (no el ranking) |
+
+### 17.2 Modelos
+
+Para el volumen previsto (miles a cientos de miles de secciones) se usan modelos abiertos
+multilingües ejecutados en el servidor de Nexo, sin GPU obligatoria, de modo que los documentos no
+salen de la empresa: embeddings tipo bge-m3 o multilingual-e5 y reordenamiento tipo bge-reranker-v2-m3,
+servidos aparte (por ejemplo, un servicio de inferencia en el mismo despliegue) y registrados en
+`nexo_kb_index_versions`. Una API externa queda como alternativa opcional, solo con aprobación de la
+política de Real Plaza. Esto resuelve la decisión pendiente de §14.7 por defecto.
+
+### 17.3 Orden de implementación
+
+| Paso | Contenido | Condición |
+|---|---|---|
+| R0 | Conjunto de evaluación real (50+ preguntas, con preguntas sin respuesta) y prueba de calidad en CI | Con los primeros lineamientos reales; requiere que los devs escriban preguntas |
+| R1 | Sin modelos: tablas por filas, contexto del documento en el texto indexado, hash por sección, sinónimos del glosario, diversidad por documento, secciones vecinas, umbral "no hay estándar", enlace permanente | Entrega 2b |
+| R2 | Híbrido: pgvector, modelo de embeddings local, RRF | Si R0 muestra fallos en paráfrasis o sinónimos tras R1 |
+| R3 | Reordenamiento local sobre los 50 mejores | Si R2 mejora candidatos pero no el orden |
+| R4 | Varias formulaciones desde el asistente (herramienta MCP acepta varias consultas) | Con la entrega 3 |
+| R5 | Grafo temporal derivado | Solo si quedan preguntas de varios saltos sin resolver |
+
+Cada paso se acepta solo si mejora la medición de R0 sin empeorar el acierto de "no hay respuesta".
+
+### 17.4 Ideas de Onyx y Utopia y vacíos detectados
+
+Se incorporan:
+
+- Entrega 2b: enlace permanente a la fuente en cada cita; evaluación con preguntas sin respuesta;
+  columna de hash por sección; tope de seguridad en la poda (no retirar más de un porcentaje del
+  espacio por ejecución salvo confirmación explícita); registro de ejecuciones de publicación
+  (`nexo_kb_publish_runs`: quién, origen, conteos, errores) para observar cada corrida del CI.
+- Etapa de formatos (K2): tablas y hojas por filas con cabecera repetida; conversores pesados fuera
+  del proceso del servidor.
+- Etapa PDF (K3): detección de PDF escaneado por ausencia de operadores de texto.
+- Híbrido (R2/R3): umbral de relevancia; filtro por espacio compatible con HNSW; ciclo de vida del
+  índice con cambio atómico de versión.
+
+No se copian: la infraestructura de Onyx (OpenSearch, servidores de modelos, colas), la
+sincronización de permisos desde la fuente, los conectores masivos, el decaimiento por antigüedad (un
+estándar antiguo vigente sigue valiendo), que la señal de los usuarios mueva el ranking, ni la
+extracción de hechos con LLM en la ingesta.
+
+Vacío pendiente de decisión: la etapa K3 preveía adjuntos descargables, pero D-K11 no guarda
+originales. Opciones: ofrecer adjuntos solo cuando se active `BlobStore`, o guardar únicamente
+diagramas e imágenes pequeñas.
+
 
