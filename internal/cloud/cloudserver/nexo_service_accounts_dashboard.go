@@ -264,7 +264,33 @@ func saPanelRow(a authz.ServiceAccount) dashboard.NexoSARow {
 	if owner == "" {
 		owner = a.OwnerID
 	}
-	return dashboard.NexoSARow{Slug: a.Slug, ID: a.PrincipalID, Description: a.Description, Owner: owner, Enabled: a.Enabled, Roles: strings.Join(roles, ", ")}
+	return dashboard.NexoSARow{Slug: a.Slug, ID: a.PrincipalID, Description: a.Description, Owner: owner, Enabled: a.Enabled, Roles: strings.Join(roles, ", "),
+		Usage: saPanelUsage(a), Stale: a.Stale}
+}
+
+// saPanelUsage es el último uso de la cuenta en texto.
+func saPanelUsage(a authz.ServiceAccount) string {
+	switch {
+	case a.LastActivityAt == nil:
+		return "nunca usada (creada hace " + saPanelDays(a.IdleDays) + ")"
+	case a.IdleDays == 0:
+		return "en las últimas 24 horas"
+	}
+	return "sin uso desde hace " + saPanelDays(a.IdleDays)
+}
+
+func saPanelDays(n int) string {
+	if n == 1 {
+		return "1 día"
+	}
+	return strconv.Itoa(n) + " días"
+}
+
+// saPanelStaleNote explica la marca "Sin uso" en el detalle.
+func saPanelStaleNote(a authz.ServiceAccount, owner string) string {
+	return "Sin uso desde hace " + saPanelDays(a.IdleDays) + " (el aviso empieza a los " + saPanelDays(a.StaleAfterDays) +
+		", NEXO_SA_STALE_DAYS). Una cuenta de servicio no se deshabilita sola: confirme con " + owner +
+		" si sigue en uso; si no, revoque sus tokens o deshabilítela."
 }
 
 // saPanelRender arma la página: listado, detalle de la cuenta elegida y
@@ -297,6 +323,9 @@ func (s *CloudServer) saPanelRender(w http.ResponseWriter, r *http.Request, svc 
 	if ref := strings.TrimSpace(st.selected); ref != "" {
 		if a, err := svc.LookupServiceAccount(ctx, ref); err == nil {
 			d := dashboard.NexoSADetail{NexoSARow: saPanelRow(a), CreatedBy: a.CreatedByName, CreatedAt: a.CreatedAt.UTC().Format("2006-01-02")}
+			if d.Stale {
+				d.StaleNote = saPanelStaleNote(a, d.Owner)
+			}
 			if d.CreatedBy == "" {
 				d.CreatedBy = "-"
 			}

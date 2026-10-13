@@ -28,6 +28,12 @@ type NexoSARow struct {
 	Owner       string
 	Enabled     bool
 	Roles       string
+	// Usage es el último uso en texto ("usada hoy", "sin uso desde hace 200
+	// días", "nunca usada (creada hace 10 días)").
+	Usage string
+	// Stale: sin uso en NEXO_SA_STALE_DAYS días (solo aviso; no se
+	// deshabilita).
+	Stale bool
 }
 
 // NexoSADetail es la cuenta elegida con sus tokens.
@@ -35,6 +41,8 @@ type NexoSADetail struct {
 	NexoSARow
 	CreatedBy string
 	CreatedAt string
+	// StaleNote explica la marca "Sin uso" (solo si Stale).
+	StaleNote string
 	Tokens    []NexoSATokenRow
 }
 
