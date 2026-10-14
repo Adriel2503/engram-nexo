@@ -97,6 +97,10 @@ Reglas que conviene recordar:
   `platform.settings` solo funcionan desde esas redes (fuera de ellas: 403 con motivo `network`).
 - Siempre queda al menos un superadmin habilitado: el último no se puede degradar ni deshabilitar
   (`409 last_superadmin`).
+- **Mantenga dos superadmins.** Con uno solo, si pierde su token o su cuenta nadie puede gestionar admins
+  ni la configuración. El servidor deja la alerta alta `single_superadmin` (y la marca `single_superadmin`
+  en la revisión de accesos) mientras quede uno solo. Se crea el segundo en Administración > Usuarios con el
+  rol Superadmin (o por API); ver `servidor-produccion.md`, 7.3.
 - Nadie se asigna a sí mismo un rol mayor al que tiene (`403 self_promotion`).
 
 ### 2.1.1 Un solo rol de plataforma: el de Nexo
@@ -297,6 +301,15 @@ Un token vencido recibe `401 unauthorized: token_expired: ...` y genera la alert
 2. Emita un token nuevo con el mismo nombre de máquina.
 3. La persona lo instala (`engram nexo connect --server https://<dominio> --token-stdin`).
 4. Revoque el token anterior cuando el nuevo aparezca con `last_used_at`.
+
+**Tokens de superadmin, admin y auditor.** Son los que no pueden perderse: si vencen todos los de los
+superadmins, nadie puede emitir tokens por la API. Para ellos el servidor deja la alerta
+`privileged_token_expiring` a los 30 días (advertencia) y a los 7 días (alta), una por token y por aviso. El
+procedimiento sin corte (emitir el nuevo, probarlo y revocar el viejo con el nuevo) está en
+`servidor-produccion.md`, 7.4. Un superadmin puede emitirse su propio token con el vigente; un admin o un
+auditor necesita que un superadmin se lo emita. **Los dos superadmins no renuevan el mismo día.** Si ningún
+superadmin conserva un token vigente, quien opera el servidor usa el acceso de emergencia (7.5 del mismo
+manual).
 
 ### 3.7 Deshabilitar y habilitar personas
 
@@ -1138,13 +1151,22 @@ curl -fsS -X POST -H "$H" -H "Content-Type: application/json" -d '{"note":"revis
 
 Reconocer una alerta exige un token `write` (también para el auditor) y solo se puede hacer una vez.
 
+Alertas de continuidad del acceso de administración (plataforma):
+
+| Regla | Cuándo | Severidad | Qué hacer |
+|---|---|---|---|
+| `single_superadmin` | Queda un solo superadmin habilitado (se repite cada semana) | alta | Crear el segundo superadmin (`servidor-produccion.md`, 7.3) |
+| `privileged_token_expiring` | Un token activo de un superadmin, admin o auditor habilitado vence en 30 o en 7 días | advertencia a 30, alta a 7 | Renovarlo sin corte (7.4); no renovar los dos superadmins el mismo día |
+| `emergency_access_used` | Se emitió un token de emergencia con `engram cloud bootstrap emergency-token` | alta | Revisar quién y por qué (auditoría `nexo.emergency_token`), revocar el token de emergencia y reconocer la alerta con una nota (7.5) |
+
 ### 9.3 Revisión de accesos
 
 La revisión muestra, por persona: rol de plataforma (con fecha y quién lo asignó), roles en
 proyectos y espacios, permisos de proyecto, tokens (caducidad, alcance, último uso), días sin
-actividad y marcas `inactive`, `token_no_expiry` y `token_never_used`. El resumen incluye personas
-habilitadas, inactivas, tokens activos, tokens sin caducidad, tokens nunca usados y tokens que vencen
-en 30 días.
+actividad y marcas `inactive`, `token_no_expiry`, `token_never_used`, `single_superadmin` y
+`token_expiring`. El resumen incluye personas habilitadas, inactivas, superadmins habilitados
+(`superadmins_enabled`), tokens activos, tokens sin caducidad, tokens nunca usados, tokens que vencen
+en 30 días y, de ellos, los de superadmins, admins y auditores (`privileged_tokens_expiring`).
 
 ```sh
 # Generar el reporte (umbral de inactividad: 90 días por defecto; de 1 a 3650)
@@ -1166,6 +1188,8 @@ Qué hacer con lo que aparece:
 | `role_drift` | La columna de rol de Engram no coincide con el rol de plataforma de Nexo (alguien evitó los triggers de la base o se restauró una copia vieja). La columna no concede nada: corrija con `engram nexo authz reconcile-roles --apply` (2.4). También deja la alerta `platform_role_drift` |
 | `token_no_expiry` | Token anterior a esta versión: emita uno con caducidad y revoque el viejo |
 | `token_never_used` | Token entregado que nunca se usó: confirme y revoque si sobra |
+| `single_superadmin` | Es el único superadmin habilitado: cree el segundo (`servidor-produccion.md`, 7.3). También deja la alerta `single_superadmin` |
+| `token_expiring` | Un superadmin, admin o auditor tiene un token que vence en menos de 30 días (en los tokens, "Token por vencer"): renuévelo sin corte (`servidor-produccion.md`, 7.4) |
 | Rol de plataforma o responsable que ya no corresponde | Ajuste el rol (2.4, 4.3) |
 
 ### 9.4 Usuarios inactivos
@@ -1317,6 +1341,7 @@ guardar el archivo en un lugar de solo lectura o con control de cambios.
 | Semanal | Revisar rechazos de autenticación y denegaciones repetidas (PCs con tokens viejos o mal pegados) | Admin | `GET /nexo/admin/audit?outcome=denied&from=...`, `GET /nexo/authz/v1/events?action=authz.denied` |
 | Semanal | Revisar propuestas abiertas de cada espacio | Publicadores y responsables | 6 |
 | Mensual | Renovar tokens que vencen en los próximos 30 días | Admin | 3.6 y `tokens_expiring_30d` |
+| Al recibir el aviso `privileged_token_expiring` (30 días antes) | Renovar el token de cada superadmin, admin o auditor sin corte; los dos superadmins en días distintos | Superadmin | 3.6 y `servidor-produccion.md`, 7.4 |
 | Mensual | Revisar avisos de vencimiento y revisión de documentos y actualizar o retirar | Responsables | 7, 5.9 |
 | Mensual | Confirmar que la cadena de auditoría verifica y que la exportación firmada se copió fuera del host | Admin (con quien opera el servidor) | `GET /nexo/admin/audit/verify`; `servidor-produccion.md` §11.5 |
 | Trimestral | Revisión de accesos registrada, con el CSV o JSON descargado y guardado en el expediente | Admin y auditor | 9.3 (API) o 9.5 (panel, con la huella) |
@@ -1338,6 +1363,8 @@ guardar el archivo en un lugar de solo lectura o con control de cambios.
 | `409 last_superadmin` | Se intentó degradar o deshabilitar al último superadmin | Promover antes a otro superadmin |
 | `409 scope_has_owner` en `:recover` | El espacio tiene responsable habilitado | Pedirle a esa persona que asigne roles |
 | `409 principal_disabled` al emitir token | Persona deshabilitada | Habilitarla primero |
+| Nadie puede emitir tokens: todos los tokens de los superadmins vencieron o se revocaron | No se renovó a tiempo | Quien opera el servidor ejecuta `engram cloud bootstrap emergency-token --user <superadmin>` dentro del servidor (`servidor-produccion.md`, 7.5) |
+| Alerta `single_superadmin` | Queda un solo superadmin habilitado | Crear el segundo superadmin (`servidor-produccion.md`, 7.3) |
 | Documento "Rechazado" con `secret_detected` | El documento tiene una credencial | Quitarla y volver a subir |
 | Documento "Rechazado" por categoría | Falta la categoría o no es del espacio | Indicarla en la subida o en el front matter; o agregarla al espacio (4.2) |
 | La poda no retiró nada (`prune_cap`) | Se superó el tope de seguridad | Revisar con `--dry-run` y confirmar con `--confirm-prune` (5.7) |
@@ -1386,6 +1413,7 @@ guardar el archivo en un lugar de solo lectura o con control de cambios.
 | `GET /dashboard/admin/audit`, `/activity`, `/history`, `/integrity`, `/alerts`, `/access-review` (panel) | `platform.audit.read` |
 | `POST /dashboard/admin/audit/alerts/<id>/ack`, `POST /dashboard/admin/audit/access-review/complete` (panel) | `platform.audit.read` y token `write` |
 | `GET /nexo/kb/v1/admin/index`, `POST /nexo/kb/v1/admin/index:reindex` | `platform.settings` |
+| `GET /nexo/admin/database` | `platform.settings`: uso del pool de conexiones, TLS hacia la base, versión de Postgres, `max_connections` y versión de pgvector (`servidor-produccion.md`, 4.1.1) |
 
 ## Anexo B. Puntos por verificar
 

@@ -606,3 +606,31 @@ Complementa §3.3 y D-S3-9. Detalle en `docs/nexo/roles/design.md` §11.
   5.18: revisión periódica de derechos de acceso).
 - **Superficie.** El cambio de rol del panel exige CSRF y confirmación; un token `read` no cambia nada
   (guardia de alcance de la sesión, D-S3-9).
+
+### 8.7 Preparación para producción (feat/prod-tls-superadmin)
+
+Backlog SG-05, SG-06, SG-15 y OP-11. Contexto: Postgres 18 administrado por otro equipo; Nexo solo garantiza
+que funciona con Postgres estándar, pgvector y TLS genérico.
+
+- **TLS hacia la base (RS-05).** `internal/nexo/security/dbtls.go` lee el `sslmode` de las dos cadenas de
+  conexión (sin guardarlas ni imprimirlas) y decide si el TLS está verificado (`verify-full` o `verify-ca`) y
+  si la base es local (localhost, loopback o socket). Base no local sin TLS verificado: advertencia en el
+  log y en `GET /nexo/admin/database`. `NEXO_DB_REQUIRE_TLS=true`: el servidor no arranca si alguna
+  conexión no es verificada, sea cual sea el host (decisión: una opción explícita no admite excepciones).
+  Además se consulta `pg_stat_ssl` para confirmar que la conexión quedó cifrada. `sslmode=require` no cuenta
+  como verificado aunque haya `sslrootcert`: se pide `verify-ca` o `verify-full` de forma explícita.
+- **Pool.** Un solo `sql.DB` con límites (`dbpool.go`): ver el manual de producción 4.1.1. Con un máximo bajo
+  las peticiones esperan su turno, no fallan (prueba de concurrencia en `cloudserver/nexo_db_status_test.go`).
+- **Continuidad del acceso (RS-30..RS-34, alertas S4).** Reglas nuevas del evaluador: `single_superadmin`,
+  `privileged_token_expiring` (30 y 7 días) y `emergency_access_used`; marcas `single_superadmin` y
+  `token_expiring` en la revisión de accesos. No cambian el esquema: usan `nexo_alerts` y las tablas de
+  tokens y roles.
+- **Acceso de emergencia.** `engram cloud bootstrap emergency-token` (`cloudstore/nexo_emergency.go`): una
+  transacción con los candados de la emisión normal y del último superadmin; token de 24 h con escritura a un
+  superadmin habilitado, solo si ningún superadmin habilitado tiene un token vigente con escritura. Auditoría
+  `nexo.emergency_token` en la cadena de hashes y alerta alta en la misma transacción. Subcomando nuevo en lugar
+  de ampliar `recover-token` (condiciones distintas). Límite: tras rotar `ENGRAM_CLOUD_TOKEN_PEPPER` los
+  tokens figuran vigentes y el comando se niega hasta revocarlos (SG-16).
+- **Riesgo residual.** Quien tiene acceso al servidor y a las variables del servicio puede emitir el acceso de
+  emergencia: es el mismo nivel de acceso que ya tiene sobre la base. Lo que se gana es el rastro (auditoría
+  encadenada, alerta alta y webhook), no una barrera nueva.
