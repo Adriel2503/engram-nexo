@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,8 +25,9 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/client"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
-	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest/docx"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/source"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/stack/stackapi"
 )
@@ -189,6 +193,7 @@ func defaultRoleMatrix() []RoleAssignment {
 
 		// operaciones (restringido, owner: publicador)
 		{"operaciones", "publicador", "publicador"},
+		{"operaciones", "superadmin", "publicador"},
 
 		// transversal (abierto, owner: admin; lector para todos, publicador publicador, proponente proponente)
 		{"transversal", "publicador", "publicador"},
@@ -216,6 +221,13 @@ func (s *seeder) clientFor(env stackapi.Env, username string) (*client.API, erro
 // Load crea espacios, asignaciones de rol, documentos, memorias y propuestas de ejemplo.
 func (s *seeder) Load(ctx context.Context, env stackapi.Env, opts stackapi.LoadOptions) (stackapi.Report, error) {
 	var rep stackapi.Report
+	if err := ctx.Err(); err != nil {
+		return rep, err
+	}
+	if !opts.Example {
+		rep.Notes = append(rep.Notes, "sin cambios: ejemplo no solicitado")
+		return rep, nil
+	}
 
 	// Token de administración para crear espacios
 	adminUser := "superadmin"
@@ -225,6 +237,13 @@ func (s *seeder) Load(ctx context.Context, env stackapi.Env, opts stackapi.LoadO
 	adminAPI, err := s.clientFor(env, adminUser)
 	if err != nil {
 		return rep, fmt.Errorf("cliente de administración: %w", err)
+	}
+
+	// Validar las identidades que necesita el ejemplo completo antes de escribir.
+	for _, user := range []string{"admin", "publicador", "proponente", "lector"} {
+		if _, err := s.clientFor(env, user); err != nil {
+			return rep, err
+		}
 	}
 
 	// 1. Crear los 6 espacios
@@ -244,7 +263,18 @@ func (s *seeder) Load(ctx context.Context, env stackapi.Env, opts stackapi.LoadO
 		err := adminAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/spaces", in, &out)
 		if err != nil {
 			if client.IsStatus(err, http.StatusConflict) {
-				// El espacio ya existe (idempotente)
+				// No adoptar un espacio ajeno solo porque comparte el slug.
+				var existing domain.Space
+				ownerAPI, err := s.clientFor(env, sp.Owner)
+				if err != nil {
+					return rep, err
+				}
+				if err := ownerAPI.Do(ctx, http.MethodGet, spacePath(sp.Slug), nil, &existing); err != nil {
+					return rep, err
+				}
+				if existing.Name != sp.Name || existing.Description != sp.Description {
+					return rep, fmt.Errorf("el espacio %s ya existe y no pertenece a la semilla", sp.Slug)
+				}
 				if env.Logf != nil {
 					env.Logf("espacio %s ya existe (sin cambios)", sp.Slug)
 				}
@@ -272,18 +302,17 @@ func (s *seeder) Load(ctx context.Context, env stackapi.Env, opts stackapi.LoadO
 		if err != nil {
 			return rep, fmt.Errorf("cliente del responsable de %s: %w", ra.Space, err)
 		}
+		// El responsable incluye las capacidades de publicador; no se degrada (R-9).
+		if ra.Principal == ownerUser {
+			continue
+		}
 		path := fmt.Sprintf("/nexo/authz/v1/scopes/space/%s/members/%s", url.PathEscape(ra.Space), url.PathEscape(ra.Principal))
 		body := map[string]string{"role": ra.Role}
 		var change authz.BindingChange
 		err = ownerAPI.Do(ctx, http.MethodPut, path, body, &change)
-		if err != nil && !client.IsStatus(err, http.StatusOK) {
+		if err != nil {
 			return rep, fmt.Errorf("asignar rol %s en %s a %s: %w", ra.Role, ra.Space, ra.Principal, err)
 		}
-	}
-
-	// Si no se solicitaron datos de ejemplo, terminamos aquí
-	if !opts.Example {
-		return rep, nil
 	}
 
 	// 3. Cargar los 12 documentos del inventario en los espacios correspondientes
@@ -306,39 +335,48 @@ func (s *seeder) Load(ctx context.Context, env stackapi.Env, opts stackapi.LoadO
 			}
 		}
 		createdDocs, err := s.uploadSpaceDir(ctx, uploaderAPI, slug)
+		rep.Documents += createdDocs
 		if err != nil {
 			return rep, fmt.Errorf("publicar documentos en %s: %w", slug, err)
 		}
-		rep.Documents += createdDocs
 	}
 
 	// 4. Cargar las 6 memorias en el espacio transversal compatible con import-transversal
 	transMemAPI := pubAPI
 	memCreated, skippedMems, err := s.loadTransversalMemories(ctx, transMemAPI, env)
+	rep.Memories += memCreated
+	rep.Skipped = append(rep.Skipped, skippedMems...)
 	if err != nil {
 		return rep, fmt.Errorf("cargar memorias transversales: %w", err)
 	}
-	rep.Memories += memCreated
-	rep.Skipped = append(rep.Skipped, skippedMems...)
 
 	// 5. Crear 3 propuestas con el token de proponente
 	propAPI, err := s.clientFor(env, "proponente")
 	if err != nil {
 		return rep, fmt.Errorf("cliente proponente: %w", err)
 	}
-	propsCreated, err := s.createSampleProposals(ctx, propAPI, env)
+	propsCreated, err := s.createSampleProposals(ctx, propAPI)
+	rep.Proposals += propsCreated
 	if err != nil {
 		return rep, fmt.Errorf("crear propuestas de ejemplo: %w", err)
 	}
-	rep.Proposals += propsCreated
 
 	// 6. Provocar acceso denegado a propósito (el lector intenta acceder a operaciones)
 	if lectorAPI, err := s.clientFor(env, "lector"); err == nil {
 		var ignored any
-		_ = lectorAPI.Do(ctx, http.MethodGet, "/nexo/kb/v1/spaces/operaciones", nil, &ignored)
+		err := lectorAPI.Do(ctx, http.MethodGet, "/nexo/kb/v1/spaces/operaciones", nil, &ignored)
+		if !client.IsStatus(err, http.StatusNotFound) && !client.IsStatus(err, http.StatusForbidden) {
+			if err == nil {
+				return rep, errors.New("el lector tiene acceso inesperado a operaciones")
+			}
+			return rep, err
+		}
 		rep.Notes = append(rep.Notes, "acceso denegado provocado a propósito (lector intentó leer operaciones)")
 	}
 
+	if rep.Spaces == 0 && rep.Documents == 0 && rep.Memories == 0 && rep.Proposals == 0 {
+		rep.Notes = append(rep.Notes, "sin cambios")
+	}
 	return rep, nil
 }
 
@@ -355,7 +393,6 @@ func (s *seeder) uploadSpaceDir(ctx context.Context, api *client.API, slug strin
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	fileCount := 0
 
 	for _, e := range entries {
 		if e.IsDir() {
@@ -367,18 +404,22 @@ func (s *seeder) uploadSpaceDir(ctx context.Context, api *client.API, slug strin
 		if err != nil {
 			return 0, fmt.Errorf("leer archivo embebido %s: %w", filePath, err)
 		}
-		fw, err := mw.CreateFormFile("file", name)
+		uploadName := name
+		if slug == "general" && name == "glosario.txt" {
+			uploadName = "glosario-texto.txt"
+		}
+		fw, err := mw.CreateFormFile("file", uploadName)
 		if err != nil {
 			return 0, err
 		}
 		if _, err := fw.Write(data); err != nil {
 			return 0, err
 		}
-		fileCount++
 	}
 
-	_ = mw.WriteField("source", "seed")
-	_ = mw.WriteField("collection", slug)
+	_ = mw.WriteField("source", source.KindDir)
+	_ = mw.WriteField("collection", exampleSource)
+	_ = mw.WriteField("tags", exampleSource)
 	_ = mw.WriteField("change_note", "Carga inicial de semilla (EJEMPLO)")
 	if err := mw.Close(); err != nil {
 		return 0, err
@@ -390,419 +431,437 @@ func (s *seeder) uploadSpaceDir(ctx context.Context, api *client.API, slug strin
 		return 0, err
 	}
 
-	return res.Summary[domain.ResultCreated], nil
+	return changedDocuments(res)
 }
 
-// loadTransversalMemories carga las memorias de data/memorias.json usando la misma lógica de import-transversal.
+// loadTransversalMemories usa el plan del importador y conserva el contenido original.
 func (s *seeder) loadTransversalMemories(ctx context.Context, pubAPI *client.API, env stackapi.Env) (int, []string, error) {
 	raw, err := seedFS.ReadFile("data/memorias.json")
 	if err != nil {
-		return 0, nil, fmt.Errorf("leer data/memorias.json: %w", err)
+		return 0, nil, err
 	}
-	var data struct {
-		Observations []cli.Memory `json:"observations"`
-	}
+	var data struct{ Observations []cli.Memory }
 	if err := json.Unmarshal(raw, &data); err != nil {
-		return 0, nil, fmt.Errorf("decodificar memorias.json: %w", err)
+		return 0, nil, err
 	}
-
-	items := cli.PlanImport(data.Observations)
+	propAPI, err := s.clientFor(env, "proponente")
+	if err != nil {
+		return 0, nil, err
+	}
+	existing, err := listProposals(ctx, propAPI, "transversal", true)
+	if err != nil {
+		return 0, nil, err
+	}
 	var docs []service.PublishDoc
 	var skipped []string
-	createdCount := 0
-
-	// Listar propuestas existentes en el espacio transversal creadas por el proponente
-	propAPI, propErr := s.clientFor(env, "proponente")
-	existingProposals := map[string]string{}
-	if propErr == nil {
-		var mine struct {
-			Items []struct {
-				DocKey string `json:"doc_key"`
-				Status string `json:"status"`
-			} `json:"items"`
+	n := 0
+	for i, it := range cli.PlanImport(data.Observations) {
+		if err := ctx.Err(); err != nil {
+			return n, skipped, err
 		}
-		if err := propAPI.Do(ctx, http.MethodGet, "/nexo/kb/v1/proposals?mine=true&space=transversal&limit=200", nil, &mine); err == nil {
-			for _, it := range mine.Items {
-				existingProposals[it.DocKey] = it.Status
-			}
+		content := "# " + it.Title + "\n\n" + data.Observations[i].Content + "\n"
+		if redact.Has(content) {
+			return n, skipped, errors.New("la memoria de ejemplo contiene formato de credencial")
 		}
-	}
-
-	for _, it := range items {
 		switch it.Action {
 		case "document":
-			docs = append(docs, service.PublishDoc{
-				DocKey:    it.DocKey,
-				Title:     it.Title,
-				Category:  it.Category,
-				Content:   memoryMarkdownFromItem(it),
-				Tags:      []string{cli.TransversalProject},
-				Origin:    domain.Origin{Kind: domain.OriginImport, Filename: cli.TransversalProject},
-			})
+			docs = append(docs, service.PublishDoc{DocKey: it.DocKey, Path: it.DocKey + ".md", Title: it.Title, Category: it.Category, Content: content, Tags: []string{cli.TransversalProject, exampleSource}, Origin: domain.Origin{Kind: domain.OriginImport, Source: exampleSource, Path: fmt.Sprintf("engram:%s#%d", cli.TransversalProject, it.MemoryID)}, ChangeNote: "import-transversal (EJEMPLO)"})
 		case "proposal":
-			if _, ok := existingProposals[it.DocKey]; ok {
-				// Ya existe la propuesta, omitir
+			if slices.ContainsFunc(existing, func(p store.Proposal) bool { return p.DocKey == it.DocKey }) {
 				continue
 			}
-			if propAPI != nil {
-				var p struct {
-					ID string `json:"id"`
-				}
-				body := service.ProposalInput{
-					DocKey:    it.DocKey,
-					Title:     it.Title,
-					Category:  it.Category,
-					Content:   memoryMarkdownFromItem(it),
-					Rationale: "Importada de memoria transversal de ejemplo.",
-					Tags:      []string{cli.TransversalProject},
-				}
-				if err := propAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/spaces/transversal/proposals", body, &p); err == nil {
-					createdCount++
-				}
+			var p store.Proposal
+			if err := propAPI.Do(ctx, http.MethodPost, spacePath("transversal")+"/proposals", service.ProposalInput{DocKey: it.DocKey, Title: it.Title, Category: it.Category, Content: content, Rationale: "Importada de memoria transversal de ejemplo.", Tags: []string{cli.TransversalProject, exampleSource}}, &p); err != nil {
+				return n, skipped, err
 			}
+			n++
 		case "skip":
 			skipped = append(skipped, fmt.Sprintf("memoria #%d (%s): %s", it.MemoryID, it.Title, it.Detail))
 		}
 	}
-
 	if len(docs) > 0 {
-		req := service.BatchRequest{Documents: docs}
 		var res service.BatchResult
-		if err := pubAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/spaces/transversal/documents:batch", req, &res); err != nil {
-			return createdCount, skipped, fmt.Errorf("batch documents transversal: %w", err)
+		if err := pubAPI.Do(ctx, http.MethodPost, spacePath("transversal")+"/documents:batch", service.BatchRequest{Documents: docs}, &res); err != nil {
+			return n, skipped, err
 		}
-		createdCount += res.Summary[domain.ResultCreated]
+		count, err := changedDocuments(res)
+		n += count
+		if err != nil {
+			return n, skipped, err
+		}
 	}
-
-	return createdCount, skipped, nil
+	return n, skipped, nil
 }
 
-func memoryMarkdownFromItem(it cli.ImportItem) string {
-	return fmt.Sprintf("# %s\n\n> Nota: Memoria de (EJEMPLO) importada para el entorno demo.\n\nMemoria del proyecto %s.\n", it.Title, cli.TransversalProject)
-}
-
-// createSampleProposals crea las 3 propuestas del diseño con el token del proponente.
-func (s *seeder) createSampleProposals(ctx context.Context, propAPI *client.API, env stackapi.Env) (int, error) {
-	createdCount := 0
-
-	for _, pdef := range s.sampleProposals {
-		if err := ctx.Err(); err != nil {
-			return createdCount, err
+// createSampleProposals deja dos propuestas abiertas para el recorrido y una retirada.
+func (s *seeder) createSampleProposals(ctx context.Context, propAPI *client.API) (int, error) {
+	n := 0
+	for _, def := range s.sampleProposals {
+		existing, err := listProposals(ctx, propAPI, def.Space, true)
+		if err != nil {
+			return n, err
 		}
-		// Comprobar si ya existe una propuesta propia con este doc_key en el espacio
-		path := fmt.Sprintf("/nexo/kb/v1/proposals?mine=true&space=%s&limit=200", url.QueryEscape(pdef.Space))
-		var mine struct {
-			Items []struct {
-				ID     string `json:"id"`
-				DocKey string `json:"doc_key"`
-				Status string `json:"status"`
-			} `json:"items"`
-		}
-		exists := false
-		if err := propAPI.Do(ctx, http.MethodGet, path, nil, &mine); err == nil {
-			for _, it := range mine.Items {
-				if it.DocKey == pdef.DocKey {
-					exists = true
-					break
-				}
+		var p store.Proposal
+		for _, it := range existing {
+			if it.DocKey == def.DocKey {
+				p = it
+				break
 			}
 		}
-		if exists {
-			continue
+		if p.ID == "" {
+			in := service.ProposalInput{DocKey: def.DocKey, Title: def.Title, Category: def.Category, Content: def.Content, Rationale: def.Rationale, Tags: []string{"ejemplo", exampleSource}}
+			if err := propAPI.Do(ctx, http.MethodPost, spacePath(def.Space)+"/proposals", in, &p); err != nil {
+				return n, err
+			}
+			n++
 		}
-
-		body := service.ProposalInput{
-			DocKey:    pdef.DocKey,
-			Title:     pdef.Title,
-			Category:  pdef.Category,
-			Content:   pdef.Content,
-			Rationale: pdef.Rationale,
-			Tags:      []string{"ejemplo"},
-		}
-		var created struct {
-			ID string `json:"id"`
-		}
-		createPath := fmt.Sprintf("/nexo/kb/v1/spaces/%s/proposals", url.PathEscape(pdef.Space))
-		if err := propAPI.Do(ctx, http.MethodPost, createPath, body, &created); err != nil {
-			return createdCount, fmt.Errorf("crear propuesta %s: %w", pdef.Title, err)
-		}
-		createdCount++
-
-		if pdef.Withdraw && created.ID != "" {
-			withdrawPath := fmt.Sprintf("/nexo/kb/v1/proposals/%s:withdraw", url.PathEscape(created.ID))
-			withdrawBody := map[string]string{"reason": "Propuesta retirada por el autor (EJEMPLO)"}
-			var wout map[string]any
-			_ = propAPI.Do(ctx, http.MethodPost, withdrawPath, withdrawBody, &wout)
+		if def.Withdraw && p.Status == domain.ProposalOpen && slices.Contains(p.Tags, exampleSource) {
+			if err := propAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/proposals/"+url.PathEscape(p.ID)+":withdraw", map[string]string{"note": "Propuesta retirada por el autor (EJEMPLO)"}, nil); err != nil {
+				return n, err
+			}
 		}
 	}
-
-	return createdCount, nil
+	return n, nil
 }
 
-// RemoveExample retira solo lo que Load creó (marcado como ejemplo).
+// RemoveExample retira solo elementos con procedencia de la semilla. Un espacio
+// con documentos o propuestas propios se conserva activo para no ocultarlos.
 func (s *seeder) RemoveExample(ctx context.Context, env stackapi.Env) (stackapi.Report, error) {
 	var rep stackapi.Report
-
-	// 1. Descartar o retirar propuestas de ejemplo en backend, frontend, transversal
-	if propAPI, err := s.clientFor(env, "proponente"); err == nil {
-		for _, sp := range []string{"backend", "frontend", "transversal"} {
-			if err := ctx.Err(); err != nil {
-				return rep, err
-			}
-			path := fmt.Sprintf("/nexo/kb/v1/proposals?mine=true&space=%s&limit=200", url.QueryEscape(sp))
-			var mine struct {
-				Items []struct {
-					ID     string `json:"id"`
-					Status string `json:"status"`
-				} `json:"items"`
-			}
-			if err := propAPI.Do(ctx, http.MethodGet, path, nil, &mine); err == nil {
-				for _, it := range mine.Items {
-					if it.Status == domain.ProposalOpen {
-						wPath := fmt.Sprintf("/nexo/kb/v1/proposals/%s:withdraw", url.PathEscape(it.ID))
-						var ignored any
-						if err := propAPI.Do(ctx, http.MethodPost, wPath, map[string]string{"reason": "Retiro de semilla de ejemplo"}, &ignored); err == nil {
-							rep.Proposals++
-						}
-					}
-				}
-			}
-		}
+	if err := ctx.Err(); err != nil {
+		return rep, err
 	}
-
-	// 2. Retirar documentos en cada espacio
+	adminAPI, err := s.clientFor(env, "superadmin")
+	if err != nil {
+		adminAPI, err = s.clientFor(env, "admin")
+	}
+	if err != nil {
+		return rep, err
+	}
 	for _, sp := range s.spaces {
 		if err := ctx.Err(); err != nil {
 			return rep, err
 		}
-		ownerUser := sp.Owner
-		ownerAPI, err := s.clientFor(env, ownerUser)
+		api, err := s.clientFor(env, sp.Owner)
 		if err != nil {
+			return rep, err
+		}
+		var current domain.Space
+		if err := api.Do(ctx, http.MethodGet, spacePath(sp.Slug), nil, &current); err != nil {
+			var ae *client.APIError
+			if client.IsStatus(err, http.StatusNotFound) || (errors.As(err, &ae) && ae.Code == domain.CodeArchived) {
+				continue
+			}
+			return rep, err
+		}
+		if current.Status == authz.StatusArchived {
 			continue
 		}
-		// Listar documentos del espacio
-		var docs struct {
-			Items []struct {
-				DocKey string `json:"doc_key"`
-				Status string `json:"status"`
-			} `json:"items"`
+		if current.Name != sp.Name || current.Description != sp.Description {
+			rep.Skipped = append(rep.Skipped, sp.Slug+": espacio ajeno a la semilla")
+			continue
 		}
-		path := fmt.Sprintf("/nexo/kb/v1/spaces/%s/documents?limit=200", url.PathEscape(sp.Slug))
-		if err := ownerAPI.Do(ctx, http.MethodGet, path, nil, &docs); err == nil {
-			for _, doc := range docs.Items {
-				if doc.Status == domain.DocActive {
-					retirePath := fmt.Sprintf("/nexo/kb/v1/spaces/%s/documents/%s:retire", url.PathEscape(sp.Slug), url.PathEscape(doc.DocKey))
-					var ignored any
-					if err := ownerAPI.Do(ctx, http.MethodPost, retirePath, map[string]string{"reason": "Retiro de semilla de ejemplo"}, &ignored); err == nil {
-						if sp.Slug == "transversal" {
-							rep.Memories++
-						} else {
-							rep.Documents++
-						}
-					}
-				}
+		docs, err := listDocuments(ctx, api, sp.Slug)
+		if err != nil {
+			return rep, err
+		}
+		props, err := listProposals(ctx, api, sp.Slug, false)
+		if err != nil {
+			return rep, err
+		}
+		keep := false
+		for _, p := range props {
+			if !s.exampleProposal(p) {
+				keep = true
+				continue
 			}
-		}
-	}
-
-	// 3. Archivar los espacios de ejemplo
-	adminUser := "superadmin"
-	if _, ok := env.Tokens[adminUser]; !ok {
-		adminUser = "admin"
-	}
-	adminAPI, err := s.clientFor(env, adminUser)
-	if err == nil {
-		for _, sp := range s.spaces {
-			if err := ctx.Err(); err != nil {
+			if p.Status != domain.ProposalOpen {
+				continue
+			}
+			authorAPI, err := s.clientFor(env, "proponente")
+			if err != nil {
 				return rep, err
 			}
-			path := fmt.Sprintf("/nexo/kb/v1/spaces/%s:archive", url.PathEscape(sp.Slug))
-			var ignored any
-			if err := adminAPI.Do(ctx, http.MethodPost, path, nil, &ignored); err == nil {
-				rep.Spaces++
+			if err := authorAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/proposals/"+url.PathEscape(p.ID)+":withdraw", map[string]string{"note": "Retiro de semilla de ejemplo"}, nil); err != nil {
+				return rep, err
+			}
+			rep.Proposals++
+		}
+		for _, d := range docs {
+			var view service.DocumentView
+			docPath := spacePath(sp.Slug) + "/documents/" + url.PathEscape(d.DocKey)
+			if err := api.Do(ctx, http.MethodGet, docPath, nil, &view); err != nil {
+				return rep, err
+			}
+			if view.Version.Origin.Source != exampleSource {
+				keep = true
+				continue
+			}
+			if d.Status != domain.DocActive {
+				continue
+			}
+			if err := api.Do(ctx, http.MethodPost, docPath+":retire", map[string]string{"note": "Retiro de semilla de ejemplo"}, nil); err != nil {
+				return rep, err
+			}
+			if sp.Slug == "transversal" {
+				rep.Memories++
+			} else {
+				rep.Documents++
 			}
 		}
+		if keep {
+			rep.Notes = append(rep.Notes, sp.Slug+": se conserva activo porque contiene documentos o propuestas propios")
+			continue
+		}
+		if err := adminAPI.Do(ctx, http.MethodPost, spacePath(sp.Slug)+":archive", nil, nil); err != nil {
+			return rep, err
+		}
+		rep.Spaces++
 	}
-
-	rep.Notes = append(rep.Notes, "espacios de ejemplo archivados (:archive); el servidor no cuenta con API para borrar espacios definitivamente")
+	rep.Notes = append(rep.Notes, "retiro y archivo conservan el historial: la API no ofrece borrado permanente de documentos, propuestas ni espacios")
 	return rep, nil
 }
 
-// LoadOwn sube el contenido de una carpeta del usuario.
+func (s *seeder) exampleProposal(p store.Proposal) bool {
+	if !slices.Contains(p.Tags, exampleSource) {
+		return false
+	}
+	for _, def := range s.sampleProposals {
+		if p.Space == def.Space && p.DocKey == def.DocKey && p.Title == def.Title {
+			return true
+		}
+	}
+	if p.Space == "transversal" {
+		raw, err := seedFS.ReadFile("data/memorias.json")
+		if err != nil {
+			return false
+		}
+		var data struct{ Observations []cli.Memory }
+		if json.Unmarshal(raw, &data) != nil {
+			return false
+		}
+		for _, it := range cli.PlanImport(data.Observations) {
+			if it.Action == "proposal" && p.DocKey == it.DocKey && p.Title == it.Title {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// LoadOwn recorre sin seguir enlaces y sube un archivo por petición. Así los
+// límites de cuerpo y de cantidad se respetan sin acumular la carpeta en memoria.
 func (s *seeder) LoadOwn(ctx context.Context, env stackapi.Env, opts stackapi.OwnOptions) (stackapi.Report, error) {
 	var rep stackapi.Report
+	if err := ctx.Err(); err != nil {
+		return rep, err
+	}
 	if opts.Dir == "" {
 		return rep, errors.New("falta la carpeta de origen (Dir)")
 	}
-	info, err := os.Stat(opts.Dir)
-	if err != nil {
-		return rep, fmt.Errorf("carpeta %s no accesible: %w", opts.Dir, err)
-	}
-	if !info.IsDir() {
-		return rep, fmt.Errorf("%s no es una carpeta", opts.Dir)
-	}
-
-	lim := service.UploadLimitsFromEnv()
-	reg := ingest.DefaultRegistry()
-	reg.Register(docx.Converter{})
-
-	// Cliente para crear espacios y subir documentos
-	pubAPI, err := s.clientFor(env, "publicador")
-	if err != nil {
-		if sAPI, sErr := s.clientFor(env, "superadmin"); sErr == nil {
-			pubAPI = sAPI
-		} else if aAPI, aErr := s.clientFor(env, "admin"); aErr == nil {
-			pubAPI = aAPI
-		} else {
-			return rep, fmt.Errorf("no hay token disponible para publicar: %w", err)
-		}
-	}
-
-	adminAPI, adminErr := s.clientFor(env, "superadmin")
-	if adminErr != nil {
-		adminAPI, _ = s.clientFor(env, "admin")
-	}
-
-	type fileItem struct {
-		relPath string
-		absPath string
-		data    []byte
-	}
-
-	// Agrupación de archivos por slug de espacio
-	spaceFiles := map[string][]fileItem{}
-	absBase, err := filepath.Abs(opts.Dir)
+	base, err := filepath.Abs(opts.Dir)
 	if err != nil {
 		return rep, err
 	}
-
-	err = filepath.WalkDir(absBase, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	info, err := os.Stat(base)
+	if err != nil {
+		return rep, errors.New("carpeta de origen no accesible")
+	}
+	if !info.IsDir() {
+		return rep, errors.New("el origen no es una carpeta")
+	}
+	lim := service.UploadLimitsFromEnv()
+	reg := service.DefaultRegistry()
+	type fileItem struct{ rel, abs string }
+	groups := map[string][]fileItem{}
+	names := map[string]string{}
+	err = filepath.WalkDir(base, func(p string, d fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		name := d.Name()
+		if walkErr != nil {
+			return errors.New("no se pudo recorrer la carpeta de origen")
+		}
 		if d.IsDir() {
-			if p != absBase && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "eval") {
+			if p != base && (strings.HasPrefix(d.Name(), ".") || d.Name() == "node_modules") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		// Ignorar archivos ocultos o no soportados
-		if strings.HasPrefix(name, ".") || strings.EqualFold(name, "README.md") || name == "nexo-kb.yaml" {
+		if !d.Type().IsRegular() || strings.HasPrefix(d.Name(), ".") || !isOwnSupportedExt(strings.ToLower(filepath.Ext(d.Name()))) {
 			return nil
 		}
-		ext := strings.ToLower(filepath.Ext(name))
-		if !isOwnSupportedExt(ext) {
-			return nil
-		}
-
-		rel, err := filepath.Rel(absBase, p)
+		rel, err := filepath.Rel(base, p)
 		if err != nil {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-
-		fi, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if fi.Size() > lim.MaxFileBytes {
-			rep.Skipped = append(rep.Skipped, fmt.Sprintf("%s: supera el límite de tamaño por archivo (%d bytes)", rel, lim.MaxFileBytes))
-			return nil
-		}
-
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-
-		// Escanear credenciales con redact
-		hasSecret := redact.Has(string(data))
-		if !hasSecret && ext == ".docx" {
-			// Para docx, intentar convertir y escanear el texto resultante
-			res, cErr := docx.Converter{}.Convert(ctx, ingest.Input{Name: name, Data: data})
-			if cErr == nil && redact.Has(res.Markdown) {
-				hasSecret = true
-			}
-		}
-
-		if hasSecret {
-			rep.Skipped = append(rep.Skipped, fmt.Sprintf("%s: contiene formato de credenciales o cadena de conexión", rel))
-			return nil
-		}
-
-		// Asignar espacio
-		targetSlug := ""
+		group := filepath.Base(base)
 		if opts.PerSubfolder {
-			parts := strings.Split(rel, "/")
-			if len(parts) > 1 {
-				targetSlug = normalizeOwnSlug(opts.SpacePrefix, parts[0])
-			} else {
-				targetSlug = normalizeOwnSlug(opts.SpacePrefix, "general")
+			group = "general"
+			if parts := strings.Split(rel, "/"); len(parts) > 1 {
+				group = parts[0]
 			}
-		} else {
-			targetSlug = normalizeOwnSlug(opts.SpacePrefix, filepath.Base(absBase))
 		}
-
-		spaceFiles[targetSlug] = append(spaceFiles[targetSlug], fileItem{relPath: rel, absPath: p, data: data})
+		slug := normalizeOwnSlug(opts.SpacePrefix, group)
+		if prev, ok := names[slug]; ok && prev != group {
+			return fmt.Errorf("dos subcarpetas producen el mismo espacio %s; cambie sus nombres", slug)
+		}
+		names[slug] = group
+		groups[slug] = append(groups[slug], fileItem{rel, p})
 		return nil
 	})
 	if err != nil {
 		return rep, err
 	}
-
-	// Subir por cada espacio
-	for slug, files := range spaceFiles {
-		if err := ctx.Err(); err != nil {
-			return rep, err
+	username := "publicador"
+	api, err := s.clientFor(env, username)
+	if err != nil {
+		username = "superadmin"
+		api, err = s.clientFor(env, username)
+		if err != nil {
+			username = "admin"
+			api, err = s.clientFor(env, username)
 		}
-		// Crear espacio si no existe
-		if adminAPI != nil {
-			in := service.CreateSpaceInput{
-				Slug:        slug,
-				Name:        fmt.Sprintf("Espacio %s", slug),
-				Description: fmt.Sprintf("Espacio creado a partir de contenido propio (%s)", slug),
-				Visibility:  "open",
-				DefaultRole: "lector",
-				Owner:       "publicador",
+	}
+	if err != nil {
+		return rep, err
+	}
+	adminAPI, _ := s.clientFor(env, "superadmin")
+	if adminAPI == nil {
+		adminAPI, _ = s.clientFor(env, "admin")
+	}
+	slugs := make([]string, 0, len(groups))
+	for slug := range groups {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	for _, slug := range slugs {
+		ready := false
+		keys := map[string]bool{}
+		for _, item := range groups[slug] {
+			if err := ctx.Err(); err != nil {
+				return rep, err
 			}
-			var spOut domain.Space
-			if cErr := adminAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/spaces", in, &spOut); cErr == nil {
-				rep.Spaces++
+			skip := func(reason string) { rep.Skipped = append(rep.Skipped, redact.Text(item.rel)+": "+reason) }
+			f, err := os.Open(item.abs)
+			if err != nil {
+				return rep, fmt.Errorf("no se pudo abrir %s", redact.Text(item.rel))
 			}
-		}
-
-		// Multipart upload
-		var body bytes.Buffer
-		mw := multipart.NewWriter(&body)
-		for _, f := range files {
-			fw, err := mw.CreateFormFile("file", f.relPath)
+			fi, err := f.Stat()
+			if err != nil {
+				_ = f.Close()
+				return rep, errors.New("no se pudo leer el archivo")
+			}
+			if !fi.Mode().IsRegular() || fi.Size() > lim.MaxFileBytes {
+				_ = f.Close()
+				skip("supera el límite por archivo o no es un archivo regular")
+				continue
+			}
+			data, err := io.ReadAll(io.LimitReader(f, lim.MaxFileBytes+1))
+			_ = f.Close()
+			if err != nil {
+				return rep, errors.New("no se pudo leer el archivo")
+			}
+			if int64(len(data)) > lim.MaxFileBytes {
+				skip("supera NEXO_KB_UPLOAD_MAX_FILE_BYTES")
+				continue
+			}
+			if redact.Has(item.rel) || (!strings.EqualFold(filepath.Ext(item.rel), ".docx") && (redact.Has(string(data)) || len(ingest.DetectSecrets(string(data))) > 0)) {
+				skip("contiene formato de credenciales o cadena de conexión")
+				continue
+			}
+			if source.Sniff(item.rel, data) != "" {
+				skip("contenido binario o formato incompatible con la extensión")
+				continue
+			}
+			converted, err := reg.Convert(ctx, "", ingest.Input{Name: item.rel, Data: data}, ingest.Limits{})
+			if ctx.Err() != nil {
+				return rep, ctx.Err()
+			}
+			if err != nil {
+				skip("no se pudo convertir con los límites de ingesta")
+				continue
+			}
+			if redact.Has(converted.Markdown) || redact.HasAny(converted.Meta) || len(ingest.DetectSecrets(converted.Markdown)) > 0 {
+				skip("contiene formato de credenciales o cadena de conexión")
+				continue
+			}
+			key := source.DocKeyFromPath(item.rel)
+			if converted.Meta.ID != "" {
+				key = converted.Meta.ID
+			}
+			if keys[key] {
+				skip("clave de documento duplicada en la carpeta")
+				continue
+			}
+			keys[key] = true
+			body, contentType, err := ownMultipart(item.rel, data, slug)
 			if err != nil {
 				return rep, err
 			}
-			if _, err := fw.Write(f.data); err != nil {
+			if int64(body.Len()) > lim.MaxBytes {
+				skip("supera NEXO_KB_UPLOAD_MAX_BYTES con el envoltorio multipart")
+				continue
+			}
+			if !ready {
+				var sp domain.Space
+				err := api.Do(ctx, http.MethodGet, spacePath(slug), nil, &sp)
+				if err != nil {
+					if !client.IsStatus(err, http.StatusNotFound) {
+						return rep, err
+					}
+					if adminAPI == nil {
+						return rep, errors.New("se necesita un token de administración para crear el espacio propio")
+					}
+					if adminAPI.Token == api.Token {
+						return rep, errors.New("crear el espacio requiere un responsable distinto del administrador (R-11); configure también publicador")
+					}
+					in := service.CreateSpaceInput{Slug: slug, Name: "Espacio " + slug, Description: "Espacio creado a partir de contenido propio", Visibility: "open", DefaultRole: "lector", Owner: username}
+					if err := adminAPI.Do(ctx, http.MethodPost, "/nexo/kb/v1/spaces", in, &sp); err != nil && !client.IsStatus(err, http.StatusConflict) {
+						return rep, err
+					} else if err == nil {
+						rep.Spaces++
+					}
+				}
+				ready = true
+			}
+			var result service.BatchResult
+			if err := api.DoMultipart(ctx, spacePath(slug)+"/uploads", body, contentType, &result); err != nil {
+				return rep, err
+			}
+			n, err := changedDocuments(result)
+			rep.Documents += n
+			if err != nil {
 				return rep, err
 			}
 		}
-		_ = mw.WriteField("source", "load-own")
-		_ = mw.WriteField("collection", slug)
-		_ = mw.WriteField("change_note", "Carga de contenido propio")
-		if err := mw.Close(); err != nil {
-			return rep, err
-		}
-
-		var bres service.BatchResult
-		path := fmt.Sprintf("/nexo/kb/v1/spaces/%s/uploads", url.PathEscape(slug))
-		if err := pubAPI.DoMultipart(ctx, path, &body, mw.FormDataContentType(), &bres); err != nil {
-			return rep, fmt.Errorf("subir contenido a espacio %s: %w", slug, err)
-		}
-		rep.Documents += bres.Summary[domain.ResultCreated]
 	}
-
+	if rep.Spaces == 0 && rep.Documents == 0 {
+		rep.Notes = append(rep.Notes, "sin cambios")
+	}
 	return rep, nil
+}
+
+func ownMultipart(name string, data []byte, slug string) (*bytes.Buffer, string, error) {
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", name)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := part.Write(data); err != nil {
+		return nil, "", err
+	}
+	for _, field := range [][2]string{{"source", source.KindDir}, {"collection", "contenido-propio-" + slug}, {"change_note", "Carga de contenido propio"}} {
+		if err := mw.WriteField(field[0], field[1]); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, "", err
+	}
+	return &body, mw.FormDataContentType(), nil
 }
 
 func isOwnSupportedExt(ext string) bool {
@@ -834,4 +893,72 @@ func normalizeOwnSlug(prefix, name string) string {
 		return "espacio-propio"
 	}
 	return s
+}
+
+const exampleSource = "nexo-stack-seed-v1"
+
+func spacePath(slug string) string { return "/nexo/kb/v1/spaces/" + url.PathEscape(slug) }
+
+// changedDocuments comprueba también rechazos parciales de una respuesta HTTP 200.
+func changedDocuments(res service.BatchResult) (int, error) {
+	n := res.Summary[domain.ResultCreated] + res.Summary[domain.ResultUpdated]
+	for _, r := range res.Results {
+		if r.Status == domain.ResultRejected {
+			return n, fmt.Errorf("documento rechazado (%s): %s", redact.Text(r.Code), redact.Text(r.Reason))
+		}
+	}
+	if res.Summary[domain.ResultRejected] > 0 || len(res.Skipped) > 0 {
+		return n, errors.New("la subida contiene elementos rechazados u omitidos")
+	}
+	return n, nil
+}
+
+func listDocuments(ctx context.Context, api *client.API, slug string) ([]domain.Document, error) {
+	var all []domain.Document
+	cursor := ""
+	for {
+		var page struct {
+			Items      []domain.Document
+			NextCursor *string `json:"next_cursor"`
+		}
+		p := spacePath(slug) + "/documents?limit=200&cursor=" + url.QueryEscape(cursor)
+		if err := api.Do(ctx, http.MethodGet, p, nil, &page); err != nil {
+			return nil, err
+		}
+		all = append(all, page.Items...)
+		if page.NextCursor == nil || *page.NextCursor == "" {
+			return all, nil
+		}
+		if *page.NextCursor == cursor {
+			return nil, errors.New("cursor de documentos repetido")
+		}
+		cursor = *page.NextCursor
+	}
+}
+
+func listProposals(ctx context.Context, api *client.API, slug string, mine bool) ([]store.Proposal, error) {
+	var all []store.Proposal
+	seen := map[string]bool{}
+	before := ""
+	for {
+		var page struct{ Items []store.Proposal }
+		p := fmt.Sprintf("/nexo/kb/v1/proposals?space=%s&mine=%t&limit=200&before=%s", url.QueryEscape(slug), mine, url.QueryEscape(before))
+		if err := api.Do(ctx, http.MethodGet, p, nil, &page); err != nil {
+			return nil, err
+		}
+		for _, p := range page.Items {
+			if !seen[p.ID] {
+				all = append(all, p)
+				seen[p.ID] = true
+			}
+		}
+		if len(page.Items) < 200 {
+			return all, nil
+		}
+		next := page.Items[len(page.Items)-1].CreatedAt.Add(time.Nanosecond).Format(time.RFC3339Nano)
+		if next == before {
+			return nil, errors.New("la API no puede paginar más de 200 propuestas con la misma fecha; no se modificaron propuestas")
+		}
+		before = next
+	}
 }

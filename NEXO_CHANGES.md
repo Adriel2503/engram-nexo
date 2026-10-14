@@ -821,6 +821,18 @@ sin esos campos. Conservarlos junto con los regenerados hasta cerrar la revisió
 `nexo_export_bigint_test.go`, `nexo_export_column_types_test.go`, `nexo_projection_integer_test.go`,
 `nexo_projection_producers_test.go`.
 
+### NX-10 · Semilla del stack: verificación fase 2 (feat/nexo-stack-seed, 2026-10-14)
+
+**Correcciones verificadas.** La carga existente de `internal/nexo/stack/seed` usa el cliente HTTP y las API de espacios, roles, subidas, lotes y propuestas. Conserva al responsable (sus capacidades incluyen publicador, R-9), asigna publicación explícita al superadmin en `operaciones` y usa la fuente admitida `dir`. Los glosarios Markdown y texto conservan sus archivos originales; el texto se sube como `glosario-texto.txt` para evitar que compartan clave. Las memorias conservan su contenido; los errores y rechazos parciales ya no se ignoran. Repetir la carga no crea documentos, versiones ni propuestas adicionales.
+
+**Identificación y retiro.** Las versiones de ejemplo llevan `origin.source=nexo-stack-seed-v1` y las propuestas esa etiqueta más su clave y título de inventario. `RemoveExample` retira únicamente esas versiones/propuestas y archiva los espacios de ejemplo sin contenido propio. Si una persona publicó su propia versión de una clave de ejemplo, se conserva; los espacios con documentos o propuestas propios permanecen activos. La API conserva el historial y no ofrece borrado permanente: se informa en `Report.Notes`.
+
+**Contenido propio.** `LoadOwn` admite Markdown, texto y Word (también los alias del registro: `.markdown`, `.mdx`, `.text`), incluye README, omite directorios ocultos/.git, enlaces y formatos incompatibles, conserva rutas relativas y detecta colisiones de slugs/claves. Escanea con `redact` también el texto convertido y los metadatos de Word; informa solo ruta relativa saneada y motivo. Una petición por archivo respeta `NEXO_KB_UPLOAD_MAX_FILES`, `_MAX_FILE_BYTES` y el cuerpo completo de `_MAX_BYTES`; los límites `_MAX_UNZIPPED`/`_MAX_ENTRIES` son para subidas zip (aquí no se envían zip; Word conserva además los límites del conversor). Propaga cancelación y no acumula todos los contenidos en memoria.
+
+**Límites del servidor actual.** El auditor hereda lector en los espacios abiertos: no se puede imponer desde la semilla la ausencia de acceso a su contenido sin cambiar el diseño de visibilidad o el servidor. En `operaciones` sí se verifica auditoría con contenido retenido y acceso denegado al lector. Crear un espacio propio exige administrador y responsable distintos (R-11); con solo una identidad administrativa se devuelve una explicación antes de crear. El ejemplo completo necesita las personas de `Personas()` y los tokens indicados en el informe de fase 2; no incluye un ejemplo reducido para dev.
+
+**Alcance.** Código y pruebas modificados/agregados solo bajo `internal/nexo/stack/seed/`; datos y `seed_test.go` sin cambios. Ningún archivo original de Engram, dependencia, contrato `stackapi` ni núcleo del stack modificado. Integración con servidor real (`httptest`) y Postgres local: solo base `nexoseed`, variable `CLOUDSTORE_TEST_DSN`, esquemas temporales y puertos 18490–18499. Resultados y límites de calidad en `.stack/informe-fase2.md`.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
