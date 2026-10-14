@@ -37,7 +37,7 @@ func New(cfg cloud.Config) (*CloudStore, error) {
 	if dsn == "" {
 		return nil, fmt.Errorf("cloudstore: database dsn is required")
 	}
-	db, err := sql.Open("pgx", dsn)
+	db, err := nexoOpenDB("ENGRAM_DATABASE_URL", dsn, true) // NX-07 (SG-05): exige TLS verificado si NEXO_DB_REQUIRE_TLS, aplica el pool (nexo_dbconn.go)
 	if err != nil {
 		return nil, fmt.Errorf("cloudstore: open postgres: %w", err)
 	}
@@ -270,6 +270,8 @@ func (cs *CloudStore) WriteChunk(ctx context.Context, project, chunkID, createdB
 		project, strings.TrimSpace(chunkID), strings.TrimSpace(createdBy), originCreatedAt, payload, counts.sessions, counts.observations, counts.prompts)
 	if err != nil {
 		if isUniqueViolation(err) {
+			_ = tx.Rollback() // NX-07 (pool): libera la conexión antes de pedir otra; con el pool limitado, varias subidas del mismo paquete se bloqueaban
+			tx = nil          // NX-07 (pool)
 			conflictErr := cs.resolveChunkConflict(ctx, project, chunkID, payload)
 			if conflictErr != nil {
 				return conflictErr

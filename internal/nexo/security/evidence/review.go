@@ -145,6 +145,13 @@ type ReviewSummary struct {
 	// RoleDrift: personas cuya columna de Engram no coincide con la que
 	// corresponde a su rol de Nexo (marca "role_drift"; unificación de roles).
 	RoleDrift int `json:"role_drift"`
+	// SuperadminsEnabled: superadmins habilitados. Con uno solo, esa persona
+	// lleva la marca "single_superadmin" (SG-06: nadie mas puede administrar si
+	// pierde su token).
+	SuperadminsEnabled int `json:"superadmins_enabled"`
+	// PrivilegedTokensExpiring: tokens activos de superadmins, admins y
+	// auditores habilitados que vencen en 30 dias (marca "token_expiring").
+	PrivilegedTokensExpiring int `json:"privileged_tokens_expiring"`
 }
 
 // ReviewRecord es una revisión registrada.
@@ -317,6 +324,12 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 	}
 
 	for _, id := range order {
+		if p := people[id]; p.Enabled && p.PlatformRole == "superadmin" {
+			rep.Summary.SuperadminsEnabled++
+		}
+	}
+
+	for _, id := range order {
 		p := people[id]
 		if p.Enabled {
 			rep.Summary.Enabled++
@@ -338,6 +351,10 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 		if p.PlatformRole != "miembro" {
 			rep.Summary.PlatformStaff++
 		}
+		// SG-06: un solo superadmin habilitado.
+		if p.Enabled && p.PlatformRole == "superadmin" && rep.Summary.SuperadminsEnabled == 1 {
+			p.Flags = append(p.Flags, "single_superadmin")
+		}
 		// Desalineación: la columna de Engram se deriva del rol de Nexo; si no
 		// coincide, el rol de Nexo manda y se corrige con `engram nexo authz
 		// reconcile-roles --apply`.
@@ -345,7 +362,7 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 			p.Flags = append(p.Flags, "role_drift")
 			rep.Summary.RoleDrift++
 		}
-		noExp, never := false, false
+		noExp, never, expiring := false, false, false
 		for _, t := range p.Tokens {
 			if t.Expired {
 				continue
@@ -361,6 +378,10 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 			}
 			if t.ExpiresAt != nil && t.ExpiresAt.Sub(now) < 30*24*time.Hour {
 				rep.Summary.ExpiringIn30d++
+				if p.Enabled && IsPrivilegedRole(p.PlatformRole) { // SG-06
+					rep.Summary.PrivilegedTokensExpiring++
+					expiring = true
+				}
 			}
 		}
 		if noExp {
@@ -368,6 +389,9 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 		}
 		if never {
 			p.Flags = append(p.Flags, "token_never_used")
+		}
+		if expiring {
+			p.Flags = append(p.Flags, "token_expiring")
 		}
 		rep.People = append(rep.People, *p)
 	}
@@ -445,9 +469,11 @@ func CompleteReview(ctx context.Context, db *sql.DB, rep AccessReview, who Revie
 		"people": rep.Summary.People, "enabled": rep.Summary.Enabled, "inactive": rep.Summary.Inactive,
 		"active_tokens": rep.Summary.ActiveTokens, "tokens_no_expiry": rep.Summary.TokensNoExpiry,
 		"tokens_never_used": rep.Summary.TokensNeverUse, "platform_staff": rep.Summary.PlatformStaff,
-		"service_accounts_stale":  rep.Summary.StaleServiceAccounts,
-		"role_drift":              rep.Summary.RoleDrift,
-		"inactive_threshold_days": rep.InactiveDays, "generated_at": rep.GeneratedAt,
+		"service_accounts_stale":     rep.Summary.StaleServiceAccounts,
+		"role_drift":                 rep.Summary.RoleDrift,
+		"superadmins_enabled":        rep.Summary.SuperadminsEnabled,
+		"privileged_tokens_expiring": rep.Summary.PrivilegedTokensExpiring,
+		"inactive_threshold_days":    rep.InactiveDays, "generated_at": rep.GeneratedAt,
 	})
 	digest := ReportDigest(rep)
 	var r ReviewRecord

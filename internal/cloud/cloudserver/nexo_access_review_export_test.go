@@ -152,7 +152,11 @@ func TestNexoAccessReviewExportAPI(t *testing.T) {
 		t.Errorf("tokens=%d roles=%d formula-nombre=%v formula-token=%v", tokens, roles, sawFormulaName, sawFormulaToken)
 	}
 
-	// Solo con marcas: queda dicho en el archivo.
+	// Solo con marcas: queda dicho en el archivo. Con un segundo superadmin (SG-06)
+	// la persona deja de llevar la marca single_superadmin y vuelve a haber gente sin marcas.
+	if _, err := env.db.Exec(`UPDATE nexo_role_bindings SET role = 'superadmin' WHERE principal_id = $1::bigint AND scope_type = 'platform'`, env.ids["pedro"]); err != nil {
+		t.Fatal(err)
+	}
 	rec = env.req(http.MethodGet, apiReviewPath+"?format=json&only=flags", "luis", "", "10.91.0.9")
 	var flagged evidence.ReviewExport
 	if err := json.Unmarshal(rec.Body.Bytes(), &flagged); err != nil || !flagged.Filters.OnlyFlagged || len(flagged.People) >= len(doc.People) {

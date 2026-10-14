@@ -91,6 +91,25 @@ certificado lo firmó la CA indicada y que el nombre del host coincide.
    `subjectAltName` del certificado.
 4. Comprobar: `SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();` desde la cuenta
    de aplicación debe devolver `t`.
+5. Exigirlo: `NEXO_DB_REQUIRE_TLS=true` en el servicio `cloud`. Con ella, si `ENGRAM_DATABASE_URL` o
+   `NEXO_MIGRATION_DATABASE_URL` no usan `sslmode=verify-full` o `verify-ca`, el servidor no arranca y el
+   error dice cuál conexión y por qué. Sin ella, una base que no es local (ni `localhost`, ni loopback, ni
+   un socket) sin TLS verificado deja en el log una `ADVERTENCIA` al arrancar y se ve en
+   `GET /nexo/admin/database` (`tls.warning`). Lo que se le pide a la base está en
+   [`servidor-produccion.md`, 2.1](../manuales/servidor-produccion.md).
+
+Probado (SG-05, 2026-10-13) con la imagen `pgvector/pgvector:pg18`, una CA y un certificado de servidor
+de prueba generados con los comandos de arriba (nada real): con `sslmode=verify-full` y `sslrootcert` en
+las dos URL y `NEXO_DB_REQUIRE_TLS=true`, el servidor arranca y el log dice `conexion cifrada (TLSv1.3),
+servidor verificado`; con un `sslrootcert` de otra CA, o con un certificado cuyo nombre no coincide con el
+host de la URL, no arranca (`x509: certificate signed by unknown authority` y `x509: certificate is valid
+for postgres, localhost, not <nombre de la URL>`). Notas del ensayo: en la imagen de Postgres de Debian (la de `pgvector/pgvector:pg18`) el usuario
+`postgres` es el uid 999 (en la de Alpine, el 70) y la llave debe ser suya y `0600`; un montaje desde
+Windows no conserva permisos, así que el ensayo copió la llave a una carpeta del contenedor al arrancar
+(`entrypoint: sh -c "cp /tls-src/server.* /etc/pgtls/ && chown postgres:postgres /etc/pgtls/* && chmod 600
+/etc/pgtls/server.key && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/etc/pgtls/server.crt -c
+ssl_key_file=/etc/pgtls/server.key"`). El nombre de la URL (`postgres`, el servicio del compose) debe estar en el
+`subjectAltName` del certificado.
 
 Respaldos: cifrarlos (por ejemplo `pg_dump ... | age -r <clave> > respaldo.sql.age`) y guardarlos
 fuera del host de la base.

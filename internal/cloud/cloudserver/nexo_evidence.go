@@ -327,6 +327,7 @@ type nexoMonitor struct {
 	lastVerify     time.Time
 	lastCheckpoint time.Time
 	lastDaily      string // fecha UTC de la última pasada diaria
+	lastPoolWaits  int64  // esperas del pool vistas en la pasada anterior (nexoMonitorPool)
 	webhookWG      sync.WaitGroup
 }
 
@@ -445,6 +446,7 @@ func (s *CloudServer) nexoMonitorTick(ctx context.Context, m *nexoMonitor, now t
 		return
 	}
 	s.nexoFlushAuditDedup(ctx, false)
+	s.nexoMonitorPool(m)
 
 	evalCtx, cancel := context.WithTimeout(ctx, 50*time.Second)
 	alerts, ran, err := evidence.EvaluateOnce(evalCtx, db, m.rules, now)

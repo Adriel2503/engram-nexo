@@ -73,6 +73,69 @@ archivos versionados, en tickets ni en chats.
 | Acceso a la imagen | El repositorio es privado: `docker login ghcr.io` con un token de GitHub con permiso `read:packages` |
 | Almacenamiento de respaldos | Un destino fuera del host para los respaldos de Postgres y para la carpeta de exportación de auditoría |
 
+### 2.1 Requisitos de la base para Nexo
+
+Esta sección es para el equipo que monta la base (por ejemplo, un Postgres administrado en la nube
+corporativa). Dice **qué** necesita Nexo, no cómo hacerlo en cada proveedor. Nexo funciona con un
+PostgreSQL estándar y TLS genérico: no usa nada propio de un proveedor (ni extensiones de terceros, ni un
+proxy de conexión del proveedor).
+
+| Requisito | Detalle |
+|---|---|
+| Versión | PostgreSQL 18 (con 16 o posterior funciona; el fork se prueba con 18). Codificación `UTF8` |
+| Base | Una base dedicada, por defecto `engram_cloud`, con las dos cuentas de abajo |
+| Extensión `vector` | Habilitada en esa base (`CREATE EXTENSION vector;`), versión 0.8 o posterior. La crea una cuenta con permiso para ello (la cuenta dueña de Nexo no puede: pgvector no es una extensión "trusted"). Sin ella el servidor arranca y busca solo por texto |
+| Extensión `unaccent` | Opcional (módulo estándar `contrib`; "trusted": basta con que la cuenta dueña sea dueña de la base). Si falta, la aplicación quita las tildes |
+| Otras extensiones | Ninguna. Solo Postgres oficial, `contrib` y pgvector |
+| Superusuario | No hace falta ninguno para operar. Solo la persona que prepara la base necesita una cuenta administradora, una vez |
+| Red | El servidor de Nexo debe alcanzar `<host>:5432`, de preferencia por una IP privada. Nexo se conecta directo a ese host con TLS |
+| Conexiones | `max_connections` holgado para la carga de Nexo (sin límite propio por defecto, sección 4.1.1) más un margen para administración y respaldos |
+
+**Dos cuentas** (una sola es posible, pero el servidor avisa de seguridad degradada):
+
+| Cuenta | Para qué | Permisos exactos |
+|---|---|---|
+| Dueña (por defecto `nexo_owner`) | Solo al arrancar: migraciones, privilegios y funciones de retención | `LOGIN`; sin `SUPERUSER`, `CREATEROLE`, `CREATEDB` ni `REPLICATION`. Dueña de la base y del esquema `public` (o del esquema que use la base): crea y modifica tablas, índices, vistas, secuencias, funciones (también `SECURITY DEFINER`) y triggers, y crea la extensión `unaccent` |
+| Aplicación (por defecto `nexo_app`) | Todas las peticiones | `LOGIN` y `NOINHERIT`; sin `SUPERUSER`, `CREATEROLE`, `CREATEDB`, `REPLICATION` ni `BYPASSRLS`. Solo `CONNECT` en la base y `USAGE` en el esquema. No es dueña de objetos, no es miembro de la dueña y no tiene `CREATE` en el esquema ni en la base, ni `TEMPORARY`. Los permisos sobre tablas, secuencias y funciones **no hay que concederlos**: el servidor los aplica al arrancar con la cuenta dueña (lectura y escritura en las tablas operativas, solo lectura e inserción en las de evidencia). Si el servidor se conecta por un pooler cuyo usuario no es esta cuenta, ver `NEXO_DB_APP_ROLE` (sección 4.1) |
+
+Si la cuenta de aplicación es superusuario, dueña de objetos o puede crear objetos, el servidor **no
+arranca** y el log dice por qué. El script de ejemplo `deploy/nexo/postgres-init/01-cuentas.sh` crea las
+dos cuentas con exactamente estos permisos.
+
+**TLS**:
+
+- El servidor de Postgres con TLS habilitado (TLS 1.2 o posterior) y, si se puede, rechazando conexiones
+  sin TLS (en `pg_hba.conf`, `hostssl`).
+- Un certificado de servidor firmado por una CA cuyo certificado se entrega al equipo de Nexo (`ca.crt`,
+  una cadena de CA también sirve), con el nombre del host de la cadena de conexión en el
+  `subjectAltName`.
+- Nexo se conecta con `sslmode=verify-full` y `sslrootcert=<ruta del ca.crt>`: cifra, comprueba la CA y
+  comprueba el nombre del host. `verify-ca` también se acepta (cifra y comprueba la CA, no el nombre); con
+  `require`, `prefer` o `disable` el servidor avisa en el log y, con `NEXO_DB_REQUIRE_TLS=true`, no arranca
+  (sección 4.1.1).
+
+**Formato de las cadenas de conexión** que el equipo de Nexo necesita (las contraseñas se entregan por
+el gestor de secretos, nunca por correo ni en un ticket; si tienen caracteres especiales, en formato URL
+van codificadas, o use contraseñas solo hexadecimales):
+
+```text
+ENGRAM_DATABASE_URL=postgres://<cuenta-aplicacion>:<contraseña>@<host>:5432/<base>?sslmode=verify-full&sslrootcert=<ruta>/ca.crt
+NEXO_MIGRATION_DATABASE_URL=postgres://<cuenta-duena>:<contraseña>@<host>:5432/<base>?sslmode=verify-full&sslrootcert=<ruta>/ca.crt
+```
+
+**Comprobación que puede hacer el equipo de la base** con la cuenta de aplicación, sin tocar datos:
+
+```sql
+SELECT version();                                                         -- PostgreSQL 18.x
+SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';    -- una fila, 0.8 o posterior
+SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();        -- ssl = t
+SHOW max_connections;
+```
+
+Con el servidor de Nexo arriba, `GET /nexo/admin/database` (superadmin) muestra lo mismo desde el lado
+de Nexo: versión de Postgres, `max_connections`, versión de pgvector, si la conexión está cifrada y verificada
+y el uso del pool.
+
 ## 3. Obtener la imagen
 
 ```sh
@@ -105,6 +168,52 @@ Variables del contenedor `postgres` (solo las usa `postgres-init/01-cuentas.sh` 
 se crea el volumen): `POSTGRES_PASSWORD`, `NEXO_OWNER_PASSWORD`, `NEXO_APP_PASSWORD` (obligatorias),
 `NEXO_DB_NAME` (por defecto `engram_cloud`), `NEXO_OWNER_ROLE` (`nexo_owner`), `NEXO_APP_ROLE`
 (`nexo_app`).
+
+### 4.1.1 TLS hacia la base y pool de conexiones
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `NEXO_DB_REQUIRE_TLS` | `false` | `true`: el servidor no arranca si `ENGRAM_DATABASE_URL` o `NEXO_MIGRATION_DATABASE_URL` no usan `sslmode=verify-full` o `verify-ca` (cualquier host), y el error dice cuál conexión y por qué. Recomendada en producción. Un valor distinto de `true` o `false` es un error al arrancar. Sin ella, una base que no es local (que no es `localhost`, una IP de loopback ni un socket) sin TLS verificado deja una advertencia en el log |
+| `NEXO_DB_MAX_OPEN_CONNS` | `0` (sin límite) | Conexiones abiertas como máximo por réplica. `0` = sin límite: el tope es `max_connections` de Postgres y, si se alcanza, las peticiones nuevas fallan con error en vez de esperar. **No fije un límite todavía** (ver "Por qué sin límite" abajo y OP-13). Si se fija, el mínimo es 4 |
+| `NEXO_DB_MAX_IDLE_CONNS` | `10` | Conexiones en reposo que se conservan. Con un límite fijado, no puede ser mayor que el máximo; si solo se baja el máximo, este valor se ajusta solo |
+| `NEXO_DB_CONN_MAX_LIFETIME` | `30m` | Vida máxima de una conexión; pasada, se cierra y se abre otra (recupera conexiones cortadas por un firewall o un balanceador) |
+| `NEXO_DB_CONN_MAX_IDLE_TIME` | `5m` | Tiempo máximo que una conexión puede estar sin uso |
+
+Los enteros son positivos y las duraciones se escriben como `90s`, `5m` o `1h` y deben ser mayores que
+cero; un valor inválido es un error claro al arrancar que nombra la variable. El servidor deja en el log los
+valores efectivos al arrancar (`[nexo] base de datos: pool de ENGRAM_DATABASE_URL: ...`) y, si en el último
+minuto alguna petición esperó una conexión libre, una línea de aviso.
+
+**Por qué sin límite por defecto.** Hay código, de Engram y de Nexo, que con una transacción o un cursor
+abiertos pide otra conexión del mismo pool. Sin límite eso no molesta. Con un límite, varias de esas
+operaciones a la vez pueden ocupar todas las conexiones esperando otra y **colgar el servidor** (también el
+inicio de sesión y la administración) hasta que se cancelen. Casos conocidos (revisión adversarial,
+2026-10-13; detalle en el backlog, OP-13):
+
+| Caso | Dónde | Estado |
+|---|---|---|
+| Relleno de sesiones al migrar (cursor abierto sobre `cloud_chunks` mientras inserta sesiones) | Engram, `cloudstore.go`, migración | Evitado con el mínimo de 4 si se fija un límite; sin corregir en el código |
+| Varias subidas del mismo paquete nuevo a la vez: la que pierde pedía otra conexión con su transacción abierta | Engram, `cloudstore.go`, `WriteChunk` | Corregido (`NX-07 (pool)`, prueba `TestNexoPoolConcurrentSameChunkDoesNotDeadlock`) |
+| Publicación de conocimiento con la caché del modo sin tildes fría: `InsertSections` en una transacción llama a `FoldInApp`, que consulta con otra conexión | Nexo, `kb/store/store.go` | Pendiente |
+| Detección de pgvector (`VectorSupport`) consultada dentro de una transacción cuando la caché venció | Nexo, `kb/store/vectors.go` | Pendiente (sin confirmar) |
+
+Hasta terminar esa revisión (OP-13), deje `NEXO_DB_MAX_OPEN_CONNS` en `0`. Si se alcanza `max_connections`,
+las peticiones nuevas fallan con un error ("too many clients") y el resto sigue funcionando.
+
+**Relación con `max_connections` de Postgres.** Sin límite, cada réplica abre las conexiones que necesite
+la carga; el monitor de `GET /nexo/admin/database` muestra cuántas. Además hay una conexión breve de la
+cuenta dueña al arrancar y cada comando que se ejecuta dentro del contenedor (`engram cloud bootstrap ...`,
+`engram nexo ...`) abre la suya mientras dura. Vigile `pool.open` frente a `server.max_connections` y deje
+margen (10 a 20) para administración, respaldos y otras aplicaciones. Cuando OP-13 esté cerrada, la regla
+para fijar un límite será:
+
+```text
+max_connections  >=  réplicas × NEXO_DB_MAX_OPEN_CONNS  +  margen (10 a 20 para administración, respaldos y otras aplicaciones)
+```
+
+Para ver el uso, consulte `GET /nexo/admin/database` (campos `pool.open`, `pool.in_use`, `pool.idle`,
+`pool.wait_count` y `pool.wait_duration_ms`, junto con `server.max_connections`; `pool.max_open` en `0`
+significa sin límite).
 
 ### 4.2 Secretos y autenticación
 
@@ -476,6 +585,10 @@ contraseñas del `.env` después, no se aplican solas (sección 12.3).
 | Línea esperada | Significa |
 |---|---|
 | `[nexo] seguridad: dos cuentas de base de datos (dueña ..., aplicación ...)` | Dos cuentas activas. Si ve `seguridad degradada: una sola cuenta`, falta `NEXO_MIGRATION_DATABASE_URL` |
+| `[nexo] base de datos: ENGRAM_DATABASE_URL: sslmode=verify-full, conexion cifrada (TLSv1.3), servidor verificado` | TLS verificado hacia la base. Aparece otra línea igual para `NEXO_MIGRATION_DATABASE_URL`. Con `NEXO_DB_REQUIRE_TLS=true` se agrega `NEXO_DB_REQUIRE_TLS=true: ... usa TLS verificado` |
+| `[nexo] seguridad: ADVERTENCIA: ENGRAM_DATABASE_URL apunta a una base que no es local y no usa TLS verificado ...` | La base no es local y la conexión no es `verify-full` ni `verify-ca`. En la red interna del compose de ejemplo (`sslmode=disable`, sin puertos publicados) es esperado; con una base administrada, corríjalo o active `NEXO_DB_REQUIRE_TLS` |
+| `[nexo] base de datos: pool de ENGRAM_DATABASE_URL: abiertas como maximo 25 ..., en reposo 10 ..., vida maxima 30m0s ..., reposo maximo 5m0s ...` | Valores efectivos del pool (sección 4.1.1) |
+| `[nexo] base de datos: N peticiones esperaron una conexion libre del pool en el ultimo minuto ...` | El máximo de conexiones es bajo para la carga (sección 4.1.1) |
 | `[nexo] seguridad: limite de peticiones: sync=600/600 admin=120/120 ...` | Límites efectivos |
 | `[nexo] seguridad: bloqueo por fallos de autenticacion: ip 20 tokens distintos en 5m0s bloquean 15m0s; sin bloqueo por persona ...` | Bloqueo efectivo |
 | `[nexo] seguridad: tokens nuevos vencen a los 90 dias (maximo 365, NEXO_TOKEN_MAX_DAYS)` | Caducidad de tokens |
@@ -531,27 +644,131 @@ agregue `--cacert <ca-de-caddy>.crt` a `curl`.
 
 También puede entrar al panel en `https://<dominio>/dashboard/` con ese token.
 
-### 7.3 Segundo superadmin (recomendado)
+### 7.3 Segundo superadmin (obligatorio en la práctica)
 
-Debe existir siempre al menos un superadmin habilitado; se recomiendan dos. Desde una red incluida en
-`NEXO_SUPERADMIN_ALLOWED_CIDRS`:
+Debe existir siempre al menos un superadmin habilitado, pero **con uno solo el acceso depende de una
+persona y de un token** (se pierde el token, se va la persona o vence el token y nadie más puede crear
+admins ni cambiar la configuración). Por eso el servidor deja una alerta **alta** (`single_superadmin`)
+cuando queda un solo superadmin habilitado y marca a esa persona con `single_superadmin` en la revisión de
+accesos; la alerta se repite cada semana hasta que haya otro. Cree el segundo superadmin apenas termine el
+primer arranque, desde una red incluida en `NEXO_SUPERADMIN_ALLOWED_CIDRS`.
+
+**Desde el panel** (con el token del primer superadmin, en `https://<dominio>/dashboard/`):
+
+1. **Administración > Usuarios**, formulario "Crear usuario": usuario, correo, nombre y rol de plataforma
+   **Superadmin** (solo un superadmin puede elegirlo).
+2. En el detalle de la persona, "Crear token": nombre `laptop-<usuario2>`, alcance `write` y días de vida
+   (ver la nota de abajo). El token aparece **una sola vez**: entréguelo por un canal seguro.
+
+**Por API**, equivalente en dos pasos:
 
 ```sh
-# 1. Crear la persona como administradora (solo un superadmin puede crear admins)
+# 1. Crear la persona directamente como superadmin (los roles de plataforma están unificados: el rol de Nexo es el único)
 curl -fsS -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"username":"<usuario2>","email":"<correo2>","display_name":"<Nombre Apellido>","role":"admin"}' \
+  -d '{"username":"<usuario2>","email":"<correo2>","display_name":"<Nombre Apellido>","role":"superadmin"}' \
   "$NEXO_URL/admin/users"
-# 2. Promoverla a superadmin
-curl -fsS -X PUT -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"role":"superadmin"}' "$NEXO_URL/nexo/authz/v1/platform/members/<usuario2>"
-# 3. Emitirle su token (90 días, escritura)
+# 2. Emitirle su token (escritura). Use una caducidad distinta de la del primero: ver la nota
 curl -fsS -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"principal":"<usuario2>","name":"laptop-<usuario2>","expires_in_days":90,"scope":"write"}' \
+  -d '{"principal":"<usuario2>","name":"laptop-<usuario2>","expires_in_days":75,"scope":"write"}' \
   "$NEXO_URL/nexo/authz/v1/tokens"
 ```
 
-La respuesta del paso 3 trae `raw_token` una sola vez. Entréguelo por un canal seguro. El resto de la
-administración diaria está en [`administracion.md`](administracion.md).
+La respuesta del paso 2 trae `raw_token` una sola vez. Para promover a alguien que ya existe: `PUT
+$NEXO_URL/nexo/authz/v1/platform/members/<usuario2>` con `{"role":"superadmin"}`.
+
+**Nota: escalone los vencimientos.** Los tokens nacen con 90 días. Si los dos superadmins reciben su token
+el mismo día, vencen el mismo día y, si nadie renovó, se pierde el acceso de los dos a la vez. Emita el del
+segundo con otra caducidad (por ejemplo 75 días, o 60) y, después, **no renueven el mismo día** (7.4).
+Compruebe que el segundo entra: `GET /nexo/authz/v1/me` con su token debe responder `platform.role:
+superadmin`, y la alerta `single_superadmin` deja de repetirse. El resto de la administración diaria está
+en [`administracion.md`](administracion.md).
+
+### 7.4 Renovar el token de un superadmin (o admin o auditor) sin corte
+
+El servidor avisa con la alerta `privileged_token_expiring` cuando un token activo de un superadmin, admin
+o auditor habilitado vence en 30 días (advertencia) y otra vez a los 7 días (alta), una alerta por token y
+por aviso. Renueve al primer aviso: el procedimiento es emitir el nuevo, probarlo y recién entonces revocar
+el viejo, así nunca se queda sin acceso.
+
+Qué puede hacer cada rol (probado): un **superadmin** se emite su propio token con el que tiene vigente y
+revoca el viejo con el nuevo; un **admin o auditor** necesita que un superadmin le emita el nuevo (un admin
+también puede emitirse el suyo, pero no el de un superadmin); un token de solo lectura (`read`) no emite
+tokens.
+
+```sh
+# 0. Con el token vigente: ver los propios y anotar el id del que se va a reemplazar
+curl -fsS -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" "$NEXO_URL/nexo/authz/v1/tokens"
+# 1. Emitir el nuevo (mismo nombre de máquina o uno nuevo, 90 días, escritura)
+curl -fsS -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"principal":"<usuario>","name":"laptop-<usuario>-2","expires_in_days":90,"scope":"write"}' \
+  "$NEXO_URL/nexo/authz/v1/tokens"
+# 2. Guardar el nuevo en el gestor de secretos y PROBARLO antes de seguir
+read -rs NEXO_NEW_TOKEN
+curl -fsS -H "Authorization: Bearer $NEXO_NEW_TOKEN" "$NEXO_URL/nexo/authz/v1/me"      # 200, platform.role correcto
+# 3. Revocar el viejo, ya con el nuevo
+curl -fsS -X POST -H "Authorization: Bearer $NEXO_NEW_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"renovación"}' "$NEXO_URL/admin/tokens/<id-del-viejo>/revoke"
+# 4. Comprobar: el viejo responde 401 y el nuevo 200
+```
+
+Después, actualice el token en las PCs o servicios que lo usaban (`engram nexo connect --token-stdin`). La
+alerta del token viejo deja de repetirse al revocarlo (un token revocado no avisa).
+
+**Recomendaciones.**
+
+- **Los dos superadmins no renuevan el mismo día.** Renueve uno, compruebe que entra con el nuevo y renueve
+  el otro unos días después: mientras uno renueva, el otro conserva un token vigente por si algo sale mal. Con
+  el escalonado de 7.3, cada uno recibe su aviso en fechas distintas.
+- Ponga en el calendario la renovación de cada superadmin 30 días antes del vencimiento (los tokens
+  duran 90 días por defecto). La revisión de accesos (`tokens_expiring_30d`, marca `token_expiring`) lo muestra.
+- Si un token privilegiado vence sin haberlo renovado y el otro superadmin conserva el suyo, el otro emite el
+  nuevo con el mismo procedimiento. Si **ninguno** conserva uno vigente, vea 7.5.
+
+### 7.5 Acceso de emergencia ("romper el vidrio")
+
+Para el caso en que **ningún superadmin habilitado tiene un token vigente con escritura** (todos vencieron o
+fueron revocados): por la API nadie puede emitir un token, y el panel exige uno. El comando corre **solo
+dentro del servidor**, con la misma conexión a la base que el servicio (no usa la red HTTP) y las mismas
+variables (`ENGRAM_DATABASE_URL`, `ENGRAM_CLOUD_TOKEN_PEPPER` y, si se usa, `NEXO_MIGRATION_DATABASE_URL`).
+Quien lo ejecuta necesita acceso al servidor, que ya es un acceso de más privilegio que cualquier token:
+
+```sh
+docker compose -f compose.yaml exec cloud \
+  engram cloud bootstrap emergency-token --user <superadmin> --reason "todos los tokens vencidos"
+```
+
+Qué hace y qué no:
+
+| Regla | Detalle |
+|---|---|
+| A quién | A un superadmin **existente y habilitado** (`--user`). No crea personas ni cambia roles |
+| Cuándo | Solo si ningún superadmin habilitado tiene un token vigente con escritura. Un token de solo lectura no cuenta (no puede emitir ni revocar). Si alguno lo tiene, se niega y dice quién: use esa cuenta |
+| El token | Vale **24 horas**, con escritura, y se muestra **una sola vez** |
+| Rastro | Queda en la auditoría (`nexo.emergency_token`, con el motivo de `--reason`) y crea la alerta **alta** `emergency_access_used` (que llega al webhook si está configurado). Las negativas también quedan en la auditoría |
+| Códigos de negativa | `user_not_found`, `not_superadmin`, `user_disabled`, `superadmin_has_valid_token` |
+
+Después de usarlo:
+
+1. Con el token de emergencia, emita tokens normales para los superadmins (7.4) y pruébelos.
+2. Revoque el token de emergencia (su nombre es `emergency-AAAAMMDD-HHMM`; el id sale de
+   `GET /nexo/authz/v1/tokens?principal=<superadmin>`). Si no lo revoca, vence solo a las 24 horas.
+3. Reconozca la alerta con una nota que diga qué pasó y por qué los tokens habían vencido, y corrija la
+   causa (calendario de renovación, segundo superadmin).
+
+No usar `emergency-token` cuando el problema es otro:
+
+| Situación | Qué usar |
+|---|---|
+| Hay superadmins con token vigente | Esa cuenta emite los tokens (7.4); el comando se niega |
+| El único administrador nunca recibió su token (bootstrap incompleto) | `engram cloud bootstrap recover-token` (7.1). Se mantiene separado: su condición es más estrecha (un solo administrador sin tokens) y no cambió |
+| No hay ningún superadmin habilitado | El comando no ayuda (no cambia roles ni habilita cuentas). Un DBA habilita a uno con la cuenta dueña (`UPDATE cloud_principals SET enabled = TRUE WHERE id = <id>;`) y luego se usa el comando |
+| Se rotó `ENGRAM_CLOUD_TOKEN_PEPPER` | Los tokens figuran como vigentes pero ya no sirven, y el comando se niega. Revóquelos primero con la cuenta dueña: `UPDATE cloud_principal_tokens SET revoked_at = now(), revocation_reason = 'pepper_rotated' WHERE revoked_at IS NULL;` y luego use el comando (12.3) |
+
+Por qué un subcomando nuevo y no ampliar `recover-token`: `recover-token` repara un estado distinto y
+estrecho (el administrador único sin ningún token, o con un único token de arranque sin usar) y su
+elegibilidad no debe aflojarse; la emergencia tiene otra condición (varios superadmins con tokens vencidos o
+revocados), un destino explícito, caducidad de 24 horas y su propia alerta.
+
 
 ## 8. Postgres administrado en lugar del contenedor
 
@@ -593,6 +810,7 @@ En el servicio `cloud`, monte la CA del proveedor y use `verify-full` en las dos
 
 ```yaml
     environment:
+      NEXO_DB_REQUIRE_TLS: "true"
       ENGRAM_DATABASE_URL: postgres://nexo_app:${NEXO_APP_PASSWORD}@<host-postgres>:5432/engram_cloud?sslmode=verify-full&sslrootcert=/tls/ca.crt
       NEXO_MIGRATION_DATABASE_URL: postgres://nexo_owner:${NEXO_OWNER_PASSWORD}@<host-postgres>:5432/engram_cloud?sslmode=verify-full&sslrootcert=/tls/ca.crt
     volumes:
@@ -600,9 +818,12 @@ En el servicio `cloud`, monte la CA del proveedor y use `verify-full` en las dos
       - ./pg-tls:/tls:ro
 ```
 
-El nombre de host de la URL debe coincidir con el certificado del servidor de base de datos. Para
-comprobar el cifrado, con la cuenta `nexo_app`:
-`SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();` debe devolver `t`.
+El nombre de host de la URL debe coincidir con el certificado del servidor de base de datos. Con
+`NEXO_DB_REQUIRE_TLS=true` el servidor no arranca si alguna de las dos URL no usa `verify-full` o
+`verify-ca`, y el log del arranque confirma el cifrado de cada conexión (6.6). Para comprobar el cifrado desde
+la base, con la cuenta `nexo_app`:
+`SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();` debe devolver `t`. Lo que debe cumplir
+la base (versión, extensión `vector`, cuentas y TLS) está en 2.1.
 
 Si hay un pooler (por ejemplo PgBouncer) cuyo usuario de conexión no es `nexo_app`, defina
 `NEXO_DB_APP_ROLE=nexo_app`. Por verificar: el servidor no se probó detrás de un pooler.
@@ -878,6 +1099,7 @@ Las acciones (reconocer una alerta, registrar una revisión) exigen además un t
 | Contenedores | `docker compose -f compose.yaml ps` | `postgres` en `healthy`; `cloud` y `proxy` en `running` |
 | La base y la autenticación responden | `curl -fsS -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" https://<dominio>/nexo/authz/v1/me` | `200` con su rol |
 | Avisos del servidor | `docker compose -f compose.yaml logs --since 1h cloud \| grep "\[nexo\]"` | Sin errores de exportación, retención ni verificación |
+| Base de datos (pool, TLS, versión) | `curl -fsS -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" https://<dominio>/nexo/admin/database` (superadmin) | `tls.verified: true` y `tls.encrypted: true`; `pool.wait_count` estable; `server.vector_version` presente si se usa la búsqueda por significado |
 
 `/health` (de Engram) solo indica que el proceso está vivo: no consulta la base y responde `ok`
 aunque Postgres esté caído. Para el monitoreo externo, el balanceador o el `healthcheck` de Docker use
@@ -916,6 +1138,9 @@ devuelve `409`. El servidor evalúa las reglas cada minuto en una sola réplica.
 | `auth_failures_burst` | Ráfaga de fallos de autenticación | 10 en 5 min | high |
 | `platform_role_changed` | Cambia un rol de plataforma | 1 | high |
 | `platform_role_drift` | La columna de rol de Engram no coincide con el rol de Nexo (corregir con `engram nexo authz reconcile-roles --apply`) | 1 | high |
+| `single_superadmin` | Queda un solo superadmin habilitado (o ninguno). Se repite cada semana (`cooldown_seconds`) mientras siga así y de inmediato si cambia quién es el único (7.3) | 1 | high |
+| `privileged_token_expiring` | Un token activo de un superadmin, admin o auditor habilitado vence en 30 días (advertencia) o en 7 días (sube a alta); una alerta por token y por aviso (7.4) | 30 y 7 días | warning / high |
+| `emergency_access_used` | Se emitió un token de emergencia con `engram cloud bootstrap emergency-token` (7.5). No se puede pasar por alto: la inserta el propio comando | 1 | high |
 | `shared_token_used` | Se usa el token compartido `ENGRAM_CLOUD_TOKEN` | 1 | warning |
 | `expired_token_used` | Se usa un token vencido | 1 | info |
 | `revoked_token_used` | Se usa un token revocado o de una persona deshabilitada | 1 | warning |
@@ -1002,7 +1227,9 @@ documentos no se depuran.
 - Dos cuentas de base de datos (log `dos cuentas de base de datos`). El superusuario `postgres` solo
   para administrar.
 - `ENGRAM_CLOUD_TOKEN` aleatorio y sin entregar; `ENGRAM_CLOUD_ADMIN` vacía.
-- Dos superadmins habilitados; nadie trabaja a diario con un token de superadmin.
+- Dos superadmins habilitados, con tokens escalonados (7.3); nadie trabaja a diario con un token de superadmin.
+- Atienda los avisos `privileged_token_expiring` (30 y 7 días) con el procedimiento de 7.4, y sepa dónde
+  está el acceso de emergencia (7.5) antes de necesitarlo.
 - Tokens con caducidad (90 días por defecto) y alcance `read` cuando la persona solo consulta.
 - Revise la alerta `shared_token_used`: nadie debería usar el token compartido.
 
@@ -1018,9 +1245,12 @@ documentos no se depuran.
 | `NEXO_ALERT_WEBHOOK_URL` | Regenerar el webhook en Slack o Teams, nuevo valor y reiniciar | Ninguno |
 | Tokens de personas | Ver [`administracion.md`](administracion.md), sección 3 | Solo la persona afectada |
 
-Por verificar: recuperar el acceso después de rotar el pepper. `recover-token` solo funciona cuando
-el único administrador habilitado no tiene ningún token; con varios administradores puede hacer falta
-otro camino. Ensáyelo en un entorno de prueba antes de necesitarlo.
+Recuperar el acceso después de rotar el pepper: los tokens quedan en la base como vigentes pero ya no
+sirven, así que `emergency-token` se niega (cree que algún superadmin aún tiene uno). Revóquelos primero con
+la cuenta dueña (`UPDATE cloud_principal_tokens SET revoked_at = now(), revocation_reason = 'pepper_rotated'
+WHERE revoked_at IS NULL;`) y luego emita el acceso de emergencia (7.5), que usa el pepper nuevo.
+`recover-token` solo sirve cuando el único administrador habilitado no tiene ningún token. Ensáyelo en un
+entorno de prueba antes de necesitarlo.
 
 ## 13. Lista de comprobación final
 
@@ -1037,7 +1267,10 @@ otro camino. Ensáyelo en un entorno de prueba antes de necesitarlo.
 | 9 | `ENGRAM_CLOUD_ALLOWED_PROJECTS` con los proyectos de memoria acordados | |
 | 10 | Exportación firmada activa (`NEXO_AUDIT_EXPORT_DIR` y `NEXO_AUDIT_EXPORT_KEY`); carpeta con dueño 10001 y copiada fuera del host | |
 | 11 | Webhook de alertas configurado y probado (o revisión manual de alertas acordada) | |
-| 12 | Dos superadmins habilitados, con tokens personales | |
+| 12 | Dos superadmins habilitados, con tokens personales y vencimientos escalonados; sin la alerta `single_superadmin` (7.3) | |
+| 12b | Procedimiento de renovación (7.4) y de acceso de emergencia (7.5) leídos por quienes operan; renovaciones de los superadmins en el calendario | |
+| 12c | `NEXO_DB_REQUIRE_TLS=true`, sin la ADVERTENCIA de TLS en el log, y la base cumple la sección 2.1 | |
+| 12d | `NEXO_DB_MAX_OPEN_CONNS` en `0` (sin límite) mientras OP-13 siga abierta, y `max_connections` de Postgres holgado para la carga, con margen (4.1.1) | |
 | 13 | `GET /nexo/admin/audit/verify` con `ok: true` | |
 | 14 | Respaldo de Postgres programado, cifrado y fuera del host; restauración ensayada | |
 | 15 | Política de retención decidida antes de activar `NEXO_RETENTION_*` | |
@@ -1052,4 +1285,5 @@ otro camino. Ensáyelo en un entorno de prueba antes de necesitarlo.
 | Servidor detrás de un pooler | `NEXO_DB_APP_ROLE` existe para ese caso, pero no hay prueba |
 | Restauración completa desde `pg_dump` | No está en las pruebas automatizadas |
 | Volver a una versión anterior de Nexo | No hay prueba automatizada; los triggers nuevos quedan activos |
-| Recuperar acceso tras rotar el pepper con varios administradores | `recover-token` tiene condiciones estrictas |
+| Recuperar acceso tras rotar el pepper | `recover-token` tiene condiciones estrictas; con `emergency-token` hay que revocar antes los tokens viejos (12.3). El procedimiento está descrito, no ensayado contra un servidor real |
+| Acceso de emergencia contra un servidor real | `emergency-token` está probado contra Postgres 18 (pruebas automáticas y E2E con compose); no se ejecutó en el servidor de producción |

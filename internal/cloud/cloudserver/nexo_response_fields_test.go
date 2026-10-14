@@ -50,6 +50,7 @@ func nexoResponseTypes() map[string]any {
 		"GET /nexo/admin/presence":                nexoPage[cloudstore.NexoPresenceRecord]{},
 		"GET /nexo/admin/history/{entityKey}":     nexoPage[cloudstore.NexoHistoryRecord]{},
 		"GET /nexo/admin/authz-events":            nexoPage[authz.EventRecord]{},
+		"GET /nexo/admin/database":                cloudstore.NexoDBStatus{}, // SG-05
 		"GET /nexo/admin/audit/verify":            evidence.Report{},
 		"GET /nexo/admin/alerts":                  nexoPage[evidence.Alert]{},
 		"POST /nexo/admin/alerts/{id}:ack":        evidence.AlertAck{},

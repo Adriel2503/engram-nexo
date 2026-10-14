@@ -58,6 +58,8 @@ var AllRules = []string{
 	RuleKBDocExpiring, RuleKBReviewDue, // NX-10 2b (KP-09, alerts_kb.go)
 	RuleSAStale,           // SG-10: cuentas de servicio sin uso (serviceaccounts.go)
 	RulePlatformRoleDrift, // NX-05: rol de Engram distinto del rol de Nexo (role_drift.go)
+	// SG-06: continuidad del acceso de administracion (continuity_alerts.go).
+	RuleSingleSuperadmin, RulePrivilegedTokenExpiring, RuleEmergencyAccessUsed,
 }
 
 // RuleConfig es la configuración de una regla.
@@ -97,6 +99,11 @@ func DefaultRules() RuleSet {
 		// NX-05: la columna role de Engram se deriva del rol de Nexo; una
 		// desalineación es señal de que alguien evitó los triggers.
 		RulePlatformRoleDrift: {Enabled: true, Threshold: 1, Severity: SeverityHigh},
+		// SG-06: un solo superadmin (recordatorio semanal), token privilegiado
+		// por vencer (aviso a 30 y 7 dias; a 7 sube a alta) y acceso de emergencia.
+		RuleSingleSuperadmin:        {Enabled: true, Threshold: 1, Cooldown: 7 * 24 * time.Hour, Severity: SeverityHigh},
+		RulePrivilegedTokenExpiring: {Enabled: true, Threshold: 1, Severity: SeverityWarning},
+		RuleEmergencyAccessUsed:     {Enabled: true, Threshold: 1, Severity: SeverityHigh},
 	}
 }
 
@@ -588,6 +595,20 @@ func EvaluateOnce(ctx context.Context, db *sql.DB, rules RuleSet, now time.Time)
 	}
 	if cfg := rules[RulePlatformRoleDrift]; cfg.Enabled { // NX-05
 		got, err := runRoleDrift(ctx, tx, cfg, now)
+		if err != nil {
+			return nil, true, err
+		}
+		alerts = append(alerts, got...)
+	}
+	if cfg := rules[RuleSingleSuperadmin]; cfg.Enabled { // SG-06
+		got, err := runSingleSuperadmin(ctx, tx, cfg, now)
+		if err != nil {
+			return nil, true, err
+		}
+		alerts = append(alerts, got...)
+	}
+	if cfg := rules[RulePrivilegedTokenExpiring]; cfg.Enabled { // SG-06
+		got, err := runPrivilegedTokenExpiring(ctx, tx, cfg, now)
 		if err != nil {
 			return nil, true, err
 		}

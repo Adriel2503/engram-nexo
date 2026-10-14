@@ -42,6 +42,21 @@ type Env struct {
 
 var seq atomic.Int64
 
+// runID distingue este proceso de prueba de los demas: `go test ./...` corre los
+// paquetes que usan kbtest (service, store, evidence, cli, client, eval,
+// nexocli, auditcli) en procesos distintos y a la vez, contra la misma base. El
+// reloj de Windows avanza por pasos de ~0,5 ms y el contador `seq` empieza en 1
+// en cada proceso, asi que `<prefijo>_<UnixNano>_<seq>` podia repetirse entre dos
+// procesos y `CREATE SCHEMA` fallaba con "duplicate key value violates unique
+// constraint pg_namespace_nspname_index" (la prueba inestable de kb/service).
+// El pid distingue los procesos concurrentes y los bytes al azar, los pids
+// reutilizados.
+var runID = func() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%d_%s", os.Getpid(), hex.EncodeToString(b))
+}()
+
 // BaseDSN devuelve CLOUDSTORE_TEST_DSN o salta la prueba.
 func BaseDSN(t testing.TB) string {
 	t.Helper()
@@ -77,7 +92,7 @@ func WithSearchPath(t testing.TB, base, user, password, schema string) string {
 func NewSchema(t testing.TB, prefix string) (schema, dsn string, admin *sql.DB) {
 	t.Helper()
 	base := BaseDSN(t)
-	schema = fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), seq.Add(1))
+	schema = fmt.Sprintf("%s_%s_%d_%d", prefix, runID, time.Now().UnixNano(), seq.Add(1))
 	adminDB, err := sql.Open("pgx", WithSearchPath(t, base, "", "", schema))
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +136,7 @@ func Open(t testing.TB, schema, dsn string, admin *sql.DB, opts ...service.Optio
 func TwoAccounts(t testing.TB, opts ...service.Option) (*Env, string) {
 	t.Helper()
 	base := BaseDSN(t)
-	suffix := fmt.Sprintf("%d_%d", time.Now().UnixNano(), seq.Add(1))
+	suffix := fmt.Sprintf("%s_%d_%d", runID, time.Now().UnixNano(), seq.Add(1))
 	schema, owner, app := "nexo_kb2_"+suffix, "nexo_kb_owner_"+suffix, "nexo_kb_app_"+suffix
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)

@@ -27,6 +27,10 @@ const nexoGrantsLockKey int64 = 0x4e58_0007 // "NX" 07
 
 // nexoMigrateOnStartup reemplaza a migrate() en New (enganche // NX-07).
 func (cs *CloudStore) nexoMigrateOnStartup(ctx context.Context) error {
+	// SG-05 y pool: TLS y pool efectivos de la cuenta de aplicación en el log.
+	if err := nexoReportConnection(ctx, cs.db); err != nil {
+		return err
+	}
 	ownerDSN := strings.TrimSpace(os.Getenv(security.MigrationDatabaseURLEnv))
 	if ownerDSN == "" {
 		log.Printf("[nexo] %s", security.DegradedWarning)
@@ -36,15 +40,18 @@ func (cs *CloudStore) nexoMigrateOnStartup(ctx context.Context) error {
 }
 
 func (cs *CloudStore) nexoMigrateWithOwner(ctx context.Context, ownerDSN string) error {
-	ownerDB, err := sql.Open("pgx", ownerDSN)
+	ownerDB, err := nexoOpenDB(security.MigrationDatabaseURLEnv, ownerDSN, false)
 	if err != nil {
 		return fmt.Errorf("cloudstore: nexo: abrir cuenta dueña (%s): %w", security.MigrationDatabaseURLEnv, err)
 	}
-	defer func() { _ = ownerDB.Close() }()
+	defer func() { nexoConns.Delete(ownerDB); _ = ownerDB.Close() }()
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := ownerDB.PingContext(pingCtx); err != nil {
 		return fmt.Errorf("cloudstore: nexo: conectar con la cuenta dueña (%s): %w", security.MigrationDatabaseURLEnv, err)
+	}
+	if err := nexoReportConnection(ctx, ownerDB); err != nil {
+		return err
 	}
 
 	// Ambas conexiones deben apuntar al mismo esquema.
