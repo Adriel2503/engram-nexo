@@ -7,13 +7,16 @@ package evidence
 // formatos de credencial, también en filas históricas.
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 func nexoExportMetadataLine(line string) (string, error) {
 	var envelope map[string]any
-	if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+	dec := json.NewDecoder(strings.NewReader(line))
+	dec.UseNumber()
+	if err := dec.Decode(&envelope); err != nil {
 		return "", err
 	}
 	if row, ok := envelope["row"].(map[string]any); ok {

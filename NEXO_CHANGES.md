@@ -774,6 +774,53 @@ revisión encontró otros; esta vez se cierra el **patrón**.
 `nexo_op13_memory_test.go`, `nexo_text_test.go`, `kb/client/nexo_activation_resume_test.go`,
 `nexocli/nexo_activation_resume_test.go`, `serviceaccounts_switch_test.go`. Archivos de Engram: ver §4.
 
+### NX-07 · Segunda ronda sobre el mismo patrón: autorizar con el original, tipos de campo reales (rama fix/revision-nexo3-b)
+
+**Motivo.** Una revisión adversarial del merge de `fix/revision-nexo3` encontró dos regresiones del propio
+patrón: (1) el historial de memorias autorizaba con el proyecto **ya redactado** (un proyecto `nxa_...` pasaba
+a `[credencial oculta]`, clave normalizada `credencial-oculta`, y un auditor con lectura de ese nombre recibía
+título y payload del original); (2) la exportación firmada perdía `actor_principal_id` y `target_principal_id`
+porque se declaraban como identificador (solo texto) y Postgres los entrega como números (`to_jsonb` de BIGINT).
+
+**Regla nueva.** La redacción solo limpia la **copia de salida**; ninguna decisión de autorización, filtrado,
+pertenencia, agrupación, paginación o escritura usa un valor redactado.
+- Ámbitos de lectura: `authz.NexoScopeSource` (campo privado, fuera de JSON y de `redact.Struct`) guarda el
+  ámbito original en `NexoHistoryRecord`, `NexoAuditRecord`, `authz.EventRecord` y `evidence.Alert`; el almacén
+  lo anota **antes** de redactar y los filtros del servidor (`nexoFilterHistory`, `nexoFilterSecurityAudit`,
+  `nexoFilterRoleEvents`, `nexoFilterAlerts`) autorizan con él y redactan después. Una fila que ya se escribió
+  con la etiqueta (sin el original) no se atribuye a ningún proyecto: se evalúa con clave vacía (solo roles de
+  plataforma), nunca con la lectura de un proyecto homónimo. Las alertas conservan la precedencia espacio sobre
+  proyecto.
+- Corridas de evaluación: `EvalRun` conserva los espacios originales (`NexoAuthorizationSpaces`).
+- Controles de sincronización por proyecto: `ProjectSyncControl` conserva el proyecto original
+  (`NexoAuthorizationProject`); el inventario del panel, el filtro por permisos y el mapa de controles del panel
+  usan el original (antes un proyecto con el nombre de la etiqueta recibía los controles del otro).
+- Conocimiento: `domain.Document` y `store.Proposal` conservan el `doc_key` original (`NexoDocKey`); la poda
+  (pertenencia, orden y retiro), el cursor de paginación del listado de documentos y la clave con la que se
+  aprueba una propuesta usan el original.
+- Exportación: `NexoExportRow` decide la capa de las alertas con la fila original, no con la copia redactada.
+
+**Tipos de campo.** `NexoFieldInteger` (BIGINT validado: sin booleanos, fracciones ni desbordamiento) para las
+columnas numéricas de las exportaciones (ids, actor, destinatario, token, revisor); el lector de la línea firmada
+conserva los números sin pérdida (`json.Number`). Los identificadores (`NexoFieldID`) ahora aceptan también un
+entero válido, porque los productores entregan `alert_id`, `review_id`, ids de principal y de activación como
+números; `owner_principal_id` es identificador y `hidden` número; `[]string` es una lista válida; se declararon
+`only_flagged`, `bytes`, `content_sha256` y `file` en la auditoría. Pruebas: cada columna de cada tabla exportada
+se contrasta con su tipo real de Postgres y falla si un valor no vacío se omite por tipo.
+
+**Evidencia ya generada.** Los archivos de exportación escritos antes de esta corrección no tienen
+`actor_principal_id` ni `target_principal_id`. No hace falta herramienta nueva: `ExportDay` puede volver a
+ejecutarse sobre el mismo día con la tabla y la fecha (la fila de origen en Postgres no cambió) para regenerar el
+archivo con los campos y una firma nueva; los archivos antiguos siguen verificando contra su propia firma, pero
+sin esos campos. Conservarlos junto con los regenerados hasta cerrar la revisión.
+
+**Archivos propios nuevos.** `authz/nexo_scope_source.go`, `nexo_event_output.go`, `cloudstore/nexo_query_output.go`,
+`kb/domain/nexo_key_source.go`, `kb/store/nexo_eval_output.go`, `nexo_proposal_key.go`,
+`security/evidence/nexo_alert_output.go`, `security/nexo_projection_integer.go` y las pruebas
+`nexo_scope_collision_test.go`, `nexo_control_collision_test.go`, `nexo_prune_identity_test.go`,
+`nexo_export_bigint_test.go`, `nexo_export_column_types_test.go`, `nexo_projection_integer_test.go`,
+`nexo_projection_producers_test.go`.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -891,7 +938,9 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudstore/identity.go:824-826` | NX-07 | `FindPrincipalTokenByHash`: con las cuentas de servicio apagadas el principal vuelve como deshabilitado (sus tokens no autentican; falla cerrado) |
 | `internal/cloud/cloudstore/identity.go:892-894` | NX-07 | `RevokePrincipalToken`: el motivo se valida (`nexoCheckText`) antes de guardarlo |
 | `internal/cloud/cloudstore/identity.go:14` | NX-07 | Imports de `internal/nexo/features` y `internal/nexo/redact` |
-| `internal/cloud/cloudstore/project_controls.go:61,65,112,159` | NX-07 | `SetProjectSyncEnabled` guarda motivo y autor sin credenciales; `GetProjectSyncControl` y `ListProjectSyncControls` limpian filas históricas con `redact.Struct` |
+| `internal/cloud/cloudstore/project_controls.go:17,62,66,113,160-161,170-176` | NX-07 | `SetProjectSyncEnabled` guarda motivo y autor sin credenciales; `GetProjectSyncControl` y `ListProjectSyncControls` limpian filas históricas con `redact.Struct`; el control conserva el proyecto original (campo privado `source`, `NexoAuthorizationProject`) para decidir pertenencia |
+| `internal/cloud/cloudstore/dashboard_queries.go:959, 1500` | NX-07 | Inventario del panel y filtro por permisos de los controles usan el proyecto original, no la etiqueta redactada |
+| `internal/cloud/dashboard/helpers.go:306` | NX-07 | `controlsByProject` indexa por el proyecto original |
 | `internal/cloud/cloudstore/audit_log.go:80-82,205` | NX-07 | `InsertAuditEntry` guarda quien contribuye y los metadatos sin credenciales; `ListAuditEntriesPaginated` limpia filas históricas |
 | `cmd/engram/cloud_bootstrap.go:85-86, 100, 102` | NX-05 (SG-06) | `engram cloud bootstrap`: `case "emergency-token"` (llama a `cmdCloudBootstrapEmergencyToken`, archivo propio) y dos líneas de la ayuda; `recover-token` no cambia |
 
@@ -1089,6 +1138,9 @@ go test -count=1 -run TestCloudRuntime ./cmd/engram/
 go test -count=1 -p 1 -run "TestCanary|TestNexoSpaceSettings|TestNexoEvalRunsProjection|TestNexoHistoryRedacts|TestNexoFrontMatterSourceURL|TestNexoActivationInternalErrors|TestNexoServiceAccountsSwitch" ./internal/cloud/cloudserver/
 go test -count=1 -p 1 -run "TestNexoActivation|TestNexoOP13|TestNexoHumanUser|TestNexoRevokeReason|TestNexoEngramAdminText|TestNexoServiceAccount" ./internal/cloud/cloudstore/
 go test -count=1 ./internal/nexo/kb/client/ ./internal/nexo/nexocli/ ./internal/nexo/redact/ ./internal/nexo/security/
+# NX-07 (fix/revision-nexo3-b): autorizar con el original y tipos reales de columna (PG)
+go test -count=1 -p 1 -run "TestNexoScopeRedactionCollisionPG|TestNexoExportDayKeepsRealBigintIdentitiesPG|TestNexoExportEveryColumnKeepsPostgresValuePG|TestNexoProjection" ./internal/cloud/cloudserver/ ./internal/nexo/security/...
+go test -count=1 -p 1 -run "TestNexoControlScopeRedactionCollisionPG" ./internal/cloud/cloudstore/ ; go test -count=1 -p 1 -run "TestNexoPrune|TestNexoListDocumentsCursor" ./internal/nexo/kb/service/
 # NX-07 S5: la puerta de seguridad de CI (.github/workflows/nexo-security.yml), en local
 go test -count=1 -p 1 ./internal/nexo/authz/... ./internal/nexo/security/... ./internal/nexo/routes/...
 go test -count=1 -p 1 -run TestNexo ./internal/cloud/cloudserver/ ./internal/cloud/cloudstore/

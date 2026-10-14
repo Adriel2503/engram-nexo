@@ -52,6 +52,7 @@ type Event struct {
 
 // EventRecord es un evento leído.
 type EventRecord struct {
+	NexoScopeSource   `json:"-"`     // NX-07: ámbito original, privado
 	ID                string         `json:"id"`
 	OccurredAt        time.Time      `json:"occurred_at"`
 	Action            string         `json:"action"`

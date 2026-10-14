@@ -135,6 +135,7 @@ func ListPublishRuns(ctx context.Context, q Querier, spaceID string, before *tim
 
 // EvalRun es una corrida de evaluación (RC-28).
 type EvalRun struct {
+	nexoSpaces        []string       // NX-07: espacios originales, fuera de JSON
 	ID                string         `json:"id"`
 	RanAt             time.Time      `json:"ran_at"`
 	Retriever         string         `json:"retriever"`
@@ -233,7 +234,7 @@ func ListEvalRuns(ctx context.Context, q Querier, setSHA string, acceptedOnly bo
 		_ = json.Unmarshal([]byte(metrics), &r.Metrics)
 		_ = json.Unmarshal([]byte(byClass), &r.ByClass)
 		r.RanAt = r.RanAt.UTC()
-		redact.Struct(&r) // NX-07: filas históricas escritas antes de la redacción en escritura
+		r = nexoRedactEvalRun(r) // NX-07: espacios originales para autorización
 		out = append(out, r)
 	}
 	return out, rows.Err()

@@ -242,7 +242,7 @@ func (p *PGStore) ListEvents(ctx context.Context, q EventQuery) ([]EventRecord, 
 			_ = json.Unmarshal(details, &r.Details)
 		}
 		// NX-07: filas históricas escritas antes de la redacción en escritura.
-		redact.Struct(&r)
+		r = nexoRedactEvent(r) // NX-07: autorizar con la fuente original
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {

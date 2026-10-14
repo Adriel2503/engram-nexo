@@ -188,6 +188,7 @@ type Document struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 	RetiredAt      *time.Time `json:"retired_at,omitempty"`
 	RetirementNote string     `json:"retirement_note,omitempty"`
+	KeySource      KeySource  `json:"-"` // NX-07: doc_key original, privado
 }
 
 // Version es una versión inmutable (nexo_kb_versions).

@@ -64,8 +64,9 @@ func (s *Service) nexoListEvalRuns(ctx context.Context, id authz.Identity, set s
 		return nil, err
 	}
 	for i := range items {
-		allowed := len(items[i].Spaces) > 0
-		for _, slug := range items[i].Spaces {
+		spaces := items[i].NexoAuthorizationSpaces()
+		allowed := len(spaces) > 0
+		for _, slug := range spaces {
 			ok, err := s.nexoAuditRead(ctx, id, slug)
 			if err != nil {
 				return nil, err

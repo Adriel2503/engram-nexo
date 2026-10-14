@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
@@ -244,15 +245,16 @@ func migrateAlerts(ctx context.Context, tx *sql.Tx) error {
 
 // Alert es una alerta.
 type Alert struct {
-	ID         int64          `json:"id"`
-	OccurredAt time.Time      `json:"occurred_at"`
-	Rule       string         `json:"rule"`
-	Severity   string         `json:"severity"`
-	Layer      Layer          `json:"layer"`
-	Subject    string         `json:"subject"`
-	Summary    string         `json:"summary"`
-	Details    map[string]any `json:"details,omitempty"`
-	Ack        *AlertAck      `json:"ack"`
+	authz.NexoScopeSource `json:"-"`     // NX-07: ámbito original, privado
+	ID                    int64          `json:"id"`
+	OccurredAt            time.Time      `json:"occurred_at"`
+	Rule                  string         `json:"rule"`
+	Severity              string         `json:"severity"`
+	Layer                 Layer          `json:"layer"`
+	Subject               string         `json:"subject"`
+	Summary               string         `json:"summary"`
+	Details               map[string]any `json:"details,omitempty"`
+	Ack                   *AlertAck      `json:"ack"`
 }
 
 // AlertAck es el reconocimiento de una alerta.
@@ -753,7 +755,7 @@ func ListAlerts(ctx context.Context, db *sql.DB, q AlertQuery) ([]Alert, string,
 			_ = json.Unmarshal(det, &a.Details)
 		}
 		// NX-07: alertas históricas escritas antes de la redacción en escritura.
-		redact.Struct(&a)
+		a = nexoRedactAlert(a) // NX-07
 		redact.Struct(&ack)
 		if ackAt.Valid {
 			ack.OccurredAt = ackAt.Time
