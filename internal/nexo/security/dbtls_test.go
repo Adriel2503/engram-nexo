@@ -73,6 +73,61 @@ func TestInspectDSN(t *testing.T) {
 	}
 }
 
+// Regresión (revisión adversarial): la decisión sale de la configuración
+// efectiva de pgx, no de una lectura propia de la cadena. Un sslmode repetido
+// gana el último (como en pgx), un archivo de servicio tiene prioridad sobre
+// PGSSLMODE y require con sslrootcert equivale a verify-ca.
+func TestInspectDSNUsesEffectivePgxConfig(t *testing.T) {
+	t.Setenv("PGSSLMODE", "")
+	t.Setenv("PGSERVICE", "")
+	t.Setenv("PGSERVICEFILE", "")
+	dir := t.TempDir()
+	_, _, caPEM := newTestCA(t, "CA de prueba")
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name, dsn, mode string
+		verified        bool
+	}{
+		{"repetido: gana el último (require)", "host=db.interno user=u dbname=x sslmode=verify-full sslmode=require", "require", false},
+		{"repetido: gana el último (verify-full)", "host=db.interno user=u dbname=x sslmode=require sslmode=verify-full", "verify-full", true},
+		{"allow", "host=db.interno user=u dbname=x sslmode=allow", "allow", false},
+		{"prefer por defecto", "host=db.interno user=u dbname=x", "prefer", false},
+		{"require con sslrootcert = verify-ca", "host=db.interno user=u dbname=x sslmode=require sslrootcert='" + caPath + "'", "verify-ca", true},
+		{"varios hosts verify-full", "postgres://u:p@db1.interno:5432,db2.interno:5432/x?sslmode=verify-full", "verify-full", true},
+	}
+	for _, c := range cases {
+		got, err := InspectDSN(c.dsn)
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		if got.SSLMode != c.mode || got.Verified != c.verified {
+			t.Errorf("%s: %+v; want mode=%s verified=%v", c.name, got, c.mode, c.verified)
+		}
+		if err := got.Enforce("ENGRAM_DATABASE_URL", true); (err == nil) != c.verified {
+			t.Errorf("%s: Enforce con REQUIRE_TLS = %v; want aceptar=%v", c.name, err, c.verified)
+		}
+	}
+
+	// Archivo de servicio: en pgx tiene prioridad sobre PGSSLMODE.
+	svc := filepath.Join(dir, "pg_service.conf")
+	if err := os.WriteFile(svc, []byte("[nexo]\nhost=db.interno\nsslmode=require\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PGSERVICEFILE", svc)
+	t.Setenv("PGSSLMODE", "verify-full")
+	got, err := InspectDSN("service=nexo user=u dbname=x")
+	if err != nil {
+		t.Fatalf("servicio: %v", err)
+	}
+	if got.SSLMode != "require" || got.Verified {
+		t.Errorf("servicio sobre PGSSLMODE: %+v; want require sin verificar", got)
+	}
+}
+
 func TestDBTLSEnforceAndWarning(t *testing.T) {
 	remote := DBTLS{SSLMode: "disable"}
 	err := remote.Enforce("ENGRAM_DATABASE_URL", true)

@@ -4,14 +4,15 @@ package security
 //
 // El servidor abre dos conexiones a la base (ENGRAM_DATABASE_URL, la cuenta
 // de aplicación; NEXO_MIGRATION_DATABASE_URL, la cuenta dueña, solo al
-// arrancar). Este archivo decide, a partir de la cadena de conexión, si esa
+// arrancar). Este archivo decide, a partir de la configuración efectiva que
+// pgx arma con la cadena de conexión (la misma que usa al conectar), si esa
 // conexión usa TLS verificado:
 //
-//   - verificado = sslmode verify-full (cifra, comprueba la CA y el nombre del
-//     host) o verify-ca (cifra y comprueba la CA). require, prefer, allow y
-//     disable no verifican al servidor: un intermediario puede hacerse pasar
-//     por la base. require con sslrootcert tampoco cuenta (se pide más
-//     explícito).
+//   - verificado = verify-full (cifra, comprueba la CA y el nombre del host) o
+//     verify-ca (cifra y comprueba la CA). require, prefer, allow y disable no
+//     verifican al servidor: un intermediario puede hacerse pasar por la base.
+//     require con sslrootcert lo trata pgx como verify-ca (igual que libpq) y
+//     por eso cuenta como verificado.
 //   - local = todos los hosts son localhost, una IP de loopback o un socket
 //     Unix. Ahí no hay red de por medio y sin TLS es lo normal.
 //   - Sin TLS verificado hacia un host no local, el log lo avisa al arrancar
@@ -24,11 +25,11 @@ package security
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"strings"
 
@@ -51,8 +52,8 @@ const (
 
 // DBTLS es lo que la cadena de conexión dice sobre el TLS.
 type DBTLS struct {
-	// SSLMode es el sslmode efectivo (el de la cadena, PGSSLMODE o "prefer",
-	// el valor por defecto de Postgres y de pgx).
+	// SSLMode es el sslmode efectivo según la configuración TLS que arma pgx
+	// (cadena, PGSSLMODE, archivo de servicio o "prefer" por defecto).
 	SSLMode string
 	// Local: todos los hosts son localhost, loopback o un socket Unix.
 	Local bool
@@ -75,28 +76,24 @@ func ParseRequireDBTLS(raw string) (bool, error) {
 // RequireDBTLSFromEnv lee NEXO_DB_REQUIRE_TLS.
 func RequireDBTLSFromEnv() (bool, error) { return ParseRequireDBTLS(os.Getenv(DBRequireTLSEnv)) }
 
-// InspectDSN saca el sslmode y si los hosts son locales. No abre ninguna
-// conexión.
+// InspectDSN decide el TLS a partir de la configuración EFECTIVA de pgx
+// (pgconn.ParseConfig, la misma que usa el driver al abrir con esta cadena),
+// no de una lectura propia de la cadena: así cuentan igual que en el driver
+// un sslmode repetido (gana el último), PGSSLMODE, un archivo de servicio
+// (PGSERVICE, con prioridad sobre las variables) y require con sslrootcert
+// (que pgx trata como verify-ca, igual que libpq). Verificado = todos los
+// intentos de conexión (el host y sus alternativas) usan TLS y comprueban el
+// certificado del servidor. No abre ninguna conexión.
 func InspectDSN(dsn string) (DBTLS, error) {
 	cfg, err := pgconn.ParseConfig(dsn)
 	if err != nil {
 		// pgconn ya oculta la contraseña en este error.
 		return DBTLS{}, fmt.Errorf("la cadena de conexión no es válida: %w", err)
 	}
-	mode := strings.ToLower(strings.TrimSpace(dsnParam(dsn, "sslmode")))
-	if mode == "" {
-		mode = strings.ToLower(strings.TrimSpace(os.Getenv("PGSSLMODE")))
-	}
-	if mode == "" {
-		mode = SSLModePrefer
-	}
-	switch mode {
-	case SSLModeDisable, SSLModeAllow, SSLModePrefer, SSLModeRequire, SSLModeVerifyCA, SSLModeVerifyFull:
-	default:
-		return DBTLS{}, fmt.Errorf("sslmode=%q no es válido (disable, allow, prefer, require, verify-ca o verify-full)", mode)
-	}
+	tries := []*tls.Config{cfg.TLSConfig}
 	hosts := []string{cfg.Host}
 	for _, fb := range cfg.Fallbacks {
+		tries = append(tries, fb.TLSConfig)
 		hosts = append(hosts, fb.Host)
 	}
 	local := true
@@ -105,7 +102,39 @@ func InspectDSN(dsn string) (DBTLS, error) {
 			local = false
 		}
 	}
+	mode := effectiveSSLMode(tries)
 	return DBTLS{SSLMode: mode, Local: local, Verified: mode == SSLModeVerifyFull || mode == SSLModeVerifyCA}, nil
+}
+
+// effectiveSSLMode traduce las configuraciones TLS de cada intento de pgx al
+// sslmode al que equivalen. Es estricto: basta un intento sin TLS o sin
+// verificación para que el conjunto no cuente como verificado.
+func effectiveSSLMode(tries []*tls.Config) string {
+	plain, insecure, caOnly := 0, 0, 0
+	for _, tc := range tries {
+		switch {
+		case tc == nil:
+			plain++
+		case tc.VerifyPeerCertificate != nil:
+			caOnly++ // verify-ca (o require con sslrootcert): cadena sí, nombre no
+		case tc.InsecureSkipVerify:
+			insecure++
+		}
+	}
+	switch {
+	case plain == len(tries):
+		return SSLModeDisable
+	case plain > 0 && tries[0] == nil:
+		return SSLModeAllow // primero sin TLS, después con TLS
+	case plain > 0:
+		return SSLModePrefer // primero TLS sin verificar, después sin TLS
+	case insecure > 0:
+		return SSLModeRequire
+	case caOnly > 0:
+		return SSLModeVerifyCA
+	default:
+		return SSLModeVerifyFull
+	}
 }
 
 // isLocalDBHost: localhost, cualquier IP de loopback, un socket Unix (ruta
@@ -122,62 +151,6 @@ func isLocalDBHost(h string) bool {
 		return ip.IsLoopback()
 	}
 	return false
-}
-
-// dsnParam lee un parámetro de la cadena de conexión: la consulta de una URL
-// postgres:// o un par clave=valor.
-func dsnParam(dsn, key string) string {
-	dsn = strings.TrimSpace(dsn)
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-		u, err := url.Parse(dsn)
-		if err != nil {
-			return ""
-		}
-		return u.Query().Get(key)
-	}
-	// Formato "clave=valor clave='valor con espacios'".
-	rest := dsn
-	for len(rest) > 0 {
-		rest = strings.TrimLeft(rest, " \t\r\n")
-		eq := strings.IndexByte(rest, '=')
-		if eq < 0 {
-			return ""
-		}
-		k := strings.TrimSpace(rest[:eq])
-		rest = strings.TrimLeft(rest[eq+1:], " \t")
-		var val string
-		if strings.HasPrefix(rest, "'") {
-			var b strings.Builder
-			i := 1
-			for ; i < len(rest); i++ {
-				if rest[i] == '\\' && i+1 < len(rest) {
-					i++
-					b.WriteByte(rest[i])
-					continue
-				}
-				if rest[i] == '\'' {
-					break
-				}
-				b.WriteByte(rest[i])
-			}
-			val = b.String()
-			if i < len(rest) {
-				i++
-			}
-			rest = rest[i:]
-		} else {
-			end := strings.IndexAny(rest, " \t\r\n")
-			if end < 0 {
-				end = len(rest)
-			}
-			val = rest[:end]
-			rest = rest[end:]
-		}
-		if k == key {
-			return val
-		}
-	}
-	return ""
 }
 
 // Enforce devuelve un error claro si requireTLS está activo y la conexión no
