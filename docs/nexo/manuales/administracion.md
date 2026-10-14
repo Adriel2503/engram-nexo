@@ -812,6 +812,26 @@ valid_until: 2027-11-01
 | `valid_from` | `vigente_desde` | Inicio de vigencia (`AAAA-MM-DD` o RFC 3339) |
 | `valid_until` | `vigente_hasta` | Fin de vigencia |
 
+#### Cómo nombrar los archivos y sus campos
+
+El identificador (`doc_key`) es la identidad del documento: subir otra vez el mismo identificador crea una
+**versión nueva** del mismo documento; cambiar el nombre del archivo crea un documento distinto. Por eso
+conviene elegir el nombre una vez y no renombrar.
+
+| Campo | Regla | Ejemplo | Qué pasa si no se cumple |
+|---|---|---|---|
+| Nombre de archivo (de donde sale el `doc_key`) | Cualquier nombre sirve: se normaliza solo a minúsculas, sin tildes, con letras, números y guiones, y sin extensión. Cada carpeta cuenta como parte de la clave. Un segmento largo se recorta con un sufijo estable (clave de hasta 200 caracteres) | `Política de reintentos (final).md` pasa a `politica-de-reintentos-final`; `backend/Logging.md` pasa a `backend/logging` | No se rechaza: se convierte. Si dos nombres dan la misma clave, son el mismo documento |
+| `doc_key` explícito (`id` en el front matter) | Empieza con letra o número; solo letras, números, `.`, `_`, `-` y `/`; máximo 200 caracteres; sin `..`, sin `//` y sin `/` final | `backend/reintentos`, `glosario-v2` | Se rechaza el documento (`../x`, `a//b`, `reintentos/`) |
+| Categoría (`category`) | Una de las categorías del espacio, escrita exactamente igual (minúsculas, números, `_` y `-`; máximo 40 caracteres) | `lineamiento`, `estandar`, `regla_negocio` | Se rechaza: `category "..." is not allowed in space ...` con la lista de permitidas. Si falta: `category is required` |
+| Título (`title`) | Texto libre y legible; es lo que se ve en los resultados y citas. Si no lo pones, sale del nombre del archivo (el guion se lee como espacio) | `Nivel de log por tipo de error` | |
+| Espacio (`slug`, al crearlo) | Minúsculas, números y guiones; de 2 a 63 caracteres; empieza con letra o número | `backend`, `operaciones` | Se rechaza la creación (`Backend`, `a`) |
+
+Recomendaciones: un tema por documento; el nombre del archivo resume el tema (`logging.md`, no
+`documento1.md`); no pongas versiones ni fechas en el nombre (para eso están las versiones y la vigencia);
+no cambies el nombre de un documento publicado, porque se publicaría como otro documento; y escribe la
+categoría igual que aparece en el espacio. Si una subida de prueba sale "Rechazado", el detalle dice qué
+campo falló y cuáles valores se permiten.
+
 ### 5.2 Límites de subida (valores por defecto del servidor)
 
 | Límite | Valor |
