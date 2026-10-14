@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"golang.org/x/text/runes"
@@ -321,11 +322,21 @@ func stripNumbering(s string) string {
 	return s
 }
 
-var foldChain = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+// foldPool reparte transformadores de x/text: son con estado (buffers internos
+// y Reset en cada transform.String), así que una sola cadena compartida entre
+// goroutines produce condiciones de carrera y pánicos "slice bounds out of range".
+// Cada llamada toma una cadena propia del conjunto y la devuelve al terminar.
+var foldPool = sync.Pool{
+	New: func() any {
+		return transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	},
+}
 
-// Fold quita tildes y diéresis (á -> a, ñ -> n, ü -> u).
+// Fold quita tildes y diéresis (á -> a, ñ -> n, ü -> u). Es seguro para uso concurrente.
 func Fold(s string) string {
-	out, _, err := transform.String(foldChain, s)
+	t := foldPool.Get().(transform.Transformer)
+	defer foldPool.Put(t)
+	out, _, err := transform.String(t, s)
 	if err != nil {
 		return s
 	}
