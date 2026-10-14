@@ -117,7 +117,7 @@ func nexoReportConnection(ctx context.Context, db *sql.DB) error {
 	}
 	if conn.poolSet {
 		log.Printf("[nexo] base de datos: pool de %s: %s", conn.name, conn.pool)
-		if conn.pool.MaxOpen < security.LowDBMaxOpen {
+		if !conn.pool.Unlimited() && conn.pool.MaxOpen < security.LowDBMaxOpen {
 			log.Printf("[nexo] base de datos: %s=%d es muy bajo: las peticiones esperaran una conexion libre (recomendado: 10 o mas)", security.DBMaxOpenEnv, conn.pool.MaxOpen)
 		}
 	}

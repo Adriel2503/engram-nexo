@@ -3,20 +3,29 @@ package security
 // Nexo IA · pool de conexiones a Postgres.
 //
 // El servidor abre un solo *sql.DB con la cuenta de aplicación. Go, sin
-// configuración, no limita las conexiones abiertas, deja 2 en reposo y no las
-// recicla nunca: con mucho tráfico puede agotar max_connections del Postgres
-// (sobre todo uno administrado, con un tope bajo) y no recupera conexiones
-// que un firewall o un balanceador cortó en silencio. Estas variables fijan
-// valores razonables por defecto:
+// configuración, deja 2 conexiones en reposo y no las recicla nunca (no
+// recupera conexiones que un firewall o un balanceador cortó en silencio).
+// Estas variables fijan valores por defecto:
 //
-//	NEXO_DB_MAX_OPEN_CONNS     25   conexiones abiertas como máximo por réplica
+//	NEXO_DB_MAX_OPEN_CONNS     0    sin límite (el tope es max_connections de Postgres)
 //	NEXO_DB_MAX_IDLE_CONNS     10   conexiones en reposo que se conservan
 //	NEXO_DB_CONN_MAX_LIFETIME  30m  vida máxima de una conexión
 //	NEXO_DB_CONN_MAX_IDLE_TIME 5m   tiempo máximo en reposo de una conexión
 //
-// Un valor inválido (no entero positivo, duración que no se entiende o
-// menor o igual que cero, reposo mayor que el máximo) hace que el servidor
-// no arranque, con un mensaje que nombra la variable.
+// Por qué sin límite por defecto (OP-13, backlog): hay código, de Engram y de
+// Nexo, que con una transacción o un cursor abiertos pide otra conexión del
+// mismo pool (relleno de sesiones al migrar, WriteChunk ante un choque,
+// publicación de conocimiento con la caché del modo sin tildes fría,
+// VectorSupport). Con un límite, varias de esas operaciones a la vez pueden
+// ocupar todas las conexiones esperando otra y colgar el servidor. Sin
+// límite, al llegar a max_connections de Postgres las peticiones nuevas
+// fallan con error y el resto sigue. Fijar un límite exige antes la revisión
+// completa de esas conexiones anidadas (OP-13).
+//
+// Un valor inválido (entero fuera de rango, un límite menor que el mínimo,
+// duración que no se entiende o menor o igual que cero, reposo mayor que el
+// máximo) hace que el servidor no arranque, con un mensaje que nombra la
+// variable.
 
 import (
 	"database/sql"
@@ -38,7 +47,7 @@ const (
 
 // Valores por defecto y topes.
 const (
-	DefaultDBMaxOpen     = 25
+	DefaultDBMaxOpen     = 0 // sin límite (ver arriba y OP-13)
 	DefaultDBMaxIdle     = 10
 	DefaultDBMaxLifetime = 30 * time.Minute
 	DefaultDBMaxIdleTime = 5 * time.Minute
@@ -78,14 +87,14 @@ func ParsePoolConfig(get func(string) string) (PoolConfig, error) {
 	var errs []error
 	openSet, idleSet := false, false
 
-	intVar := func(name string, dst *int) bool {
+	intVar := func(name string, dst *int, min int) bool {
 		raw := strings.TrimSpace(get(name))
 		if raw == "" {
 			return false
 		}
 		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > maxDBConns {
-			errs = append(errs, fmt.Errorf("%s=%q no es válido: debe ser un entero entre 1 y %d", name, raw, maxDBConns))
+		if err != nil || n < min || n > maxDBConns {
+			errs = append(errs, fmt.Errorf("%s=%q no es válido: debe ser un entero entre %d y %d", name, raw, min, maxDBConns))
 			return false
 		}
 		*dst = n
@@ -104,16 +113,22 @@ func ParsePoolConfig(get func(string) string) (PoolConfig, error) {
 		*dst = d
 	}
 
-	openSet = intVar(DBMaxOpenEnv, &cfg.MaxOpen)
-	idleSet = intVar(DBMaxIdleEnv, &cfg.MaxIdle)
+	openSet = intVar(DBMaxOpenEnv, &cfg.MaxOpen, 0) // 0 = sin límite
+	idleSet = intVar(DBMaxIdleEnv, &cfg.MaxIdle, 1)
 	durVar(DBMaxLifetimeEnv, &cfg.MaxLifetime)
 	durVar(DBMaxIdleTimeEnv, &cfg.MaxIdleTime)
 
-	// Si solo se bajó el máximo, el valor de reposo por defecto no puede
-	// superarlo: se ajusta sin error. Si el reposo se fijó a mano y supera el
-	// máximo, es un error.
-	if openSet && cfg.MaxOpen < MinDBMaxOpen {
-		errs = append(errs, fmt.Errorf("%s=%d no es válido: el mínimo es %d (con menos, una migración que anida consultas puede bloquear el arranque)", DBMaxOpenEnv, cfg.MaxOpen, MinDBMaxOpen))
+	// Un límite explícito no puede ser menor que el mínimo. Si solo se bajó
+	// el máximo, el valor de reposo por defecto no puede superarlo: se ajusta
+	// sin error. Si el reposo se fijó a mano y supera el máximo, es un error.
+	if openSet && cfg.MaxOpen > 0 && cfg.MaxOpen < MinDBMaxOpen {
+		errs = append(errs, fmt.Errorf("%s=%d no es válido: use 0 (sin límite) o al menos %d (con menos, una migración que anida consultas puede bloquear el arranque)", DBMaxOpenEnv, cfg.MaxOpen, MinDBMaxOpen))
+	}
+	if cfg.Unlimited() {
+		if len(errs) > 0 {
+			return DefaultPoolConfig(), errors.Join(errs...)
+		}
+		return cfg, nil
 	}
 	if openSet && !idleSet && cfg.MaxIdle > cfg.MaxOpen {
 		cfg.MaxIdle = cfg.MaxOpen
@@ -135,8 +150,15 @@ func (c PoolConfig) Apply(db *sql.DB) {
 	db.SetConnMaxIdleTime(c.MaxIdleTime)
 }
 
+// Unlimited informa si el pool no limita las conexiones abiertas.
+func (c PoolConfig) Unlimited() bool { return c.MaxOpen <= 0 }
+
 // String resume los valores para el log de arranque.
 func (c PoolConfig) String() string {
-	return fmt.Sprintf("abiertas como maximo %d (%s), en reposo %d (%s), vida maxima %s (%s), reposo maximo %s (%s)",
-		c.MaxOpen, DBMaxOpenEnv, c.MaxIdle, DBMaxIdleEnv, c.MaxLifetime, DBMaxLifetimeEnv, c.MaxIdleTime, DBMaxIdleTimeEnv)
+	open := strconv.Itoa(c.MaxOpen)
+	if c.Unlimited() {
+		open = "sin limite"
+	}
+	return fmt.Sprintf("abiertas como maximo %s (%s), en reposo %d (%s), vida maxima %s (%s), reposo maximo %s (%s)",
+		open, DBMaxOpenEnv, c.MaxIdle, DBMaxIdleEnv, c.MaxLifetime, DBMaxLifetimeEnv, c.MaxIdleTime, DBMaxIdleTimeEnv)
 }

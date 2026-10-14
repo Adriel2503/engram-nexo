@@ -13,7 +13,7 @@ func TestParsePoolConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != (PoolConfig{MaxOpen: 25, MaxIdle: 10, MaxLifetime: 30 * time.Minute, MaxIdleTime: 5 * time.Minute}) {
+	if cfg != (PoolConfig{MaxOpen: 0, MaxIdle: 10, MaxLifetime: 30 * time.Minute, MaxIdleTime: 5 * time.Minute}) {
 		t.Fatalf("por defecto: %+v", cfg)
 	}
 }
@@ -30,6 +30,12 @@ func TestParsePoolConfigValues(t *testing.T) {
 	if err != nil || cfg.MaxOpen != 4 || cfg.MaxIdle != 4 {
 		t.Fatalf("máximo bajo: %+v, %v", cfg, err)
 	}
+	// 0 explícito = sin límite (el valor por defecto, OP-13); el reposo no se
+	// compara con el máximo.
+	cfg, err = ParsePoolConfig(poolEnv(map[string]string{DBMaxOpenEnv: "0", DBMaxIdleEnv: "30"}))
+	if err != nil || !cfg.Unlimited() || cfg.MaxIdle != 30 {
+		t.Fatalf("sin límite: %+v, %v", cfg, err)
+	}
 }
 
 func TestParsePoolConfigInvalid(t *testing.T) {
@@ -39,8 +45,9 @@ func TestParsePoolConfigInvalid(t *testing.T) {
 		want string
 	}{
 		{"texto", map[string]string{DBMaxOpenEnv: "muchas"}, DBMaxOpenEnv},
-		{"cero", map[string]string{DBMaxOpenEnv: "0"}, DBMaxOpenEnv},
-		{"negativo", map[string]string{DBMaxIdleEnv: "-3"}, DBMaxIdleEnv},
+		{"negativo", map[string]string{DBMaxOpenEnv: "-1"}, DBMaxOpenEnv},
+		{"reposo cero", map[string]string{DBMaxIdleEnv: "0"}, DBMaxIdleEnv},
+		{"reposo negativo", map[string]string{DBMaxIdleEnv: "-3"}, DBMaxIdleEnv},
 		{"decimal", map[string]string{DBMaxOpenEnv: "2.5"}, DBMaxOpenEnv},
 		{"enorme", map[string]string{DBMaxOpenEnv: "999999"}, DBMaxOpenEnv},
 		{"duración sin unidad", map[string]string{DBMaxLifetimeEnv: "30"}, DBMaxLifetimeEnv},
@@ -67,7 +74,7 @@ func TestParsePoolConfigInvalid(t *testing.T) {
 
 func TestPoolConfigString(t *testing.T) {
 	s := DefaultPoolConfig().String()
-	for _, want := range []string{"25", "10", "30m0s", "5m0s", DBMaxOpenEnv} {
+	for _, want := range []string{"sin limite", "10", "30m0s", "5m0s", DBMaxOpenEnv} {
 		if !strings.Contains(s, want) {
 			t.Errorf("String() = %q; falta %q", s, want)
 		}
