@@ -1,0 +1,55 @@
+name: {{.State.Project}}
+services:
+{{if not .State.ExternalDB}}  postgres:
+    image: pgvector/pgvector:pg18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD}
+      POSTGRES_DB: {{if .TwoAccounts}}postgres{{else}}engram_cloud{{end}}
+{{if .TwoAccounts}}      NEXO_OWNER_PASSWORD: ${NEXO_OWNER_PASSWORD:?Falta NEXO_OWNER_PASSWORD}
+      NEXO_APP_PASSWORD: ${NEXO_APP_PASSWORD:?Falta NEXO_APP_PASSWORD}
+      NEXO_DB_NAME: engram_cloud
+{{end}}{{if ne .State.Mode "prod"}}    ports: ["127.0.0.1:{{.State.PGPort}}:5432"]
+{{end}}    volumes:
+      - pg:/var/lib/postgresql
+{{if .TwoAccounts}}      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+{{end}}    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d engram_cloud"]
+      interval: 2s
+      retries: 60
+{{end}}{{if eq .State.Mode "prod"}}  cloud:
+    image: ${CLOUD_IMAGE:?Falta CLOUD_IMAGE}
+    restart: unless-stopped
+{{if not .State.ExternalDB}}    depends_on:
+      postgres: {condition: service_healthy}
+{{end}}    environment:
+{{range $k, $v := .Env}}{{if or (eq $k "ENGRAM_PORT") (eq $k "ENGRAM_CLOUD_HOST") (eq $k "POSTGRES_PASSWORD") (eq $k "NEXO_OWNER_PASSWORD") (eq $k "NEXO_APP_PASSWORD") (eq $k "CLOUD_IMAGE")}}{{else}}      {{$k}}: ${ {{- $k -}} }
+{{end}}{{end}}      ENGRAM_CLOUD_HOST: 0.0.0.0
+      ENGRAM_PORT: "18080"
+    volumes: ["./audit-export:/export"]
+  proxy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on: [cloud]
+    ports: ["127.0.0.1:{{.State.Port}}:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    networks:
+      default: {ipv4_address: {{.State.ProxyIP}}}
+{{end}}{{if not .State.ExternalDB}}volumes:
+  pg:
+    name: {{.State.Project}}-pg
+{{if eq .State.Mode "prod"}}  caddy:
+    name: {{.State.Project}}-caddy
+{{end}}{{else if eq .State.Mode "prod"}}volumes:
+  caddy:
+    name: {{.State.Project}}-caddy
+{{end}}
+
+{{if eq .State.Mode "prod"}}networks:
+  default:
+    ipam:
+      config: [{subnet: {{.State.Subnet}}}]
+{{end}}
