@@ -61,6 +61,8 @@ engram nexo stack config --mode demo --embedder off --rerank off --r1 all --yes
 
 La clave se lee de entrada oculta, --embed-key-file/--rerank-key-file, NEXO_KB_EMBED_API_KEY/NEXO_KB_RERANK_API_KEY o el alias del proveedor (GEMINI_API_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY, COHERE_API_KEY, JINA_API_KEY, VOYAGE_API_KEY). No existe una opción que acepte la clave como valor. Se hace una llamada mínima antes de guardar; si falla, se conserva la configuración anterior.
 
+En el asistente, una prueba fallida informa si se rechazó la clave, no se encontró el modelo, se agotó la cuota o falló la red, sin mostrar la clave ni el mensaje libre del proveedor. Ofrece **Reintentar** para revisar proveedor, modelo y clave (entrada oculta; vacío conserva la anterior), o **Seguir sin búsqueda por significado**, que desactiva embeddings y reordenador y conserva la búsqueda por palabras. Cancelar conserva la configuración anterior. Cuando no se abre el asistente de búsqueda (por ejemplo, stack up/config con --yes), una prueba fallida devuelve el diagnóstico y no guarda la configuración.
+
 Embeddings: off, gemini, openai, azure-openai u openai-compatible. Opciones: --embed-model, --embed-dims, --embed-url, --embed-deployment y --embed-auth. Gemini usa gemini-embedding-001 y 768 dimensiones; OpenAI usa los valores definidos por el servidor. Azure requiere URL y despliegue; compatible requiere modelo, URL y dimensión.
 
 Reordenador: off, cohere, jina, voyage, gemini, openai, azure-openai, openai-compatible, tei o rerank-compatible. Opciones: --rerank-model, --rerank-url, --rerank-deployment y --rerank-auth. Puede reutilizar la clave de embeddings del mismo proveedor. --r1 admite all, off o una lista de doc_context,split_tables,synonyms,threshold,diversity,quote.

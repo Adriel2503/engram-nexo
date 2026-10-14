@@ -2,14 +2,17 @@ package stack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/embed"
@@ -20,6 +23,37 @@ import (
 )
 
 func (a *App) searchConfig(ctx context.Context, s *state.State, o *SearchOptions, m map[string]string) error {
+	for {
+		next, env := *s, maps.Clone(m)
+		err := a.searchConfigOnce(ctx, &next, o, env)
+		if err == nil {
+			*s = next
+			clear(m)
+			maps.Copy(m, env)
+			return nil
+		}
+		var failure *probeFailure
+		if o.u == nil || !errors.As(err, &failure) || ctx.Err() != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(a.Out, err)
+		choice, e := o.u.Choose("¿Cómo quieres continuar?", []string{"Reintentar", "Seguir sin búsqueda por significado"})
+		if e != nil {
+			return e
+		}
+		if choice == "Reintentar" {
+			o.retryKeys = true
+			if e = a.askSearch(o.u, o); e != nil {
+				return e
+			}
+		} else {
+			o.Embedder, o.Reranker = "off", "off"
+			o.KeyFile, o.RerankKeyFile, o.key, o.rerankKey = "", "", "", ""
+		}
+	}
+}
+
+func (a *App) searchConfigOnce(ctx context.Context, s *state.State, o *SearchOptions, m map[string]string) error {
 	if previous := m[embed.EnvEmbedder]; previous != "" && previous != o.Embedder {
 		delete(m, embed.EnvAPIKey)
 	}
@@ -120,7 +154,7 @@ func validateR1(v string) error {
 
 // probeProxy permite reutilizar exactamente los adaptadores Nexo sin cambiar sus APIs.
 // Solo escucha en loopback durante la prueba mínima y redirige con el cliente HTTP inyectado.
-func probeProxy(base string, hc *http.Client) (string, func(), error) {
+func probeProxy(base string, hc *http.Client, status *atomic.Int32) (string, func(), error) {
 	up, e := url.Parse(base)
 	if e != nil || up.Host == "" || up.User != nil || up.RawQuery != "" || up.Fragment != "" {
 		return "", nil, errors.New("URL de proveedor inválida; no incluyas credenciales")
@@ -146,19 +180,46 @@ func probeProxy(base string, hc *http.Client) (string, func(), error) {
 		req.Host = up.Host
 		resp, e := copyClient.Do(req)
 		if e != nil {
+			status.Store(http.StatusBadGateway)
 			http.Error(w, "proveedor no disponible", http.StatusBadGateway)
 			return
 		}
 		defer func() { _ = resp.Body.Close() }()
+		status.Store(int32(resp.StatusCode))
+		// Gemini también rechaza claves con HTTP 400. Solo usamos códigos
+		// estructurados conocidos; el mensaje libre nunca llega al diagnóstico.
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		if err != nil {
+			status.Store(http.StatusBadGateway)
+			http.Error(w, "respuesta incompleta del proveedor", http.StatusBadGateway)
+			return
+		}
+		if resp.StatusCode == http.StatusBadRequest {
+			var failure struct {
+				Error struct {
+					Details []struct {
+						Reason string `json:"reason"`
+					} `json:"details"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(body, &failure) == nil {
+				for _, detail := range failure.Error.Details {
+					if detail.Reason == "API_KEY_INVALID" || detail.Reason == "API_KEY_EXPIRED" {
+						status.Store(http.StatusUnauthorized)
+					}
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, io.LimitReader(resp.Body, 8<<20))
+		_, _ = w.Write(body)
 	})}
 	go func() { _ = srv.Serve(l) }()
 	return "http://" + l.Addr().String() + up.Path, func() { _ = srv.Close() }, nil
 }
 func probeEmbed(ctx context.Context, c embed.Config, hc *http.Client) error {
-	base, close, e := probeProxy(c.BaseURL, hc)
+	var status atomic.Int32
+	base, close, e := probeProxy(c.BaseURL, hc, &status)
 	if e != nil {
 		return e
 	}
@@ -171,12 +232,13 @@ func probeEmbed(ctx context.Context, c embed.Config, hc *http.Client) error {
 		_, e = x.Embed(ctx, []string{"Prueba sintética de conexión"}, embed.KindQuery)
 	}
 	if e != nil {
-		return errors.New("no se validó la clave de embeddings; comprueba acceso, modelo y cuota; no se guardó")
+		return newProbeFailure("embeddings", status.Load())
 	}
 	return nil
 }
 func probeRerank(ctx context.Context, c rerank.Config, hc *http.Client) error {
-	base, close, e := probeProxy(c.BaseURL, hc)
+	var status atomic.Int32
+	base, close, e := probeProxy(c.BaseURL, hc, &status)
 	if e != nil {
 		return e
 	}
@@ -189,11 +251,36 @@ func probeRerank(ctx context.Context, c rerank.Config, hc *http.Client) error {
 		_, e = x.Rerank(ctx, "prueba", []rerank.Passage{{ID: "1", Text: "Prueba sintética"}, {ID: "2", Text: "Otra frase sintética"}})
 	}
 	if e != nil {
-		return errors.New("no se validó la clave del reordenador; comprueba acceso, modelo y cuota; no se guardó")
+		return newProbeFailure("reordenador", status.Load())
 	}
 	return nil
 }
+
+// No incorpora texto del proveedor: puede contener la clave, incluso codificada.
+type probeFailure struct{ message string }
+
+func (e *probeFailure) Error() string { return e.message }
+func newProbeFailure(provider string, status int32) error {
+	cause := "respuesta inválida del proveedor; revisa modelo y dimensiones"
+	switch {
+	case status == 401 || status == 403:
+		cause = "clave rechazada o sin permisos; revisa la clave y el acceso"
+	case status == 404:
+		cause = "modelo no encontrado; revisa modelo, URL y despliegue"
+	case status == 429:
+		cause = "cuota o límite de solicitudes; revisa el saldo o espera antes de reintentar"
+	case status == 402:
+		cause = "cuota o saldo agotado; revisa la facturación"
+	case status == 400:
+		cause = "solicitud rechazada; revisa clave, modelo y parámetros"
+	case status == 0 || status >= 500:
+		cause = "red o proveedor no disponible; revisa la conexión y reintenta"
+	}
+	return &probeFailure{message: fmt.Sprintf("No se validó %s: %s. No se guardó la configuración.", provider, cause)}
+}
 func (a *App) askSearch(u *ui.UI, o *SearchOptions) error {
+	o.u = u
+	previousEmbedder, previousReranker := o.Embedder, o.Reranker
 	yes, e := u.Confirm("¿Quieres activar la búsqueda por significado? Mejora las preguntas parafraseadas y requiere un proveedor", o.Embedder != "off")
 	if e != nil {
 		return e
@@ -202,6 +289,9 @@ func (a *App) askSearch(u *ui.UI, o *SearchOptions) error {
 		o.Embedder, e = u.Choose("Proveedor de embeddings", []string{"gemini", "openai", "azure-openai", "openai-compatible"})
 		if e != nil {
 			return e
+		}
+		if o.Embedder != previousEmbedder {
+			o.key, o.KeyFile, o.URL, o.Deployment, o.Auth = "", "", "", "", ""
 		}
 		model, dims := "gemini-embedding-001", "768"
 		if o.Embedder != "gemini" {
@@ -227,12 +317,18 @@ func (a *App) askSearch(u *ui.UI, o *SearchOptions) error {
 				return e
 			}
 		}
-		if !hasProviderKey(o.Embedder, embed.EnvAPIKey) && o.KeyFile == "" {
-			key, e := u.Ask("Clave del proveedor (entrada oculta)", "", true)
+		if o.retryKeys || !hasProviderKey(o.Embedder, embed.EnvAPIKey) && o.KeyFile == "" {
+			label := "Clave del proveedor (entrada oculta)"
+			if o.retryKeys {
+				label += "; vacío conserva la clave anterior"
+			}
+			key, e := u.Ask(label, "", true)
 			if e != nil {
 				return e
 			}
-			o.key = key
+			if key != "" {
+				o.key, o.KeyFile = key, ""
+			}
 		}
 	} else {
 		o.Embedder = "off"
@@ -245,6 +341,9 @@ func (a *App) askSearch(u *ui.UI, o *SearchOptions) error {
 		o.Reranker, e = u.Choose("Proveedor del reordenador", []string{"cohere", "jina", "voyage", "gemini", "openai", "azure-openai", "openai-compatible", "tei", "rerank-compatible"})
 		if e != nil {
 			return e
+		}
+		if o.Reranker != previousReranker {
+			o.rerankKey, o.RerankKeyFile, o.RerankURL, o.RerankDeployment, o.RerankAuth = "", "", "", "", ""
 		}
 		def := ""
 		switch o.Reranker {
@@ -275,10 +374,18 @@ func (a *App) askSearch(u *ui.UI, o *SearchOptions) error {
 		}
 		if o.Reranker == o.Embedder && o.key != "" {
 			o.rerankKey = o.key
-		} else if !hasProviderKey(o.Reranker, rerank.EnvAPIKey) && o.RerankKeyFile == "" && o.Reranker != "tei" {
-			o.rerankKey, e = u.Ask("Clave del reordenador (entrada oculta)", "", true)
+		} else if o.Reranker != "tei" && (o.retryKeys || !hasProviderKey(o.Reranker, rerank.EnvAPIKey) && o.RerankKeyFile == "") {
+			label := "Clave del reordenador (entrada oculta)"
+			if o.retryKeys {
+				label += "; vacío conserva la clave anterior"
+			}
+			key, err := u.Ask(label, "", true)
+			e = err
 			if e != nil {
 				return e
+			}
+			if key != "" {
+				o.rerankKey, o.RerankKeyFile = key, ""
 			}
 		}
 	} else {
