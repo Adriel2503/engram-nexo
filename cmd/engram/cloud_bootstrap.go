@@ -82,6 +82,8 @@ func cmdCloudBootstrap() {
 		cmdCloudBootstrapAdmin()
 	case "recover-token":
 		cmdCloudBootstrapRecoverToken()
+	case "emergency-token": // NX-05 (SG-06)
+		cmdCloudBootstrapEmergencyToken()
 	case "--help", "-h", "help":
 		printCloudBootstrapUsage()
 	default:
@@ -95,7 +97,9 @@ func printCloudBootstrapUsage() {
 	fmt.Println("usage: engram cloud bootstrap admin --username <name> [--email <email>] [--grant-project <project>]... [--issue-token [name]]")
 	fmt.Println("       engram cloud bootstrap recover-token [--name <name>] [--revoke-existing]")
 	fmt.Println("admin creates the first managed admin for a self-hosted cloud deployment (in Nexo it becomes superadmin)") // NX-05
+	fmt.Println("       engram cloud bootstrap emergency-token --user <superadmin> [--name <name>] [--reason <text>]")      // NX-05 (SG-06)
 	fmt.Println("recover-token issues one token for the eligible stranded managed admin")
+	fmt.Println("emergency-token issues a 24 h token to an existing superadmin when no enabled superadmin has a valid write token (inside the server only)") // NX-05 (SG-06)
 	fmt.Println("--revoke-existing replaces exactly one unused active bootstrap token")
 }
 
