@@ -254,7 +254,7 @@ Canonical, reviewable documentation is allowed. For example, `docs/plan.md` and 
 ### Quality Ratchets
 
 Every PR and push to `main` runs `make deadcode-check`. It analyzes all module
-packages with `golang.org/x/tools/cmd/deadcode@v0.30.0` and compares stable
+packages with `golang.org/x/tools/cmd/deadcode@v0.52.0` and compares stable
 `file<TAB>symbol` identities with `.deadcode-baseline.txt`. New unreachable
 functions fail CI. Removed entries pass and report that the debt tightened;
 review and deliberately refresh the baseline with `make deadcode-baseline` in

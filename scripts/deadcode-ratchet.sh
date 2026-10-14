@@ -7,7 +7,7 @@ export LC_ALL=C
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 baseline="${DEADCODE_RATCHET_BASELINE:-${repo_root}/.deadcode-baseline.txt}"
-analyzer_version="v0.30.0"
+analyzer_version="v0.52.0"
 
 usage() {
 	cat <<'EOF'
