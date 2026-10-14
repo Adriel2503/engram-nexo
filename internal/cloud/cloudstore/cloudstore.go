@@ -270,6 +270,8 @@ func (cs *CloudStore) WriteChunk(ctx context.Context, project, chunkID, createdB
 		project, strings.TrimSpace(chunkID), strings.TrimSpace(createdBy), originCreatedAt, payload, counts.sessions, counts.observations, counts.prompts)
 	if err != nil {
 		if isUniqueViolation(err) {
+			_ = tx.Rollback() // NX-07 (pool): libera la conexión antes de pedir otra; con el pool limitado, varias subidas del mismo paquete se bloqueaban
+			tx = nil          // NX-07 (pool)
 			conflictErr := cs.resolveChunkConflict(ctx, project, chunkID, payload)
 			if conflictErr != nil {
 				return conflictErr

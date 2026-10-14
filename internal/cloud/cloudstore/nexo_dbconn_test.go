@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud"
+	"github.com/Gentleman-Programming/engram/v3/internal/cloud/chunkcodec"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -254,5 +255,57 @@ func TestNexoOpenDBBindsValidatedConfig(t *testing.T) {
 	defer cancel()
 	if err := db.QueryRowContext(ctx, `SELECT 1`).Scan(&one); err != nil {
 		t.Fatalf("la conexión nueva debe usar la configuración validada al abrir, no la del archivo cambiado: %v", err)
+	}
+}
+
+// Regresión (revisión adversarial): con el pool limitado, varias subidas
+// simultáneas del mismo paquete nuevo no deben agotar el pool. La que pierde
+// la carrera del INSERT liberaba su transacción recién al volver y pedía otra
+// conexión para resolver el conflicto: con más subidas que conexiones, todas
+// podían quedar esperando. Ahora cada subida termina y el pool sigue respondiendo.
+func TestNexoPoolConcurrentSameChunkDoesNotDeadlock(t *testing.T) {
+	dsn := os.Getenv("CLOUDSTORE_TEST_DSN")
+	if dsn == "" {
+		t.Skip("CLOUDSTORE_TEST_DSN not set — skipping integration test (requires Postgres)")
+	}
+	nexoDBClearEnv(t)
+	t.Setenv(security.DBMaxOpenEnv, fmt.Sprint(security.MinDBMaxOpen))
+	cs, err := New(cloud.Config{DSN: dsn})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	const writers = 16
+	for round := 0; round < 5; round++ {
+		project := fmt.Sprintf("test-pool-chunk-%d-%d", time.Now().UnixNano(), round)
+		payload, err := chunkcodec.CanonicalizeForProject([]byte(fmt.Sprintf(`{"sessions":[{"id":"s-%d","project":%q,"directory":"/tmp","started_at":"2026-04-29T10:00:00Z"}],"observations":[],"prompts":[]}`, round, project)), project)
+		if err != nil {
+			t.Fatalf("chunk: %v", err)
+		}
+		chunkID := chunkIDFromPayload(payload)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		start := make(chan struct{})
+		errs := make(chan error, writers)
+		for i := 0; i < writers; i++ {
+			go func() {
+				<-start
+				errs <- cs.WriteChunk(ctx, project, chunkID, "tester", "", payload)
+			}()
+		}
+		close(start)
+		for i := 0; i < writers; i++ {
+			if err := <-errs; err != nil {
+				cancel()
+				t.Fatalf("ronda %d: una subida falló o quedó bloqueada: %v", round, err)
+			}
+		}
+		cancel()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var one int
+	if err := cs.db.QueryRowContext(ctx, `SELECT 1`).Scan(&one); err != nil {
+		t.Fatalf("el pool debe seguir respondiendo: %v", err)
 	}
 }
