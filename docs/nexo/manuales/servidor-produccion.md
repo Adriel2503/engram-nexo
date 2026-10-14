@@ -89,7 +89,7 @@ proxy de conexión del proveedor).
 | Otras extensiones | Ninguna. Solo Postgres oficial, `contrib` y pgvector |
 | Superusuario | No hace falta ninguno para operar. Solo la persona que prepara la base necesita una cuenta administradora, una vez |
 | Red | El servidor de Nexo debe alcanzar `<host>:5432`, de preferencia por una IP privada. Nexo se conecta directo a ese host con TLS |
-| Conexiones | `max_connections` holgado para la carga de Nexo (sin límite propio por defecto, sección 4.1.1) más un margen para administración y respaldos |
+| Conexiones | `max_connections` >= réplicas × 25 + margen para migraciones, CLI, administración, respaldos y otros consumidores (sección 4.1.1) |
 
 **Dos cuentas** (una sola es posible, pero el servidor avisa de seguridad degradada):
 
@@ -174,42 +174,46 @@ se crea el volumen): `POSTGRES_PASSWORD`, `NEXO_OWNER_PASSWORD`, `NEXO_APP_PASSW
 | Variable | Por defecto | Qué hace |
 |---|---|---|
 | `NEXO_DB_REQUIRE_TLS` | `false` | `true`: el servidor no arranca si `ENGRAM_DATABASE_URL` o `NEXO_MIGRATION_DATABASE_URL` no usan `sslmode=verify-full` o `verify-ca` (cualquier host), y el error dice cuál conexión y por qué. Recomendada en producción. Un valor distinto de `true` o `false` es un error al arrancar. Sin ella, una base que no es local (que no es `localhost`, una IP de loopback ni un socket) sin TLS verificado deja una advertencia en el log |
-| `NEXO_DB_MAX_OPEN_CONNS` | `0` (sin límite) | Conexiones abiertas como máximo por réplica. `0` = sin límite: el tope es `max_connections` de Postgres y, si se alcanza, las peticiones nuevas fallan con error en vez de esperar. **No fije un límite todavía** (ver "Por qué sin límite" abajo y OP-13). Si se fija, el mínimo es 4 |
+| `NEXO_DB_MAX_OPEN_CONNS` | `25` | Conexiones abiertas como máximo por réplica. `0` explícito = sin límite. Un límite fijado va de 4 a 10 000 |
 | `NEXO_DB_MAX_IDLE_CONNS` | `10` | Conexiones en reposo que se conservan. Con un límite fijado, no puede ser mayor que el máximo; si solo se baja el máximo, este valor se ajusta solo |
 | `NEXO_DB_CONN_MAX_LIFETIME` | `30m` | Vida máxima de una conexión; pasada, se cierra y se abre otra (recupera conexiones cortadas por un firewall o un balanceador) |
 | `NEXO_DB_CONN_MAX_IDLE_TIME` | `5m` | Tiempo máximo que una conexión puede estar sin uso |
 
-Los enteros son positivos y las duraciones se escriben como `90s`, `5m` o `1h` y deben ser mayores que
+El máximo abierto admite `0` explícito; los demás enteros son positivos y las duraciones se escriben como `90s`, `5m` o `1h` y deben ser mayores que
 cero; un valor inválido es un error claro al arrancar que nombra la variable. El servidor deja en el log los
 valores efectivos al arrancar (`[nexo] base de datos: pool de ENGRAM_DATABASE_URL: ...`) y, si en el último
 minuto alguna petición esperó una conexión libre, una línea de aviso.
 
-**Por qué sin límite por defecto.** Hay código, de Engram y de Nexo, que con una transacción o un cursor
-abiertos pide otra conexión del mismo pool. Sin límite eso no molesta. Con un límite, varias de esas
-operaciones a la vez pueden ocupar todas las conexiones esperando otra y **colgar el servidor** (también el
-inicio de sesión y la administración) hasta que se cancelen. Casos conocidos (revisión adversarial,
-2026-10-13; detalle en el backlog, OP-13):
+**Por qué 25 conexiones por defecto (OP-13).** La revisión de conexiones anidadas se completó el
+2026-10-14. Se corrigieron tres defectos en cinco rutas; las regresiones con una sola conexión
+demostraron los bloqueos originales y ahora terminan con el contexto vigente y el pool libre.
 
 | Caso | Dónde | Estado |
 |---|---|---|
-| Relleno de sesiones al migrar (cursor abierto sobre `cloud_chunks` mientras inserta sesiones) | Engram, `cloudstore.go`, migración | Evitado con el mínimo de 4 si se fija un límite; sin corregir en el código |
-| Varias subidas del mismo paquete nuevo a la vez: la que pierde pedía otra conexión con su transacción abierta | Engram, `cloudstore.go`, `WriteChunk` | Corregido (`NX-07 (pool)`, prueba `TestNexoPoolConcurrentSameChunkDoesNotDeadlock`) |
-| Publicación de conocimiento con la caché del modo sin tildes fría: `InsertSections` en una transacción llama a `FoldInApp`, que consulta con otra conexión | Nexo, `kb/store/store.go` | Pendiente |
-| Detección de pgvector (`VectorSupport`) consultada dentro de una transacción cuando la caché venció | Nexo, `kb/store/vectors.go` | Pendiente (sin confirmar) |
+| Publicación y aprobación de propuestas con el modo sin tildes frío | Nexo, `kb/store/store.go`, `kb/service/service.go` | Modo resuelto antes de admitir operaciones; sin mutex durante SQL; una consulta fría en transacción usa esa misma transacción |
+| Fallback vectorial al fallar cada uno de los dos `SET LOCAL hnsw.*` | Nexo, `kb/search/vector.go` | Rollback explícito y completo antes de consultar el pool |
+| Relleno de sesiones al migrar | Engram, `cloudstore.go`; implementación en `nexo_op13_pool.go` | Páginas de 128 chunks por clave compuesta; cursor cerrado y comprobado antes de insertar |
+| Subidas simultáneas del mismo chunk ante un choque de unicidad | Engram, `cloudstore.go`, `WriteChunk` | Ya corregido con rollback previo (`NX-07 (pool)`); incluido en la batería concurrente |
+| Supuesto anidamiento de `VectorSupport` | Nexo, `kb/store/vectors.go` | Descartado: consulta antes de abrir la transacción y libera el mutex antes de SQL |
 
-Hasta terminar esa revisión (OP-13), deje `NEXO_DB_MAX_OPEN_CONNS` en `0`. Si se alcanza `max_connections`,
-las peticiones nuevas fallan con un error ("too many clients") y el resto sigue funcionando.
+La batería con pool de 4 fuerza el arranque simultáneo de 24 operaciones con cachés frías:
+publicación, aprobación, búsqueda híbrida, subida repetida del mismo chunk, emisión de tokens y
+auditoría. Comprueba sus efectos persistidos y cero conexiones en uso al terminar.
+El [informe de OP-13](../op13-conexiones.md) detalla el inventario y las pruebas.
+El mínimo configurable de 4 se conserva como regla operativa; las correcciones también funcionan
+con `db.SetMaxOpenConns(1)`. Fijar explícitamente `0` desactiva el límite.
 
-**Relación con `max_connections` de Postgres.** Sin límite, cada réplica abre las conexiones que necesite
-la carga; el monitor de `GET /nexo/admin/database` muestra cuántas. Además hay una conexión breve de la
-cuenta dueña al arrancar y cada comando que se ejecuta dentro del contenedor (`engram cloud bootstrap ...`,
-`engram nexo ...`) abre la suya mientras dura. Vigile `pool.open` frente a `server.max_connections` y deje
-margen (10 a 20) para administración, respaldos y otras aplicaciones. Cuando OP-13 esté cerrada, la regla
-para fijar un límite será:
+**Relación con `max_connections` de Postgres.** Cada réplica admite como máximo 25 conexiones de
+aplicación por defecto. Reserve además un margen para migraciones con la cuenta dueña, comandos
+CLI, administración, respaldos y otros consumidores:
 
 ```text
-max_connections  >=  réplicas × NEXO_DB_MAX_OPEN_CONNS  +  margen (10 a 20 para administración, respaldos y otras aplicaciones)
+max_connections >= réplicas × 25 + margen
 ```
+
+Como punto de partida, reserve un margen de 10 a 20 y ajústelo según los consumidores reales.
+Si cambia `NEXO_DB_MAX_OPEN_CONNS`, sustituya 25 por el límite elegido. Con `0` explícito,
+dimensione y vigile el consumo real porque el pool no establece un máximo.
 
 Para ver el uso, consulte `GET /nexo/admin/database` (campos `pool.open`, `pool.in_use`, `pool.idle`,
 `pool.wait_count` y `pool.wait_duration_ms`, junto con `server.max_connections`; `pool.max_open` en `0`
@@ -1270,7 +1274,7 @@ entorno de prueba antes de necesitarlo.
 | 12 | Dos superadmins habilitados, con tokens personales y vencimientos escalonados; sin la alerta `single_superadmin` (7.3) | |
 | 12b | Procedimiento de renovación (7.4) y de acceso de emergencia (7.5) leídos por quienes operan; renovaciones de los superadmins en el calendario | |
 | 12c | `NEXO_DB_REQUIRE_TLS=true`, sin la ADVERTENCIA de TLS en el log, y la base cumple la sección 2.1 | |
-| 12d | `NEXO_DB_MAX_OPEN_CONNS` en `0` (sin límite) mientras OP-13 siga abierta, y `max_connections` de Postgres holgado para la carga, con margen (4.1.1) | |
+| 12d | `NEXO_DB_MAX_OPEN_CONNS` por defecto 25 y `max_connections >= réplicas × 25 + margen` para migraciones, CLI, administración y otros consumidores (4.1.1) | |
 | 13 | `GET /nexo/admin/audit/verify` con `ok: true` | |
 | 14 | Respaldo de Postgres programado, cifrado y fuera del host; restauración ensayada | |
 | 15 | Política de retención decidida antes de activar `NEXO_RETENTION_*` | |

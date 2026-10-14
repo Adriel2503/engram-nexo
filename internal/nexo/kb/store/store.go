@@ -39,27 +39,40 @@ type Store struct {
 // New crea el almacén sobre la base de Engram Cloud.
 func New(db *sql.DB) *Store { return &Store{DB: db} }
 
-// FoldInApp informa si la variante sin tildes se calcula en la aplicación
-// (no existe nexo_es_unaccent). Se lee una vez del catálogo.
+// FoldInApp informa si la variante sin tildes se calcula en la aplicación.
+// Se resuelve al inicializar el servicio; los accesos directos pueden usar
+// la misma transacción mediante foldInApp.
 func (s *Store) FoldInApp(ctx context.Context) (bool, error) {
+	return s.foldInApp(ctx, s.DB)
+}
+
+// Nunca se conserva modeMu mientras el ejecutor espera una conexión.
+// Si la caché está fría dentro de una transacción, q debe ser esa transacción.
+func (s *Store) foldInApp(ctx context.Context, q Querier) (bool, error) {
 	s.modeMu.Lock()
-	defer s.modeMu.Unlock()
 	if s.modeLoaded {
-		return s.fold, nil
+		fold := s.fold
+		s.modeMu.Unlock()
+		return fold, nil
 	}
-	uses, err := configUsesUnaccent(ctx, s.DB)
+	s.modeMu.Unlock()
+	uses, err := configUsesUnaccent(ctx, q)
 	if err != nil {
 		return false, err // no se guarda: se reintenta en la próxima llamada
 	}
-	s.fold, s.modeLoaded = !uses, true
+	s.modeMu.Lock()
+	defer s.modeMu.Unlock()
+	if !s.modeLoaded {
+		s.fold, s.modeLoaded = !uses, true
+	}
 	return s.fold, nil
 }
 
 // UnaccentVector devuelve la expresión SQL de la variante sin tildes de un
 // texto: con unaccent, to_tsvector('nexo_es_unaccent', original); sin él,
 // to_tsvector('nexo_es', plegado en Go).
-func (s *Store) UnaccentVector(ctx context.Context, original, folded string) (string, error) {
-	fold, err := s.FoldInApp(ctx)
+func (s *Store) UnaccentVector(ctx context.Context, q Querier, original, folded string) (string, error) {
+	fold, err := s.foldInApp(ctx, q)
 	if err != nil {
 		return "", err
 	}
@@ -519,11 +532,11 @@ func (s *Store) InsertSections(ctx context.Context, q Querier, w SectionWrite) e
 		idxTitles[i], idxBodies[i] = IndexedTitles(opts, w.Title, w.PathTitles, sec.HeadingPath), capIndexed(sec.Body)
 		foldTitles[i], foldBodies[i] = ingest.Fold(idxTitles[i]), ingest.Fold(sec.Body)
 	}
-	ut, err := s.UnaccentVector(ctx, "x.it", "x.ft")
+	ut, err := s.UnaccentVector(ctx, q, "x.it", "x.ft")
 	if err != nil {
 		return err
 	}
-	ub, err := s.UnaccentVector(ctx, "x.ib", "x.fb")
+	ub, err := s.UnaccentVector(ctx, q, "x.ib", "x.fb")
 	if err != nil {
 		return err
 	}

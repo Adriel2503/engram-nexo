@@ -142,7 +142,7 @@ func TestNexoPoolDefaultsAndOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Pool.MaxOpen != 0 || st.Pool.MaxIdle != 10 || st.Pool.ConnMaxLifetimeSeconds != 1800 || st.Pool.ConnMaxIdleTimeSeconds != 300 {
+	if st.Pool.MaxOpen != 25 || st.Pool.MaxIdle != 10 || st.Pool.ConnMaxLifetimeSeconds != 1800 || st.Pool.ConnMaxIdleTimeSeconds != 300 {
 		t.Errorf("por defecto: %+v", st.Pool)
 	}
 	if st.Server.PostgresVersion == "" || st.Server.MaxConnections < 1 {
@@ -153,7 +153,7 @@ func TestNexoPoolDefaultsAndOverrides(t *testing.T) {
 	}
 	_ = cs.Close()
 	logText := buf.String()
-	for _, want := range []string{"pool de ENGRAM_DATABASE_URL", "abiertas como maximo sin limite", "en reposo 10", "vida maxima 30m0s", "reposo maximo 5m0s", "sslmode="} {
+	for _, want := range []string{"pool de ENGRAM_DATABASE_URL", "abiertas como maximo 25", "en reposo 10", "vida maxima 30m0s", "reposo maximo 5m0s", "sslmode="} {
 		if !strings.Contains(logText, want) {
 			t.Errorf("el log de arranque no dice %q:\n%s", want, logText)
 		}

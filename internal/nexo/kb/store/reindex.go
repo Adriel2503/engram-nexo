@@ -144,11 +144,11 @@ func (s *Store) ReindexDocuments(ctx context.Context, after string, limit int) (
 		err := s.DB.QueryRowContext(ctx, `SELECT COALESCE(max(id::text), '') FROM (SELECT id FROM nexo_kb_documents WHERE id::text > $1 ORDER BY id LIMIT $2) d`, after, limit).Scan(&last)
 		return last, 0, err
 	}
-	ut, err := s.UnaccentVector(ctx, "x.it", "x.ft")
+	ut, err := s.UnaccentVector(ctx, s.DB, "x.it", "x.ft")
 	if err != nil {
 		return "", 0, err
 	}
-	ub, err := s.UnaccentVector(ctx, "x.ib", "x.fb")
+	ub, err := s.UnaccentVector(ctx, s.DB, "x.ib", "x.fb")
 	if err != nil {
 		return "", 0, err
 	}

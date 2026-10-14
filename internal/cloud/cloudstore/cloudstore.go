@@ -520,26 +520,7 @@ func insertMaterializedMutations(ctx context.Context, tx *sql.Tx, entries []Muta
 }
 
 func (cs *CloudStore) backfillProjectSessionsFromChunks(ctx context.Context) error {
-	rows, err := cs.db.QueryContext(ctx, `SELECT project_name, payload FROM cloud_chunks`)
-	if err != nil {
-		return fmt.Errorf("cloudstore: backfill session index: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var project string
-		var payload []byte
-		if err := rows.Scan(&project, &payload); err != nil {
-			return fmt.Errorf("cloudstore: backfill session index scan: %w", err)
-		}
-		if err := cs.indexChunkSessions(ctx, project, payload); err != nil {
-			return fmt.Errorf("cloudstore: backfill session index row: %w", err)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("cloudstore: backfill session index iterate: %w", err)
-	}
-	return nil
+	return cs.nexoBackfillProjectSessions(ctx) // NX-07 (OP-13): cerrar cada página antes de insertar sesiones.
 }
 
 func collectSessionIDsFromPayload(payload []byte) map[string]struct{} {

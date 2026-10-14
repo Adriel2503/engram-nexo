@@ -243,7 +243,17 @@ func (s *Service) recordDenied(ctx context.Context, id authz.Identity, slug stri
 		TargetKind: "space", TargetID: slug, Actor: actorOf(id), Details: meta})
 }
 
+// Initialize resuelve el modo de texto antes de admitir operaciones de KB.
+// El servidor lo llama al arrancar; inTx también protege servicios directos.
+func (s *Service) Initialize(ctx context.Context) error {
+	_, err := s.st.FoldInApp(ctx)
+	return err
+}
+
 func (s *Service) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	if err := s.Initialize(ctx); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
