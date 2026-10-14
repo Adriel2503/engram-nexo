@@ -170,21 +170,24 @@ func (s *CloudServer) auditPanelIntegrity(w http.ResponseWriter, r *http.Request
 // ─── Alertas ─────────────────────────────────────────────────────────────────
 
 var auditRuleLabels = map[string]string{
-	evidence.RuleAuthzDeniedBurst:     "Ráfaga de acciones denegadas",
-	evidence.RuleAuthFailuresBurst:    "Ráfaga de fallos de autenticación",
-	evidence.RulePlatformRoleChanged:  "Cambio de rol de plataforma",
-	evidence.RuleSharedTokenUsed:      "Uso del token compartido",
-	evidence.RuleExpiredTokenUsed:     "Uso de un token vencido",
-	evidence.RuleRevokedTokenUsed:     "Uso de un token revocado",
-	evidence.RuleInvalidTokenRepeated: "Token inválido repetido",
-	evidence.RuleAuditChainBroken:     "Cadena de auditoría alterada",
-	evidence.RuleLoggingStalled:       "Registro de auditoría detenido",
-	evidence.RuleInactiveDisabled:     "Cuenta deshabilitada por inactividad",
-	evidence.RuleAuditExportFailed:    "Falló la exportación de auditoría",
-	evidence.RuleKBDocExpiring:        "Documento por vencer",
-	evidence.RuleKBReviewDue:          "Documento con revisión pendiente",
-	evidence.RuleSAStale:              "Cuenta de servicio sin uso",
-	evidence.RulePlatformRoleDrift:    "Rol de Engram desalineado del rol de Nexo",
+	evidence.RuleAuthzDeniedBurst:        "Ráfaga de acciones denegadas",
+	evidence.RuleAuthFailuresBurst:       "Ráfaga de fallos de autenticación",
+	evidence.RulePlatformRoleChanged:     "Cambio de rol de plataforma",
+	evidence.RuleSharedTokenUsed:         "Uso del token compartido",
+	evidence.RuleExpiredTokenUsed:        "Uso de un token vencido",
+	evidence.RuleRevokedTokenUsed:        "Uso de un token revocado",
+	evidence.RuleInvalidTokenRepeated:    "Token inválido repetido",
+	evidence.RuleAuditChainBroken:        "Cadena de auditoría alterada",
+	evidence.RuleLoggingStalled:          "Registro de auditoría detenido",
+	evidence.RuleInactiveDisabled:        "Cuenta deshabilitada por inactividad",
+	evidence.RuleAuditExportFailed:       "Falló la exportación de auditoría",
+	evidence.RuleKBDocExpiring:           "Documento por vencer",
+	evidence.RuleKBReviewDue:             "Documento con revisión pendiente",
+	evidence.RuleSAStale:                 "Cuenta de servicio sin uso",
+	evidence.RulePlatformRoleDrift:       "Rol de Engram desalineado del rol de Nexo",
+	evidence.RuleSingleSuperadmin:        "Queda un solo superadmin",
+	evidence.RulePrivilegedTokenExpiring: "Token privilegiado por vencer",
+	evidence.RuleEmergencyAccessUsed:     "Acceso de emergencia usado",
 }
 
 func auditRuleLabel(rule string) string {
@@ -405,6 +408,8 @@ func (s *CloudServer) auditPanelReviewRender(w http.ResponseWriter, r *http.Requ
 		{Key: "Personas inactivas", Value: strconv.Itoa(sm.Inactive)},
 		{Key: "Cuentas de servicio sin uso", Value: strconv.Itoa(sm.StaleServiceAccounts)},
 		{Key: "Con rol de plataforma", Value: strconv.Itoa(sm.PlatformStaff)},
+		{Key: "Superadmins habilitados", Value: strconv.Itoa(sm.SuperadminsEnabled)},
+		{Key: "Tokens de superadmin, admin y auditor que vencen en 30 días", Value: strconv.Itoa(sm.PrivilegedTokensExpiring)},
 		{Key: "Roles de Engram desalineados", Value: strconv.Itoa(sm.RoleDrift)},
 		{Key: "Tokens activos", Value: strconv.Itoa(sm.ActiveTokens)},
 		{Key: "Tokens sin caducidad", Value: strconv.Itoa(sm.TokensNoExpiry)},
@@ -466,6 +471,10 @@ func auditFlag(flag string) dashboard.NexoFlag {
 		return dashboard.NexoFlag{Label: "Inactiva", Class: "nx-chip nx-chip-exp"}
 	case "stale":
 		return dashboard.NexoFlag{Label: "Sin uso", Class: "nx-chip nx-chip-exp"}
+	case "single_superadmin":
+		return dashboard.NexoFlag{Label: "Único superadmin", Class: "nx-chip nx-chip-err"}
+	case "token_expiring":
+		return dashboard.NexoFlag{Label: "Token por vencer", Class: "nx-chip nx-chip-exp"}
 	case "role_drift":
 		return dashboard.NexoFlag{Label: "Rol de Engram desalineado", Class: "nx-chip nx-chip-err"}
 	case "token_no_expiry":
@@ -544,6 +553,8 @@ func auditReviewToken(now time.Time, owner string, t evidence.ReviewToken) dashb
 	}
 	if t.Expired {
 		out.Flags = append(out.Flags, dashboard.NexoFlag{Label: "Vencido", Class: "nx-chip nx-chip-ret"})
+	} else if t.ExpiresAt != nil && t.ExpiresAt.Sub(now) < 30*24*time.Hour {
+		out.Flags = append(out.Flags, auditFlag("token_expiring")) // SG-06
 	}
 	if t.LastUsedAt == nil {
 		out.Flags = append(out.Flags, auditFlag("token_never_used"))
