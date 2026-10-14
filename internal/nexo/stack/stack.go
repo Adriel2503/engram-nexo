@@ -652,10 +652,6 @@ func (a *App) loadExample(ctx context.Context, s *state.State) error {
 		return e
 	}
 	r, e := a.Seeder.Load(ctx, env, stackapi.LoadOptions{Example: true})
-	if errors.Is(e, ErrSeedUnavailable) {
-		_, _ = fmt.Fprintln(a.Out, "Aviso: semilla no disponible; las personas y el panel están listos.")
-		return nil
-	}
 	if e != nil {
 		return errors.New("no se pudo cargar el ejemplo")
 	}

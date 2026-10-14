@@ -1,0 +1,65 @@
+{
+  "version": "1",
+  "observations": [
+    {
+      "id": 1,
+      "type": "decision",
+      "title": "Timeouts por defecto entre servicios (EJEMPLO)",
+      "project": "nexo-transversal",
+      "topic_key": "transversal/red/timeouts",
+      "content": "**Estado**: Oficial\n**Categoría**: Estándar\n**Qué**: Toda llamada síncrona HTTP o gRPC entre microservicios debe fijar un timeout por defecto no mayor a 3 segundos.\n**Por qué**: Evitar acumulación de hilos y agotamiento de recursos ante lentitud en servicios dependientes.\n**Alcance**: Todos los microservicios del ecosistema.\n**Responsable**: publicador\n**Vigente desde**: 2026-01-01\n**Fuente**: Guía de resiliencia y estabilidad.",
+      "created_at": "2026-01-01T00:00:00Z",
+      "updated_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": 2,
+      "type": "decision",
+      "title": "Formato estándar de errores de API (EJEMPLO)",
+      "project": "nexo-transversal",
+      "topic_key": "transversal/api/formato-errores",
+      "content": "**Estado**: Oficial\n**Categoría**: Estándar\n**Qué**: Los errores HTTP deben responder con un payload JSON estructurado con error_class, error_code y error descriptivo legible.\n**Por qué**: Estandarizar la observabilidad del cliente y facilitar el diagnóstico automático de fallas.\n**Alcance**: Todas las APIs expuestas.\n**Responsable**: publicador\n**Vigente desde**: 2026-01-10\n**Fuente**: Convención de diseño de APIs v2.",
+      "created_at": "2026-01-10T00:00:00Z",
+      "updated_at": "2026-01-10T00:00:00Z"
+    },
+    {
+      "id": 3,
+      "type": "decision",
+      "title": "Nombres de colas y tópicos (EJEMPLO)",
+      "project": "nexo-transversal",
+      "topic_key": "transversal/mensajeria/colas-topicos",
+      "content": "**Estado**: Oficial\n**Categoría**: Convención\n**Qué**: Las colas y tópicos de mensajería siguen el patrón dominio.entidad.evento.version en minúsculas y kebab-case.\n**Por qué**: Garantizar enrutamiento predecible y evitar colisiones de nombres entre dominios distintos.\n**Alcance**: Brokers de eventos y colas de trabajo.\n**Responsable**: publicador\n**Vigente desde**: 2026-01-20\n**Fuente**: Lineamiento de arquitectura dirigida por eventos.",
+      "created_at": "2026-01-20T00:00:00Z",
+      "updated_at": "2026-01-20T00:00:00Z"
+    },
+    {
+      "id": 4,
+      "type": "decision",
+      "title": "Reintentos con jitter (EJEMPLO)",
+      "project": "nexo-transversal",
+      "topic_key": "transversal/resiliencia/reintentos-jitter",
+      "content": "**Estado**: Propuesta\n**Categoría**: Lineamiento\n**Qué**: Incorporar variación aleatoria (jitter) al intervalo de espera exponencial de reintentos para mitigar el efecto manada.\n**Por qué**: Cuando un servicio recupera conectividad, llamadas coordinadas sin jitter pueden tumbarlo nuevamente.\n**Alcance**: Clientes HTTP y de bases de datos.\n**Responsable**: proponente\n**Por qué**: Mitigación de tormentas de peticiones.",
+      "created_at": "2026-02-01T00:00:00Z",
+      "updated_at": "2026-02-01T00:00:00Z"
+    },
+    {
+      "id": 5,
+      "type": "decision",
+      "title": "Versionado de contratos de API (EJEMPLO)",
+      "project": "nexo-transversal",
+      "topic_key": "transversal/api/versionado-contratos",
+      "content": "**Estado**: Propuesta\n**Categoría**: Lineamiento\n**Qué**: Versionar rutas por prefijo de URL en componentes mayores (ejemplo /v1/) y conservar retrocompatibilidad en cambios menores.\n**Por qué**: Permitir evolucionar servicios sin romper integraciones activas de clientes legados.\n**Alcance**: Endpoints REST de cara a clientes.\n**Responsable**: proponente\n**Por qué**: Transición gradual de clientes.",
+      "created_at": "2026-02-15T00:00:00Z",
+      "updated_at": "2026-02-15T00:00:00Z"
+    },
+    {
+      "id": 6,
+      "type": "decision",
+      "title": "Convención antigua de nombres de ramas (EJEMPLO)",
+      "project": "nexo-transversal",
+      "topic_key": "transversal/git/ramas-obsoletas",
+      "content": "**Estado**: Obsoleta\n**Categoría**: Convención\n**Qué**: Uso del prefijo ticket-numero sin indicar tipo de cambio en nombres de ramas de Git.\n**Por qué**: Reemplazado por la convención feat/, fix/, chore/ unificada.",
+      "created_at": "2025-06-01T00:00:00Z",
+      "updated_at": "2025-06-01T00:00:00Z"
+    }
+  ]
+}

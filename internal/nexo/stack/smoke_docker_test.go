@@ -81,7 +81,7 @@ func TestStackDockerSmoke(t *testing.T) {
 	a := New(strings.NewReader(""), &output, &output, data, "smoke")
 	a.Executable = bin
 	a.Home = home
-	a.Seeder = unavailableSeeder{}
+	a.Seeder = NewSeeder()
 	dir, _ := state.Directory(home, "demo", "smoke", "")
 	s := state.State{Mode: "demo", Name: "smoke", Project: project, Dir: dir}
 	ids := []proc.Identity{}

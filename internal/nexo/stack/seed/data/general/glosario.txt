@@ -1,0 +1,9 @@
+Glosario de frontend (EJEMPLO)
+
+Nota: Documento de (EJEMPLO) para pruebas y demostración de Nexo.
+
+SSR: renderizado en el servidor. Lo usamos en el portal de usuarios por optimización de carga.
+
+CSR: renderizado en el cliente. Lo usamos en la consola interna.
+
+Design token: valor con nombre (color, espaciado, tipografía) definido en el sistema de diseño.
