@@ -37,7 +37,6 @@ func (p *kbPanel) post(path string, form url.Values) *httptest.ResponseRecorder 
 	return performDashboardForm(p.env.srv, http.MethodPost, path, form.Encode(), p.cookie, false)
 }
 
-
 // csrf devuelve el token CSRF de la sesión (derivado de la cookie, como lo
 // emiten los formularios del panel).
 func (p *kbPanel) csrf(_ string) string {

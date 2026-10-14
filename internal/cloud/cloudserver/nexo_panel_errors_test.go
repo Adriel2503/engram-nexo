@@ -53,10 +53,12 @@ func TestNexoPanelErrorTextLeavesEverythingElse(t *testing.T) {
 		h    http.HandlerFunc
 		want string
 	}{
-		"mensaje que no conoce": {"/dashboard/x", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "mensaje nuevo en español", http.StatusBadRequest) }, "mensaje nuevo en español\n"},
-		"fuera del panel":       {"/sync/push", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "forbidden", http.StatusForbidden) }, "forbidden\n"},
-		"estáticos":             {"/dashboard/static/x.css", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "forbidden", http.StatusForbidden) }, "forbidden\n"},
-		"éxito":                 {"/dashboard/x", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("forbidden")) }, "forbidden"},
+		"mensaje que no conoce": {"/dashboard/x", func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "mensaje nuevo en español", http.StatusBadRequest)
+		}, "mensaje nuevo en español\n"},
+		"fuera del panel": {"/sync/push", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "forbidden", http.StatusForbidden) }, "forbidden\n"},
+		"estáticos":       {"/dashboard/static/x.css", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "forbidden", http.StatusForbidden) }, "forbidden\n"},
+		"éxito":           {"/dashboard/x", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("forbidden")) }, "forbidden"},
 		"html de error": {"/dashboard/x", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(404)

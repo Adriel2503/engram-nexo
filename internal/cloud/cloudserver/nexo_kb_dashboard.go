@@ -65,8 +65,8 @@ func (s *CloudServer) registerNexoKBDashboard(mux *http.ServeMux) {
 	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/upload", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbUpload)))
 	s.nexoRoute(mux, "GET", "/dashboard/kb/spaces/{slug}/doc", "space.read", s.requireDashboardSession(s.nexoKBPage(s.kbDocument)))
 	s.nexoRoute(mux, "POST", "/dashboard/kb/spaces/{slug}/retire", "space.publish", s.requireDashboardSession(s.nexoKBPage(s.kbRetire)))
-	s.registerNexoKBMembersDashboard(mux)   // K6 (KP-12): miembros del espacio
-	s.registerNexoKBProposalsDashboard(mux) // K6 (KP-13): propuestas
+	s.registerNexoKBMembersDashboard(mux)    // K6 (KP-12): miembros del espacio
+	s.registerNexoKBProposalsDashboard(mux)  // K6 (KP-13): propuestas
 	s.registerNexoSearchStatusDashboard(mux) // Estado de la búsqueda (nexo_search_status.go)
 }
 
