@@ -194,6 +194,7 @@ func runNexoSecurityFlow(t *testing.T, env *nexoSecEnv) *nexoFlow {
 	f.do(http.MethodGet, "/nexo/admin/presence", "carla", "", 200)
 	f.do(http.MethodGet, "/nexo/admin/history/obs-1?project=nexo-transversal&include_payload=true", "carla", "", 200)
 	f.do(http.MethodGet, "/nexo/admin/authz-events?limit=200", "carla", "", 200)
+	f.do(http.MethodGet, "/nexo/admin/database", "carla", "", 200) // SG-05: pool y TLS, sin secretos
 	f.do(http.MethodGet, "/nexo/authz/v1/events?limit=200", "carla", "", 200)
 	f.do(http.MethodGet, "/nexo/authz/v1/platform/members", "carla", "", 200)
 	f.do(http.MethodGet, "/nexo/authz/v1/scopes/space/seguridad-s5/members", "ana", "", 200)

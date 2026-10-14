@@ -37,7 +37,7 @@ func New(cfg cloud.Config) (*CloudStore, error) {
 	if dsn == "" {
 		return nil, fmt.Errorf("cloudstore: database dsn is required")
 	}
-	db, err := sql.Open("pgx", dsn)
+	db, err := nexoOpenDB("ENGRAM_DATABASE_URL", dsn, true) // NX-07 (SG-05): exige TLS verificado si NEXO_DB_REQUIRE_TLS, aplica el pool (nexo_dbconn.go)
 	if err != nil {
 		return nil, fmt.Errorf("cloudstore: open postgres: %w", err)
 	}
