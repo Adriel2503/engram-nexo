@@ -55,7 +55,7 @@ func TestReleaseChecksModuleMetadataWithoutMutatingTaggedSources(t *testing.T) {
 	if strings.Contains(goreleaser, "go mod tidy") {
 		t.Fatal(".goreleaser.yaml must not run go mod tidy during a release")
 	}
-	nexo := releaseConfigFile(t, filepath.Join(root, ".goreleaser.nexo.yaml")) // NX-OP01
+	nexo := releaseConfigFile(t, filepath.Join(root, ".goreleaser.nexo.yaml"))                                           // NX-OP01
 	if strings.Contains(nexo, "go mod tidy") || strings.Contains(nexo, "brews:") || strings.Contains(nexo, "homebrew") { // NX-OP01
 		t.Fatal(".goreleaser.nexo.yaml must not run go mod tidy nor publish a Homebrew formula") // NX-OP01
 	} // NX-OP01

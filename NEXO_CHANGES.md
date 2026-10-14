@@ -655,7 +655,7 @@ No se modifican SQLite, bootstrap ni comandos de emergencia. Sin commits.
 - **Librerías actualizadas** (2026-10-14): `jackc/pgx/v5` 5.7.6 a 5.11.0 (corrige GO-2026-5004), `golang.org/x/net` 0.56 a 0.61, `golang.org/x/text` 0.39 a 0.43 (corrige GO-2026-6629), `golang.org/x/sys` 0.46 a 0.49, `a-h/templ` 0.3.1001 a 0.3.1070 (los 10 `*_templ.go` regenerados con `go tool templ generate -path ./internal/cloud/dashboard`) y las indirectas. Con esto `govulncheck` no encuentra vulnerabilidades.
 - **No actualizadas, con motivo** (sin vulnerabilidades conocidas):
   - `mark3labs/mcp-go` queda en 0.44.0. Desde 1.1.1, al cerrarse la entrada estándar cancela las llamadas en curso antes de drenarlas; Engram depende de drenarlas (issue #886, `runMCPStdio` y `eofShutdownReader` en `cmd/engram/main.go`) para no perder el último guardado del asistente, y `TestCmdMCPStdioFinalToolCallDrainsBeforeEOFShutdown` falla siempre con 1.2.1. Subirla exige retener el EOF hasta que terminen las llamadas pendientes.
-  - `modernc.org/sqlite` queda en 1.46.2 (y `modernc.org/libc` en 1.70.0, la versión exacta que exige). La 1.60 requiere que la conexión implemente `sqlite.FileControl` y el envoltorio de Engram (`store.generationConn`) no lo hace: falla la apertura de la base local en unas 20 pruebas del cliente.
+  - **Retención de SQLite levantada al integrar upstream `f3f5aa7` (2026-10-14):** `modernc.org/sqlite` pasa de 1.46.2 a 1.58.0 y `modernc.org/libc` de 1.70.0 a 1.75.6, el par del arreglo EINTR oficial (#1853). `store.generationConn` ahora reenvía `FileControlDataVersion`, además de `FileControlPersistWAL`, conservando la guarda de generación. El impedimento conocido de 1.60 queda corregido en el envoltorio; no se ha probado ni adoptado 1.60 u otra versión posterior en esta integración.
 - **pgx 5.11 y rutas de Windows.** En la forma `clave=valor` de la cadena de conexión, pgx interpreta ahora `\` dentro de comillas como escape, igual que libpq: `sslrootcert='C:\certs\ca.pem'` se lee como `C:certsca.pem`. Use barras normales (`C:/certs/ca.pem`), duplique las barras invertidas o use la forma URL. En Linux no cambia nada.
 - **Go 1.27 y `compress/gzip`.** Con el nivel por defecto, un bloque muy pequeño (unos 50 bytes) que no se reduce se guarda sin comprimir. `chunkcodec/envelope_test.go` usaba un texto de 49 bytes; ahora usa un tamaño realista (marca NX-OP14). Los paquetes reales de sincronización siguen comprimidos.
 - **Política de dependencias.** Las librerías que Nexo actualiza por delante de Engram se listan en esta entrada; al traer una versión nueva de Engram, `go.mod` y `go.sum` se resuelven a mano quedándose con la versión más alta. Revisión mensual de actualizaciones (las propuestas de Dependabot del propio repositorio sirven).
@@ -752,16 +752,16 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudserver/dashboard_admin_users.go:431-433` | NX-07 | Panel, permiso de proyecto: `nexoAllowProjectGrant` (igual que la API) |
 | `internal/cloud/dashboard/components.templ:1030, 1067, 1072, 1162` | NX-07 | Panel (sin marca: es HTML de templ): campos de caducidad y alcance en el formulario de token, columna "Last Used / Expires / Scope", estado "Expired" (`nexoTokenStatus`) y caducidad y alcance en la página del token creado. Se reutilizan expresiones existentes sin agregar nodos ni líneas; `components_templ.go` regenerado con `go tool templ generate -path ./internal/cloud/dashboard` (templ v0.3.1001 de `go.mod`): 7 líneas cambiadas, mismos finales de línea |
 | `internal/cloud/cloudserver/cloudserver.go:345` | NX-10 | `routes()`: `s.registerNexoKBRoutes(s.mux)` registra `/nexo/kb/v1` (`nexo_kb_bridge.go`) |
-| `cmd/engram/main.go:39` | NX-10 / NX-07 | Import `nexocli` (`internal/nexo/nexocli`, despachador de `engram nexo`; antes `nexokbcli`) |
-| `cmd/engram/main.go:825-826` | NX-10 / NX-07 | `case "nexo"`: `engram nexo kb ...` y `engram nexo audit verify|export|verify-export` (bloque de 2 líneas; misma forma que en NX-10) |
+| `cmd/engram/main.go:40` | NX-10 / NX-07 | Import `nexocli` (`internal/nexo/nexocli`, despachador de `engram nexo`; antes `nexokbcli`) |
+| `cmd/engram/main.go:858-859` | NX-10 / NX-07 | `case "nexo"`: `engram nexo kb ...` y `engram nexo audit verify|export|verify-export` (bloque de 2 líneas; misma forma que en NX-10) |
 | `internal/mcp/mcp.go:32` | NX-10 | Import `nexokbclient` (`internal/nexo/kb/client`) |
-| `internal/mcp/mcp.go:1165` | NX-10 | `registerTools`: `nexokbclient.RegisterTools(srv, s, allowlist)` registra las herramientas `nexo_*` (tanda 2; toda la lógica en `internal/nexo/kb/client/mcp.go`) |
+| `internal/mcp/mcp.go:1204-1206` | NX-10 | `registerTools`: `nexokbclient.RegisterTools(srv, s, allowlist)` registra las herramientas `nexo_*` (tanda 2; toda la lógica en `internal/nexo/kb/client/mcp.go`), ahora dentro de `if s != nil` (3 líneas): el generador del contrato de agentes del oficial (#1847, `AgentContractJSON`) construye el servidor sin almacén y, sin la guarda, `RegisterTools` entraba en pánico recuperado y escribía en stderr, lo que rompía `tools/agent-contract`. El contrato oficial no incluye herramientas `nexo_*` |
 | `internal/setup/setup.go:297-299` | NX-10 | `Install`: `res, err := installFromAdapter(a)` + `nexoAfterInstall(a.slug)` (marcada) + `return res, err` (bloque de 3 líneas; antes `return installFromAdapter(a)`): protocolo Nexo con la PC conectada (`internal/setup/nexo_setup.go`) |
 | `internal/setup/setup.go:92-94` | NX-10 | `claudeCodeMarketplace` y `codexMarketplace` = `Adriel2503/engram-nexo`; constante nueva `codexMarketplaceRef = "main"` (rama estable; fue `develop` hasta el 2026-10-13) (D-K2b-35, opción A) |
 | `internal/setup/setup.go:1716, 1724` | NX-10 | Codex: `--ref codexMarketplaceRef` en el mensaje de recuperación y en `codex plugin marketplace add` |
 | `internal/setup/setup.go:1068` | NX-10 | `installClaudeCode`: `nexoReplaceForeignClaudeMarketplace(claudeBin)` antes de `marketplace add` (catálogo `engram` con otro origen; `internal/setup/nexo_marketplace.go`) |
 | `internal/setup/setup.go:1723` | NX-10 | `installCodex`: `nexoReplaceForeignCodexMarketplace(codexBin, path)` antes de `marketplace add` (otro origen u otra rama) |
-| `cmd/engram/main.go:3818` + 2 líneas del texto de `printUsage` | NX-10 | `engram help` lista `nexo <subcommand>` (las 2 líneas están dentro de la cadena, sin marca propia; la marca va sobre la función) |
+| `cmd/engram/main.go:3868` + 2 líneas del texto de `printUsage` | NX-10 | `engram help` lista `nexo <subcommand>` (las 2 líneas están dentro de la cadena, sin marca propia; la marca va sobre la función) |
 | `plugin/codex_windows_session_end_test.go:113-114` | NX-10 | Prueba de Engram ajustada a la versión del plugin de Codex del fork (`0.1.501`) |
 | `.claude-plugin/marketplace.json`, `plugin/claude-code/.claude-plugin/plugin.json`, `plugin/codex/.codex-plugin/plugin.json` | NX-10 (sin marca: JSON) | `version` propia del fork (`0.1.1201` y `0.1.501`, esquema en §3) y descripción que nombra el fork |
 | `internal/setup/agents.go:61` | NX-10 | Nota de instalación manual de Codex con el marketplace del fork y `--ref main` |
@@ -803,6 +803,16 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudserver/admin_handlers.go:231-233` | NX-07 (activación) | Enganche `nexoMaybeActivation`: otra persona recibe código; autoemisión sigue directa |
 | `internal/cloud/cloudserver/dashboard_admin_users.go:312-314` | NX-07 (activación) | Mismo enganche en el panel: código con instrucciones para otra persona |
 | `internal/cloud/dashboard/login.templ:64` | NX-07 (activación) | Llamada a `nexoActivationLoginLink` para entrar sin sesión. `login_templ.go` regenerado con el comando autorizado; sin cambios solo de finales de línea |
+
+| `.github/workflows/issue-refresh-router.yml:11-12` | NX-OP01 (integración upstream) | Router de aprobación del oficial restringido a `Gentleman-Programming/engram`; queda inerte en Nexo, sin borrar el workflow |
+| `.github/scripts/issue-refresh-router-workflow.test.mjs:15-16, 60-62` | NX-OP01 / NX-OP14 | Prueba de la guarda del router y comparación del CI oficial normalizando solo las versiones propias de Go y golangci-lint |
+| `internal/server/caller_binding_test.go:30, 105` | NX-OP14 | Literales de `CallerHostContext` con nombres de campo: corrige siete avisos preexistentes de `go vet`, sin cambiar las pruebas |
+| `internal/diagnostic/checks_test.go:163` | NX-OP14 | Solo gofmt de la tabla de casos preexistente |
+| `internal/store/session_identity_repair_test.go:203` | NX-OP14 | Solo gofmt de la tabla de casos preexistente |
+
+| `internal/store/migration_lock_test.go:19, 37, 100` | NX-OP14 (integración upstream) | Portabilidad de la prueba oficial de cancelación: ejecutable `.exe` en Windows y snapshots fuera del `LockFileEx`; se mantiene el bloqueo hasta confirmar EOF, salida y contención |
+
+| `.gitattributes:8-9` | NX-OP14 (integración upstream) | Mantener LF en `docs/contracts/agent-contract-v1.json`: la prueba oficial compara el artefacto generado byte a byte también en Windows |
 
 Archivo nuevo de configuración: `.goreleaser.nexo.yaml` (OP-01). `.goreleaser.yaml` de Engram queda sin cambios.
 
@@ -1011,3 +1021,72 @@ go tool templ generate -path ./internal/cloud/dashboard
 ```
 
 E2E de seguridad (repositorio de Nexo): `pwsh -NoProfile -File 06-pruebas/seguridad/Run-Seguridad.ps1` con la imagen `nexo-engram-cloud:3.3.2-nexo.2-dev` construida desde la rama. Para su prueba de volumen CA-35 (1 000 consultas de administración en paralelo) sube el límite del grupo `admin` con `NEXO_RATE_LIMITS={"admin":{"ip":3000,"token":3000}}`; el resto de los grupos queda con los valores por defecto. Desde el parche del 2026-10-12 incluye D-S2-8 (servicio `pc-malpegado`, que comparte la red de `pc-ana`), D-S3-8 y D-S3-9: 44 casos. Desde S4 (servicio `webhook` de prueba, exportación en un tmpfs `/export`, `NEXO_AUDIT_DEDUP_SECONDS=60` y `NEXO_AUDIT_VERIFY_MINUTES=1` para no esperar 10 y 60 minutos) agrega S4-PRIV, A1, A2 y CA-S09..CA-S12: 51 casos.
+
+## Integración upstream f3f5aa7
+
+Preparada el 2026-10-14 en `merge/engram-upstream`, desde `28036fe6b50106013c6f51fcb04256daf3259dee` (develop), con base común `fc43849` y segundo padre previsto `f3f5aa789b0fcc5fcb520b4a1b910bbf1611655c`. El coordinador inició el merge. Este agente solo editó el árbol de trabajo: el índice conserva `UU` hasta que el coordinador haga `git add` y el commit; todavía no existe un hash final de merge.
+
+### Commits incorporados
+
+- `fc0dd31` — feat(mcp): add batch judgments and atomic session finalization (#1840)
+- `9f9fcb9` — test(cloudstore): characterize dashboard cache read behavior (#1848)
+- `b81ea5e` — test(cloudstore): measure dashboard rebuild SQL and history cost (#1849)
+- `f14fc4f` — ci(policy): prepare inactive approval refresh dispatcher (#1850)
+- `fd99ba4` — fix(store): adopt the coupled SQLite libc EINTR sleep fix (#1853)
+- `7e9908d` — fix: recover bundled stores across core upgrades and stop session-owned servers with Pi (#1854)
+- `3d94ad2` — feat(contract): add Go-owned agent contract foundation (#1847)
+- `aaa035a` — test(scripts): cover operational performance ratchet modes (#1784)
+- `47911e2` — feat(ci): wire issue approval events to guarded native refresh (#1855)
+- `11f8f1a` — fix(ci): bind native refresh to the original PR event (#1861)
+- `386d92e` — test(pi): make owned startup fixture portable on Windows (#1862)
+- `02b4d82` — feat(search): expose compact search through HTTP and Pi (#1863)
+- `ebfc137` — ci(governance): enforce root-cause-first contribution lifecycle (#1295)
+- `fee7271` — feat(history): expose paginated observation history through HTTP and Pi (#1869)
+- `f3f5aa7` — test(ci): cover duplicate runs and late legacy publication (#1867)
+
+### Conflictos, preservación y correcciones
+
+- `go.mod`: conservar la versión más nueva de cada dependencia del fork y adoptar el par SQLite/libc oficial. Mantener Go 1.27.2 y mcp-go 0.44.0.
+- `go.sum`: partir de las sumas de develop y regenerar con `go mod tidy`; ambos archivos quedan sin marcadores.
+- `cmd/engram/main.go`, `internal/mcp/mcp.go` y `CONTRIBUTING.md`: la fusión automática conservó los enganches Nexo y golangci-lint v2.14.0. No hubo pérdida de marcas NX. El código propio de Nexo no recibió cambios funcionales.
+- `internal/server/caller_binding_test.go`: siete literales externos pasan a nombres de campo para corregir avisos de vet también presentes en develop.
+- `internal/store/migration_lock_test.go`: corregir dos defectos de portabilidad de la nueva prueba oficial: extensión .exe en Windows y lectura de snapshots fuera del bloqueo exclusivo LockFileEx. La guarda sigue retenida durante el EOF, la salida del hijo y la prueba de contención; después se comparan todos los archivos. La regresión pasa en ambos locks, sin modificar código de producción.
+- `docs/contracts/agent-contract-v1.json`: `go generate ./internal/mcp` recuperó LF tras el checkout CRLF de Windows; el resultado es idéntico al JSON oficial. `.gitattributes` fija LF para que el fallo no vuelva en otro checkout.
+- Gofmt corrigió diez archivos con deuda de formato que ya existía, comprobada contra develop. Solo espacios, alineación y líneas vacías; se preservaron los finales CRLF.
+
+### Dependencias
+
+| Dependencia | Antes | Después |
+|---|---|---|
+| modernc.org/sqlite | 1.46.2 | 1.58.0 |
+| modernc.org/libc | 1.70.0 | 1.75.6 |
+| github.com/charmbracelet/x/term | 0.2.2 indirecta | 0.2.2 directa (tidy) |
+| Go | 1.27.2 | 1.27.2 |
+| pgx/v5 | 5.11.0 | 5.11.0 |
+| x/net / x/sys / x/text | 0.61.0 / 0.49.0 / 0.43.0 | Sin cambios |
+| templ / mcp-go | 0.3.1070 / 0.44.0 | Sin cambios |
+
+Tidy actualizó en go.sum las transitivas de herramientas de modernc: cc/v4 4.27.1 → 4.29.2, ccgo/v4 4.32.0 → 4.35.0, gc/v3 3.1.2 → 3.1.5, opt 0.1.4 → 0.2.0 y pprof de a4b03ec1a45e a ef3492d7dac3. Las demás dependencias del fork se conservaron. NX-OP14 ya no retiene SQLite: el oficial incorpora FileControlDataVersion en generationConn y las regresiones de FileControl pasan. No se adoptó ni se validó SQLite posterior a 1.58.0.
+
+### Workflows y funciones disponibles
+
+Se adoptaron los cambios de `issue-policy.yml` (evento original) y `pr-check.yml` (asignación y aprobación de issues). El nuevo `issue-refresh-router.yml` queda restringido a `Gentleman-Programming/engram` e inerte en Nexo: no se importa la activación de gobernanza de otra organización. Se conservan sus helpers y pruebas; la prueba de baseline normaliza exclusivamente Go/lint del fork. Los workflows `nexo-*`, govulncheck, las publicaciones propias y Go 1.27.2 en CI/Dockerfiles siguen intactos.
+
+Disponibles: `mem_judge_many` (1–32 juicios), `mem_session_finalize` (resumen y cierre atómicos con reintento), recuperación de stores incluidos mediante `migrate-copy`, servidor privado `serve --session-owned` que termina al cerrar stdin, contrato de agentes propiedad de Go, búsqueda compacta por HTTP/Pi e historial paginado por HTTP/Pi. Las rutas de Nexo y sus herramientas `nexo_*` permanecen. Las pruebas del read model del panel caracterizan su comportamiento; no cambian el cloudstore de producción.
+
+### Inventario §4
+
+Filas actualizadas: main.go :39 → :40, :825–826 → :858–859 y :3818 → :3868; mcp.go :1165 → :1204. Filas añadidas para el router, su prueba, los literales de CallerHostContext, la portabilidad de migration_lock_test.go y los dos bloques de pruebas formateados. setup.go y release_config_test.go solo alinean comentarios NX existentes, sin desplazar líneas. No fue necesario modificar ni regenerar plantillas templ.
+
+### Verificación y entrega
+
+Conflicto adicional detectado en la verificación: `internal/mcp/mcp.go` (marca NX-10). El contrato de agentes del oficial se genera con un servidor MCP sin almacén; `nexokbclient.RegisterTools` recibía un `*store.Store` nulo dentro de una interfaz y fallaba en silencio al registro (pánico recuperado, línea en stderr), con lo que `TestGeneratorWritesChecksAndPreservesStaleArtifact` fallaba. Se envolvió la llamada en `if s != nil`. El JSON generado sigue idéntico al oficial.
+
+Por indicación del usuario no se corrió la batería completa hasta el final (se detuvo por PID); se verificó lo siguiente con Go 1.27.2 y la base Postgres `nexoup`:
+
+- `go build ./...`, `go vet ./...`, `go mod tidy -diff` (sin diferencias): correctos.
+- `bash scripts/deadcode-ratchet.sh`: sin funciones nuevas inalcanzables (la línea base no cambió).
+- gofmt (`tr -d '\r' < f | gofmt -l`) sobre todos los `.go` versionados: limpio.
+- golangci-lint v2.14.0 `--new-from-rev=develop`: 0 problemas. govulncheck v1.1.4: sin vulnerabilidades.
+- Pruebas de los paquetes que cambió el oficial: `internal/store` (SQLite 1.58.0, `generationConn`, `migrate-copy`, cierre de sesión), `internal/mcp` (juicios en lote, cierre de sesión, contrato, búsqueda compacta, historial), `tools/agent-contract`, `internal/cloud/cloudstore` (caché del panel, con Postgres), `internal/cloud/cloudserver`, `internal/server`, `scripts`, `cmd/engram` y las pruebas de Node de `plugin/pi` y del vector canónico. Pasaron salvo los fallos de Windows ya existentes en develop `28036fe` (symlinks sin privilegio: `TestMigrateCopyRejects/symlink|source-alias|output-alias`, `TestCompatibilityOfflineNeverAuthorizes/symlink`; bind de puerto: `TestStartAcceptsOnlySameInstanceBindLoser`; `TestCompatibilityPublicBinary/database_alias`). Las pruebas sensibles a carga (`TestNexoOP13BackfillSingleConnection`, varias de `internal/mcp` y de `internal/store`) pasan al repetirlas solas.
+- Prueba de humo: binario con `ENGRAM_DATA_DIR` temporal, `mcp` por stdio: arranca, lista `mem_judge_many` y `mem_session_finalize`, y `mem_save` y `mem_search` funcionan. Proceso detenido por PID; datos temporales borrados.

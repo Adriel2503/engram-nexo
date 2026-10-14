@@ -160,17 +160,18 @@ func TestTrustedGitDirectoryEvidenceWinsAcrossCheckAndRepair(t *testing.T) {
 	}
 }
 
+// NX-OP14: gofmt de la tabla existente, sin cambiar casos ni comportamiento.
 func TestSessionProjectAuthorityDecision(t *testing.T) {
 	tests := []struct {
-		name                 string
-		persistedProject     string
-		manualTarget         string
-		knownManualTarget    bool
-		directory            DetectedProject
-		wantTarget               string
-		wantEvidenceSource       string
-		wantBasenameVeto         bool
-		wantNoCompetingBehavior  bool
+		name                    string
+		persistedProject        string
+		manualTarget            string
+		knownManualTarget       bool
+		directory               DetectedProject
+		wantTarget              string
+		wantEvidenceSource      string
+		wantBasenameVeto        bool
+		wantNoCompetingBehavior bool
 	}{
 		{
 			name:              "uncorroborated known manual target remains repairable",
@@ -180,12 +181,12 @@ func TestSessionProjectAuthorityDecision(t *testing.T) {
 			wantTarget:        "engram",
 		},
 		{
-			name:              "trusted git directory takes precedence",
-			persistedProject:  "sias-app",
-			manualTarget:      "engram",
-			knownManualTarget: true,
-			directory:         DetectedProject{Project: "third-project", Source: "git_remote", Path: "/work/third-project"},
-			wantTarget:        "third-project",
+			name:               "trusted git directory takes precedence",
+			persistedProject:   "sias-app",
+			manualTarget:       "engram",
+			knownManualTarget:  true,
+			directory:          DetectedProject{Project: "third-project", Source: "git_remote", Path: "/work/third-project"},
+			wantTarget:         "third-project",
 			wantEvidenceSource: "git_remote",
 		},
 		{

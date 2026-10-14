@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -92,8 +93,10 @@ type Server struct {
 	// When nil and semantic=true, a no-op builder is used (returns empty string).
 	promptBuilder SemanticPromptBuilder
 	// version is reported by GET /health and defaults to "dev" for local builds.
-	version    string
-	instanceID string
+	version           string
+	instanceID        string
+	sessionOwnedToken string
+	onReady           func(net.Addr) error
 }
 
 func New(s *store.Store, port int) *Server {
@@ -107,6 +110,15 @@ func New(s *store.Store, port int) *Server {
 	srv.routes()
 	return srv
 }
+
+// SetSessionOwnedToken enables authentication on the entire handler, including health.
+// Configure before Start; the private token is immutable for this child's lifetime.
+func (s *Server) SetSessionOwnedToken(token string) { s.sessionOwnedToken = token }
+
+// SetOnReady publishes the bound listener before serving, never before bind succeeds.
+func (s *Server) SetOnReady(fn func(net.Addr) error) { s.onReady = fn }
+
+type ownedAuthKey struct{}
 
 // SetOnWrite configures a callback invoked after every successful local write.
 // This is used to notify autosync.Manager via NotifyDirty().
@@ -162,6 +174,10 @@ func (s *Server) notifyWrite() {
 // does not need to restart when the variable changes.
 func requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Value(ownedAuthKey{}) == true {
+			h(w, r)
+			return
+		}
 		token := os.Getenv("ENGRAM_HTTP_TOKEN")
 		if token == "" {
 			// No token configured → open access (zero-config default).
@@ -223,6 +239,10 @@ func writeOwnershipError(w http.ResponseWriter, sessionID string, err error) boo
 // the same work locally without any server token.
 func requireConfiguredAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Value(ownedAuthKey{}) == true {
+			h(w, r)
+			return
+		}
 		if os.Getenv("ENGRAM_HTTP_TOKEN") == "" {
 			jsonError(w, http.StatusServiceUnavailable, "server authorization is not configured")
 			return
@@ -271,7 +291,7 @@ func (s *Server) Start() error {
 		ln, err = listenFn(network, addr)
 	}
 	if err != nil {
-		if socketPath == "" && isAddressInUse(err) {
+		if s.sessionOwnedToken == "" && socketPath == "" && isAddressInUse(err) {
 			if s.instanceOwnsPort() {
 				log.Printf("[engram] HTTP server did not bind on %s: an existing instance owns the port", addr)
 				return nil
@@ -294,6 +314,11 @@ func (s *Server) Start() error {
 	s.closeMu.Unlock()
 	defer s.Close()
 
+	if s.onReady != nil {
+		if err := s.onReady(ln.Addr()); err != nil {
+			return err
+		}
+	}
 	log.Printf("[engram] HTTP server listening on %s", addr)
 	err = serveFn(ln, s.Handler())
 	if errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed) {
@@ -438,6 +463,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.sessionOwnedToken != "" {
+			if !hmac.Equal([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.sessionOwnedToken)) {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="engram"`)
+				jsonError(w, http.StatusUnauthorized, "authorization required")
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), ownedAuthKey{}, true))
+		}
 		if timing := beginHTTPWriteTiming(r); timing != nil {
 			writer := &timedResponseWriter{ResponseWriter: w}
 			r = r.WithContext(context.WithValue(r.Context(), httpWriteTimingKey{}, timing))
@@ -833,6 +866,11 @@ func (s *Server) handleRecentObservations(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
+	responseFormat := params.Get("response_format")
+	if responseFormat != "" && responseFormat != "compact" {
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("invalid response_format %q: must be \"compact\"", responseFormat))
+		return
+	}
 	query := params.Get("q")
 	if query == "" {
 		jsonError(w, http.StatusBadRequest, "q parameter is required")
@@ -851,13 +889,32 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.store.Search(query, store.SearchOptions{
+	opts := store.SearchOptions{
 		Type:      params.Get("type"),
 		Project:   resolved.Project,
 		Scope:     params.Get("scope"),
 		Limit:     queryInt(r, "limit", 10),
 		MatchMode: matchMode,
-	})
+	}
+	if responseFormat == "compact" {
+		previews, searchErr := s.store.SearchPreviewsContext(r.Context(), query, opts)
+		if searchErr != nil {
+			jsonError(w, http.StatusInternalServerError, searchErr.Error())
+			return
+		}
+		relations, relationErr := s.store.SearchPreviewRelationsContext(r.Context(), previews)
+		if relationErr != nil {
+			jsonError(w, http.StatusInternalServerError, relationErr.Error())
+			return
+		}
+		summary := fmt.Sprintf("Found %d memories.", len(previews))
+		if len(previews) == 0 {
+			summary = fmt.Sprintf("No memories found for: %q", query)
+		}
+		jsonResponse(w, http.StatusOK, map[string]any{"result": summary, "results": store.CompactSearchProjection(previews, relations)})
+		return
+	}
+	results, err := s.store.Search(query, opts)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -883,7 +940,48 @@ func (s *Server) handleGetObservation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse(w, http.StatusOK, obs)
+	if r.URL.Query().Get("include_history") != "true" {
+		jsonResponse(w, http.StatusOK, obs)
+		return
+	}
+
+	var cursor int64
+	if values, present := r.URL.Query()["history_cursor"]; present {
+		var numeric float64
+		// Decode a JSON number just as MCP does, including integral scientific
+		// notation and its float64 boundary strictly below 2^63.
+		if len(values) == 0 || json.Unmarshal([]byte(values[0]), &numeric) != nil || strings.TrimSpace(values[0]) == "null" || numeric < 0 || math.Trunc(numeric) != numeric || numeric >= 0x1p63 {
+			jsonError(w, http.StatusBadRequest, "history_cursor must be a non-negative integer")
+			return
+		}
+		cursor = int64(numeric)
+	}
+	page, err := s.store.GetObservationVersionPage(id, store.DefaultObservationVersionPageSize, cursor)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to read observation history: %v", err))
+		return
+	}
+	history := make([]map[string]any, 0, len(page.Versions))
+	for _, version := range page.Versions {
+		history = append(history, map[string]any{
+			"version": version.Version, "title": version.Title,
+			"content": version.Content, "created_at": version.CreatedAt,
+		})
+	}
+	response := struct {
+		*store.Observation
+		History            []map[string]any `json:"history"`
+		VersionCount       int              `json:"version_count"`
+		HistoryTruncated   bool             `json:"history_truncated,omitempty"`
+		HistoryFromVersion int              `json:"history_from_version,omitempty"`
+		HistoryCursor      int64            `json:"history_cursor,omitempty"`
+	}{Observation: obs, History: history, VersionCount: page.Total}
+	if page.HasMore {
+		response.HistoryTruncated = true
+		response.HistoryFromVersion = page.Versions[0].Version
+		response.HistoryCursor = page.NextCursor
+	}
+	jsonResponse(w, http.StatusOK, response)
 }
 
 func (s *Server) handleUpdateObservation(w http.ResponseWriter, r *http.Request) {

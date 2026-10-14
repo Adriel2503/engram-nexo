@@ -178,7 +178,6 @@ var migrationQueries = []string{
 				FOR EACH STATEMENT EXECUTE FUNCTION nexo_authz_events_immutable();
 		END IF;
 	END $$`,
-
 }
 
 // Migrate crea las tablas, triggers y la fila de plataforma, y asigna el
