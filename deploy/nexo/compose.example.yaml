@@ -71,6 +71,9 @@ services:
       ENGRAM_PORT: "18080"
       NEXO_TRUSTED_PROXIES: 192.168.240.10/32     # solo Caddy
       NEXO_ACTIVATION_TTL: ${NEXO_ACTIVATION_TTL:-24h} # NX-07: un solo uso, de 1h a 168h; inválido = el servidor no arranca
+      # NX-07: cuentas de servicio (CI y bots). Apagadas por defecto en la beta: sin automatizaciones, el admin no
+      # puede emitir tokens de cuentas con roles de contenido (riesgo R2, SG-17). Con true: comportamiento anterior.
+      # NEXO_SERVICE_ACCOUNTS_ENABLED: "true"                      # true/false o 1/0; otro valor = el servidor no arranca
       NEXO_ACTIVITY_RETENTION_DAYS: "180"         # mínimo 30 (RS-03)
       # NX-07 S4 (evidencia y monitoreo, docs/nexo/seguridad/guia-despliegue.md §7):
       # exportación diaria firmada fuera de la base (clave en .env, fuera de la base).

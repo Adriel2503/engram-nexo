@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 func TestNexoTokenExpiryAndScope(t *testing.T) {
+	t.Setenv(features.ServiceAccountsEnv, "true") // NX-07: este caso emite tokens de una cuenta de servicio (apagadas por defecto)
 	cs := openIsolatedCloudStore(t)
 	ctx := context.Background()
 	ana := nexoSeedUser(t, cs, "ana", "ana@rp.pe", "laptop-ana")

@@ -5,6 +5,7 @@ package cloudserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,6 +95,15 @@ func (s *CloudServer) nexoMaybeActivation(w http.ResponseWriter, r *http.Request
 		nexoAuthzWriteError(w, err)
 		return true
 	}
+	if row.Kind == authz.KindServiceAccount { // NX-07: con las cuentas de servicio apagadas no se emite ningún token para ellas
+		respond := nexoRespond(nexoRespondJSON)
+		if panel {
+			respond = nexoRespondText
+		}
+		if s.nexoSADenied(w, r, respond, "token") {
+			return true
+		}
+	}
 	if row.Kind == authz.KindServiceAccount || nexoSamePrincipal(actor.ID, row.ID) {
 		nexoPrivateCredentialResponse(w)
 		return false
@@ -105,12 +115,12 @@ func (s *CloudServer) nexoMaybeActivation(w http.ResponseWriter, r *http.Request
 	}
 	raw, err := security.GenerateActivationCode()
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("generación fallida"))
+		nexoInternalError(w, "activación", fmt.Errorf("emisión destinatario=%s: generar código: %w", row.ID, err))
 		return true
 	}
 	hash, err := s.managedHasher.Hash("nexo-activation:v1:" + raw)
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("hash fallido"))
+		nexoInternalError(w, "activación", fmt.Errorf("emisión destinatario=%s: hash: %w", row.ID, err))
 		return true
 	}
 	code, err := a.NexoIssueActivation(ctx, row.ID, hash, name, actor.TokenID, adminAuditEvent(actor, "nexo.activation.issued", row.ID, "", nil))
@@ -119,7 +129,8 @@ func (s *CloudServer) nexoMaybeActivation(w http.ResponseWriter, r *http.Request
 			nexoRespondJSON(w, 409, "principal_disabled", "La persona está deshabilitada.")
 			return true
 		}
-		nexoInternalError(w, "activación", errors.New("no se pudo guardar y auditar"))
+		// La causa real (SQLSTATE incluido) va al registro redactado; la respuesta sigue siendo genérica.
+		nexoInternalError(w, "activación", fmt.Errorf("emisión destinatario=%s: %w", row.ID, err))
 		return true
 	}
 	nexoPrivateCredentialResponse(w)
@@ -163,7 +174,7 @@ func (s *CloudServer) handleNexoPendingActivations(w http.ResponseWriter, r *htt
 	}
 	items, err := a.NexoPendingActivations(r.Context(), target)
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("consulta fallida"))
+		nexoInternalError(w, "activación", fmt.Errorf("consulta de pendientes destinatario=%s: %w", target, err))
 		return
 	}
 	jsonResponse(w, 200, newNexoPage(items, "", len(items)))
@@ -203,7 +214,7 @@ func (s *CloudServer) nexoRevokeActivation(w http.ResponseWriter, r *http.Reques
 	actor, _ := PrincipalFromContext(r.Context())
 	changed, err := a.NexoRevokeActivation(r.Context(), codeID, target, adminAuditEvent(actor, "nexo.activation.revoked", target, "", nil))
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("revocación fallida"))
+		nexoInternalError(w, "activación", fmt.Errorf("revocación código=%s destinatario=%s: %w", codeID, target, err))
 		return
 	}
 	if !changed {
@@ -271,17 +282,17 @@ func (s *CloudServer) nexoRedeemCode(w http.ResponseWriter, r *http.Request, raw
 	// se audita con la misma respuesta genérica para códigos desconocidos.
 	hash, err := s.managedHasher.Hash("nexo-activation:v1:" + raw)
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("hash fallido"))
+		nexoInternalError(w, "activación", fmt.Errorf("canje: hash del código: %w", err))
 		return "", cloudstore.PrincipalToken{}, false
 	}
 	mt, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("generación fallida"))
+		nexoInternalError(w, "activación", fmt.Errorf("canje: generar token: %w", err))
 		return "", cloudstore.PrincipalToken{}, false
 	}
 	th, err := s.managedHasher.Hash(mt.Raw)
 	if err != nil {
-		nexoInternalError(w, "activación", errors.New("hash fallido"))
+		nexoInternalError(w, "activación", fmt.Errorf("canje: hash del token: %w", err))
 		return "", cloudstore.PrincipalToken{}, false
 	}
 	token, err := a.NexoRedeemActivation(r.Context(), hash, cloudstore.CreatePrincipalTokenParams{TokenPrefix: mt.Prefix, TokenHash: th}, s.nexoRedeemCaller(r))
@@ -299,7 +310,7 @@ func (s *CloudServer) nexoRedeemCode(w http.ResponseWriter, r *http.Request, raw
 			}
 			respond(w, nexoActivationStatus(denial.Code), denial.Code, nexoActivationMessages[denial.Code])
 		} else {
-			nexoInternalError(w, "activación", errors.New("canje no confirmado"))
+			nexoInternalError(w, "activación", fmt.Errorf("canje no confirmado: %w", err))
 		}
 		return "", cloudstore.PrincipalToken{}, false
 	}
@@ -347,6 +358,6 @@ func (s *CloudServer) handleNexoActivationPage(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; frame-ancestors 'none'; form-action 'self'")
 	w.WriteHeader(status)
 	if err := dashboard.NexoActivatePage(raw, errorMsg).Render(r.Context(), w); err != nil {
-		nexoLogInternal("dibujar activación", errors.New("render fallido"))
+		nexoLogInternal("dibujar activación", fmt.Errorf("render: %w", err))
 	}
 }

@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -427,6 +428,7 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 		r := recent[0]
 		rep.LastReview = &r
 	}
+	redact.Struct(&rep) // NX-07: barrera final de lectura: usuarios, correos, nombres y roles históricos, sin credenciales
 	return rep, nil
 }
 
@@ -468,6 +470,8 @@ func ListReviews(ctx context.Context, db *sql.DB, limit int) ([]ReviewRecord, er
 		}
 		r.Reviewer, r.Notes = security.NexoRedactAuditText(r.Reviewer), security.NexoRedactAuditText(r.Notes) // NX-07: filas históricas
 		_ = json.Unmarshal(sum, &r.Summary)
+		redact.Struct(&r)
+		r.Summary = security.NexoProject(security.NexoStreamReviewSummary, r.Summary, false) // solo contadores
 		out = append(out, r)
 	}
 	return out, rows.Err()

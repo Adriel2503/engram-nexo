@@ -9,6 +9,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -76,6 +77,12 @@ func scanProposal(row interface{ Scan(...any) error }) (Proposal, error) {
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
+	// NX-07: etiquetas, nota de revisión, autor, revisor y declaración del cliente (filas históricas) salen sin credenciales.
+	for i := range p.Tags {
+		p.Tags[i] = redact.Text(p.Tags[i])
+	}
+	p.ReviewNote, p.ProposedBy, p.ProposedByEmail, p.ProposedClaim, p.ReviewedBy = redact.Text(p.ReviewNote), redact.Text(p.ProposedBy), redact.Text(p.ProposedByEmail), redact.Text(p.ProposedClaim), redact.Text(p.ReviewedBy)
+	p.DocKey, p.Category = redact.Text(p.DocKey), redact.Text(p.Category)
 	p.ValidFrom, p.ValidUntil, p.DecidedAt = timePtr(vf), timePtr(vu), timePtr(dec)
 	p.CreatedAt, p.UpdatedAt = p.CreatedAt.UTC(), p.UpdatedAt.UTC()
 	return p, nil
@@ -139,7 +146,7 @@ func DecideProposal(ctx context.Context, q Querier, id, status string, act Actor
 			reviewed_by_email = (SELECT u.email FROM cloud_human_users u WHERE u.principal_id = $3::bigint),
 			review_note = NULLIF($6, ''), decided_at = $7, result_version_id = NULLIF($8, '')::uuid, updated_at = $7
 		WHERE id = $1::uuid AND status = 'open'`,
-		id, status, nullBigint(act.PrincipalID), nullBigint(act.TokenID), labelOrUnknown(act.Label), note, now, resultVersionID)
+		id, status, nullBigint(act.PrincipalID), nullBigint(act.TokenID), labelOrUnknown(act.Label), security.NexoRedactExternal(note, 0), now, resultVersionID) // NX-07: la nota se guarda sin credenciales
 	if err != nil {
 		return false, err
 	}

@@ -337,6 +337,12 @@ func (s *Service) prepare(ctx context.Context, sp domain.Space, d PublishDoc) (*
 	} else {
 		o.SourceURL = cleanSourceURL(o.SourceURL)
 	}
+	// NX-07: el origen DEFINITIVO se valida después de incorporar el source_url del front matter. Antes solo se
+	// revisaba el declarado por quien publica: https://ejemplo/?code=nxa_<código> en el front matter llegaba a la
+	// versión y a la evidencia (el detector examina el Markdown, que ya excluye el front matter).
+	if field := nexoCredentialIn(nexoOriginFields(*o)); field != "" {
+		return nil, nexoRejectCredential(key, d.Path, field)
+	}
 	if p.owner != "" {
 		p.ownerID = s.resolveUsername(ctx, p.owner)
 	}

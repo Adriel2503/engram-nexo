@@ -99,13 +99,13 @@ func Connect(ctx context.Context, dataDir, server, token string) (ConnectResult,
 	}
 	if err := api.Do(ctx, "GET", "/nexo/authz/v1/me", nil, &me); err != nil {
 		if IsStatus(err, 401) {
-			return ConnectResult{}, errors.New("el token no es válido o venció: no se guardó nada")
+			return ConnectResult{}, &TokenRejectedError{Status: 401, Msg: "el token no es válido o venció: no se guardó nada"} // NX-07: un 401 definitivo
 		}
 		if IsStatus(err, 403) {
-			return ConnectResult{}, errors.New("el token no es de un usuario administrado (los espacios de conocimiento exigen uno): no se guardó nada")
+			return ConnectResult{}, &TokenRejectedError{Status: 403, Msg: "el token no es de un usuario administrado (los espacios de conocimiento exigen uno): no se guardó nada"}
 		}
 		if IsStatus(err, 404) {
-			return ConnectResult{}, errors.New("el servidor no es un servidor Nexo (no tiene /nexo/authz/v1): no se guardó nada")
+			return ConnectResult{}, &TokenRejectedError{Status: 404, Msg: "el servidor no es un servidor Nexo (no tiene /nexo/authz/v1): no se guardó nada"}
 		}
 		return ConnectResult{}, fmt.Errorf("no se pudo validar la conexión (%s): no se guardó nada", FriendlyError(err))
 	}
@@ -165,6 +165,7 @@ func Disconnect(dataDir string, keepCopy bool) (DisconnectResult, error) {
 	if err := os.Remove(filepath.Join(dataDir, ConnectionFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return res, err
 	}
+	clearPendingToken(dataDir) // NX-07: un token canjeado sin conectar tampoco queda en la PC
 	if keepCopy {
 		return res, nil
 	}

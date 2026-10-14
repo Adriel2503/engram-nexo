@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -76,6 +77,10 @@ func nexoOpenDB(name, dsn string, pool bool) (*sql.DB, error) {
 		if _, err := security.ActivationTTLFromEnv(); err != nil {
 			return nil, err
 		}
+		// NX-07: tampoco arranca con un valor inválido de NEXO_SERVICE_ACCOUNTS_ENABLED.
+		if _, err := features.ServiceAccountsFromEnv(); err != nil {
+			return nil, err
+		}
 	}
 	db := stdlib.OpenDB(*cfg)
 	if conn.poolSet {
@@ -118,6 +123,9 @@ func nexoReportConnection(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("%s=true y la base dice que la conexión de %s no está cifrada (sslmode=%s)", security.DBRequireTLSEnv, conn.name, conn.tls.SSLMode)
 		}
 		log.Printf("[nexo] seguridad: %s=true: %s usa TLS verificado (sslmode=%s)", security.DBRequireTLSEnv, conn.name, conn.tls.SSLMode)
+	}
+	if conn.poolSet {
+		nexoReportServiceAccounts(ctx, db)
 	}
 	if conn.poolSet {
 		log.Printf("[nexo] base de datos: pool de %s: %s", conn.name, conn.pool)
@@ -225,4 +233,27 @@ func (cs *CloudStore) NexoPoolWaitCount() int64 {
 		return 0
 	}
 	return cs.db.Stats().WaitCount
+}
+
+// nexoReportServiceAccounts advierte al arrancar, con las cuentas de servicio
+// apagadas (NEXO_SERVICE_ACCOUNTS_ENABLED=false, el defecto), cuántas cuentas
+// habilitadas hay: sus tokens ya no autentican. Solo el número: sin nombres
+// ni tokens.
+func nexoReportServiceAccounts(ctx context.Context, db *sql.DB) {
+	if features.ServiceAccountsEnabled() {
+		log.Printf("[nexo] seguridad: %s=true: las cuentas de servicio están activas (el administrador puede emitir sus tokens; riesgo R2, ver SG-17)", features.ServiceAccountsEnv)
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var n int
+	if err := db.QueryRowContext(probeCtx, `SELECT count(*) FROM cloud_principals WHERE kind = 'service_account' AND enabled`).Scan(&n); err != nil {
+		log.Printf("[nexo] seguridad: cuentas de servicio apagadas (%s=false); no se pudo contar las habilitadas", features.ServiceAccountsEnv)
+		return
+	}
+	if n > 0 {
+		log.Printf("[nexo] ADVERTENCIA: %s=false: hay %d cuenta(s) de servicio habilitada(s) y sus tokens NO autentican hasta activar la variable", features.ServiceAccountsEnv, n)
+		return
+	}
+	log.Printf("[nexo] seguridad: cuentas de servicio apagadas (%s=false)", features.ServiceAccountsEnv)
 }

@@ -258,6 +258,7 @@ NAT, suba `sync.ip` (600 por minuto alcanza para unas 100 PCs con sincronizació
 | Variable | Por defecto | Qué hace |
 |---|---|---|
 | `NEXO_ACTIVATION_TTL` | `24h` | Plazo de los códigos de activación: duración de Go entre `1h` y `168h`; un valor inválido impide arrancar el servidor (el error nombra la variable, sin mostrar el valor). Agréguela a `environment` de cloud en Compose si desea cambiarla |
+| `NEXO_SERVICE_ACCOUNTS_ENABLED` | `false` | Interruptor de las cuentas de servicio (CI y bots). Apagado, no se crean, no se habilitan de nuevo ni se emiten ni rotan sus tokens (`403 service_accounts_disabled`), y los tokens de cuentas de servicio existentes no autentican; consultar, revocar y deshabilitar siguen permitidos. Acepta `true`/`false` (y `1`/`0`); otro valor impide arrancar (el error nombra la variable, sin mostrar el valor). Con `true` el administrador puede emitir tokens de cuentas con roles de contenido (riesgo R2, SG-17). Agréguela a `environment` de cloud en Compose para activarlas |
 | `NEXO_TOKEN_MAX_DAYS` | `365` (válido de 1 a 36500) | Caducidad máxima al emitir un token. Los tokens se emiten por defecto con 90 días (o con el máximo, si es menor) |
 
 ### 4.6 Conocimiento (`NEXO_KB_*`, servidor)

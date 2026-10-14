@@ -105,7 +105,7 @@ func (s *Service) ReconcilePlatformRoles(ctx context.Context, actor Identity, ap
 		for _, d := range drift {
 			// Se vuelve a leer la fila bloqueada: si otra transacción ya la corrigió, no se toca.
 			var current string
-			if err := tx.QueryRowContext(ctx, `SELECT role FROM cloud_principals WHERE id = $1 FOR UPDATE`, d.PrincipalID).Scan(&current); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT role FROM cloud_principals WHERE id = $1 FOR NO KEY UPDATE`, d.PrincipalID).Scan(&current); err != nil {
 				return err
 			}
 			if current == d.Expected {

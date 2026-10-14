@@ -310,6 +310,13 @@ pbpaste | engram nexo connect --server https://<servidor-nexo> --activate-stdin
 
 Existe `--activate <codigo>`, pero expone el código en los argumentos y el historial; prefiere
 `--activate-stdin`. No combines activación con `--token` o `--token-stdin`.
+Si el canje funciona pero la conexión falla después (el servidor responde 503, la red se corta o el disco
+falla), el token ya canjeado queda guardado en `nexo-pending.json` (permisos 0600, en la carpeta de datos de
+Engram) y la CLI indica cómo seguir: `engram nexo connect --server <url> --resume`. No hace falta otro código y
+el código usado no se vuelve a pedir; repetir `--activate` con el mismo servidor también reanuda. Antes de
+canjear, la CLI comprueba que puede escribir en esa carpeta (si no, no consume el código). Si el servidor
+rechaza el token guardado (revocado o vencido), el archivo se borra y se pide un código nuevo.
+`engram nexo disconnect` borra también un token pendiente.
 La CLI nunca imprime ni guarda el código: guarda únicamente el token resultante en `cloud.json`.
 Un código usado, vencido o revocado no vuelve a canjearse; una cuenta deshabilitada tampoco puede
 canjearlo. Pide un código nuevo si corresponde. Ante `429`, espera antes de reintentar.
@@ -565,7 +572,7 @@ No los necesitas para el uso diario, pero sirven para comprobar o consultar sin 
 | Comando | Qué hace |
 |---|---|
 | `engram nexo status [--json]` | Conexión, identidad, servidor y copia local |
-| `engram nexo connect --server <url> (--activate-stdin \| --activate <codigo> \| --token-stdin \| --token <token>)` | Conectar o reconectar (por ejemplo, con un token nuevo) |
+| `engram nexo connect --server <url> (--activate-stdin | --activate <codigo> | --resume | --token-stdin | --token <token>)` | Conectar o reconectar (por ejemplo, con un token nuevo); `--resume` continúa un canje interrumpido |\| --activate <codigo> \| --token-stdin \| --token <token>)` | Conectar o reconectar (por ejemplo, con un token nuevo) |
 | `engram nexo setup <asistente>` | Instalar o reinstalar solo el protocolo Nexo en un asistente |
 | `engram nexo disconnect [--keep-copy]` | Desconectar ([sección 14](#14-desconectar-y-desinstalar)) |
 | `engram nexo kb spaces [--json]` | Espacios que ves y tu rol en cada uno |

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -752,9 +753,8 @@ func ListAlerts(ctx context.Context, db *sql.DB, q AlertQuery) ([]Alert, string,
 			_ = json.Unmarshal(det, &a.Details)
 		}
 		// NX-07: alertas históricas escritas antes de la redacción en escritura.
-		a.Subject, a.Summary = security.NexoRedactAuditText(a.Subject), security.NexoRedactAuditText(a.Summary)
-		a.Details = security.NexoRedactAuditMetadata(a.Details)
-		ack.Label, ack.Note = security.NexoRedactAuditText(ack.Label), security.NexoRedactAuditText(ack.Note)
+		redact.Struct(&a)
+		redact.Struct(&ack)
 		if ackAt.Valid {
 			ack.OccurredAt = ackAt.Time
 			a.Ack = &ack

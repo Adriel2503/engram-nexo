@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"   // NX-07
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security" // NX-07
 )
 
 // ProjectSyncControl holds the per-project sync enable/pause record.
@@ -55,11 +58,11 @@ func (cs *CloudStore) SetProjectSyncEnabled(project string, enabled bool, update
 		return fmt.Errorf("cloudstore: SetProjectSyncEnabled: project is empty")
 	}
 	var reasonPtr *string
-	if r := strings.TrimSpace(reason); r != "" {
+	if r := security.NexoRedactExternal(reason, 0); r != "" { // NX-07: texto escrito por quien administra, sin credenciales
 		reasonPtr = &r
 	}
 	var updatedByPtr *string
-	if u := strings.TrimSpace(updatedBy); u != "" {
+	if u := security.NexoRedactExternal(updatedBy, 0); u != "" { // NX-07
 		updatedByPtr = &u
 	}
 	_, err := cs.db.ExecContext(
@@ -106,6 +109,7 @@ func (cs *CloudStore) GetProjectSyncControl(project string) (*ProjectSyncControl
 		return nil, fmt.Errorf("cloudstore: GetProjectSyncControl: %w", err)
 	}
 	ctrl.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
+	redact.Struct(&ctrl) // NX-07: filas históricas
 	return &ctrl, nil
 }
 
@@ -152,6 +156,7 @@ func (cs *CloudStore) ListProjectSyncControls() ([]ProjectSyncControl, error) {
 		if updatedAt != nil {
 			ctrl.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
 		}
+		redact.Struct(&ctrl) // NX-07: filas históricas
 		result = append(result, ctrl)
 	}
 	if err := rows.Err(); err != nil {

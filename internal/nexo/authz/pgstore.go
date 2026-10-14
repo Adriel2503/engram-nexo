@@ -242,8 +242,7 @@ func (p *PGStore) ListEvents(ctx context.Context, q EventQuery) ([]EventRecord, 
 			_ = json.Unmarshal(details, &r.Details)
 		}
 		// NX-07: filas históricas escritas antes de la redacción en escritura.
-		r.Actor, r.UserAgent, r.ClientClaim = redact.Text(r.Actor), redact.Text(r.UserAgent), redact.Text(r.ClientClaim)
-		r.Details = redact.Metadata(r.Details)
+		redact.Struct(&r)
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -371,6 +370,7 @@ func scanMembers(rows *sql.Rows, limit int) ([]Member, string, error) {
 			t := updated.Time
 			m.UpdatedAt = &t
 		}
+		redact.Struct(&m) // NX-07: usuario, correo y nombre históricos sin credenciales
 		out = append(out, m)
 	}
 	if err := rows.Err(); err != nil {

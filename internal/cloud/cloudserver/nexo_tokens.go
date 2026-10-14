@@ -285,6 +285,8 @@ func (s *CloudServer) nexoCreateManagedToken(w http.ResponseWriter, r *http.Requ
 	)
 	if err != nil {
 		switch {
+		case nexoSAStoreDenied(w, respond, err): // NX-07: respaldo del interruptor de cuentas de servicio
+			// ya respondió
 		case errors.Is(err, cloudstore.ErrPrincipalDisabled):
 			respond(w, http.StatusConflict, authz.CodePrincipalDisabled, disabledManagedUserTokenMessage(targetID))
 		case errors.Is(err, cloudstore.ErrPrincipalNotFound):

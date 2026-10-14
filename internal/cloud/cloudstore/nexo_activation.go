@@ -60,6 +60,18 @@ type NexoRedeemCaller struct{ PrincipalID, TokenID string }
 // levanta una alerta (indicio, no prueba).
 const nexoSameIPWindow = time.Minute
 
+// nexoActivationLockedHook es un punto de sincronización solo para pruebas: se
+// invoca cuando una operación ya tiene el bloqueo de la persona y todavía no
+// escribe. Permite que dos operaciones retengan sus bloqueos a la vez y así
+// reproducir de forma determinista un ciclo de espera. En producción es nil.
+var nexoActivationLockedHook func(op string)
+
+func nexoActivationLocked(op string) {
+	if h := nexoActivationLockedHook; h != nil {
+		h(op)
+	}
+}
+
 func nexoMigrateActivations(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `
  CREATE TABLE IF NOT EXISTS nexo_activation_codes (
@@ -106,9 +118,10 @@ func (cs *CloudStore) NexoIssueActivation(ctx context.Context, target, hash, nam
 		return NexoActivation{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err = lockPrincipalTokenTargetTx(ctx, tx, target); err != nil {
+	if err = lockPrincipalTokenTargetTx(ctx, tx, target); err != nil { // FOR NO KEY UPDATE (NX-07)
 		return NexoActivation{}, err
 	}
+	nexoActivationLocked("issue")
 	var kind string
 	if err = tx.QueryRowContext(ctx, "SELECT kind FROM cloud_principals WHERE id=$1", target).Scan(&kind); err != nil {
 		return NexoActivation{}, err
@@ -171,9 +184,12 @@ func (cs *CloudStore) NexoRevokeActivation(ctx context.Context, id, target strin
 	defer func() { _ = tx.Rollback() }()
 	// Mismo orden que el canje: persona, código, cadena de auditoría.
 	var pid string
-	if err = tx.QueryRowContext(ctx, "SELECT id::text FROM cloud_principals WHERE id=$1::bigint FOR UPDATE", target).Scan(&pid); err != nil {
+	// FOR NO KEY UPDATE: solo se serializa el estado de la persona; las claves no cambian, así que
+	// las comprobaciones de clave foránea (KEY SHARE) de otras emisiones y de la auditoría no esperan.
+	if err = tx.QueryRowContext(ctx, "SELECT id::text FROM cloud_principals WHERE id=$1::bigint FOR NO KEY UPDATE", target).Scan(&pid); err != nil {
 		return false, err
 	}
+	nexoActivationLocked("revoke")
 	res, err := tx.ExecContext(ctx, `UPDATE nexo_activation_codes SET revoked_at=now() WHERE id=$1::bigint AND principal_id=$2::bigint AND used_at IS NULL AND revoked_at IS NULL`, id, target)
 	if err != nil {
 		return false, err
@@ -228,9 +244,13 @@ func (cs *CloudStore) NexoRedeemActivation(ctx context.Context, hash string, par
 	}
 	var enabled bool
 	var kind string
-	if err = tx.QueryRowContext(ctx, "SELECT enabled,kind FROM cloud_principals WHERE id=$1::bigint FOR UPDATE", target).Scan(&enabled, &kind); err != nil {
+	// FOR NO KEY UPDATE (no FOR UPDATE): ver NexoRevokeActivation. Este canje espera después la cadena de
+	// auditoría; con FOR UPDATE el INSERT de otra operación, que necesita KEY SHARE de esta persona
+	// (actor o destinatario), quedaría esperando mientras esta espera la cadena que esa operación retiene.
+	if err = tx.QueryRowContext(ctx, "SELECT enabled,kind FROM cloud_principals WHERE id=$1::bigint FOR NO KEY UPDATE", target).Scan(&enabled, &kind); err != nil {
 		return PrincipalToken{}, err
 	}
+	nexoActivationLocked("redeem")
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('engram_cloud_active_admin_guard'))`); err != nil {
 		return PrincipalToken{}, err
 	}

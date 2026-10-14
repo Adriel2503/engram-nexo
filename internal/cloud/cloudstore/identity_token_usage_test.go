@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 )
 
 // Both operations queue behind a real principal-row lock. Observe PostgreSQL's
@@ -106,6 +108,7 @@ func TestTokenUsageMarkRecoveryOrdering(t *testing.T) {
 // Revocation owns the token row before its foreign-key check takes KEY SHARE
 // on the principal. Usage must not introduce the opposite lock dependency.
 func TestTokenUsageConcurrentRevocationForeignKey(t *testing.T) {
+	t.Setenv(features.ServiceAccountsEnv, "true") // NX-07: este caso emite tokens de una cuenta de servicio (apagadas por defecto)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	cs := openIsolatedCloudStore(t)
@@ -154,6 +157,7 @@ func TestTokenUsageConcurrentRevocationForeignKey(t *testing.T) {
 }
 
 func TestTokenUsagePersistence(t *testing.T) {
+	t.Setenv(features.ServiceAccountsEnv, "true") // NX-07: este caso emite tokens de una cuenta de servicio (apagadas por defecto)
 	ctx := context.Background()
 	cs := openIsolatedCloudStore(t)
 	p, err := cs.CreatePrincipal(ctx, CreatePrincipalParams{Kind: PrincipalKindServiceAccount, Role: PrincipalRoleMember, DisplayName: "Usage"})

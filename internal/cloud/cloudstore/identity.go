@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features" // NX-07: interruptor de cuentas de servicio
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"   // NX-07
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security" // NX-07: validación de nombres de token y redacción de auditoría
 	"github.com/Gentleman-Programming/engram/v3/internal/store"
 )
@@ -244,6 +246,9 @@ func (cs *CloudStore) CreateHumanUser(ctx context.Context, params CreateHumanUse
 	if username == "" {
 		return HumanUser{}, fmt.Errorf("cloudstore: username is required")
 	}
+	if err := nexoCheckText(username, params.Email, params.DisplayName); err != nil { // NX-07: texto externo sin credenciales
+		return HumanUser{}, err
+	}
 	role := strings.TrimSpace(params.Role)
 	if !validPrincipalRole(role) {
 		return HumanUser{}, ErrInvalidPrincipalRole
@@ -319,6 +324,9 @@ func (cs *CloudStore) CreateFirstAdminHumanUser(ctx context.Context, params Crea
 	username := strings.TrimSpace(params.Username)
 	if username == "" {
 		return HumanUser{}, fmt.Errorf("cloudstore: username is required")
+	}
+	if err := nexoCheckText(username, params.Email, params.DisplayName); err != nil { // NX-07: texto externo sin credenciales
+		return HumanUser{}, err
 	}
 	displayName := strings.TrimSpace(params.DisplayName)
 	if displayName == "" {
@@ -396,6 +404,7 @@ func (cs *CloudStore) ListHumanUsers(ctx context.Context) ([]HumanUser, error) {
 		if err := rows.Scan(&user.PrincipalID, &user.Username, &user.Email, &user.DisplayName, &user.Role, &user.Enabled, &user.CreatedAt); err != nil {
 			return nil, fmt.Errorf("cloudstore: scan human user: %w", err)
 		}
+		redact.Struct(&user) // NX-07: filas históricas
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {
@@ -414,7 +423,7 @@ func (cs *CloudStore) SetHumanUserEnabled(ctx context.Context, principalID strin
 	}
 	defer func() { _ = tx.Rollback() }()
 	var currentRole string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM cloud_principals WHERE id = $1 AND kind = $2 FOR UPDATE`, strings.TrimSpace(principalID), PrincipalKindHuman).Scan(&currentRole); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, `SELECT role FROM cloud_principals WHERE id = $1 AND kind = $2 FOR NO KEY UPDATE`, strings.TrimSpace(principalID), PrincipalKindHuman).Scan(&currentRole); errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("cloudstore: human user not found")
 	} else if err != nil {
 		return fmt.Errorf("cloudstore: read human user: %w", err)
@@ -637,12 +646,18 @@ func (cs *CloudStore) RecoverStrandedAdminTokenWithAudit(ctx context.Context, pa
 
 func lockPrincipalTokenTargetTx(ctx context.Context, tx *sql.Tx, principalID string) error {
 	var lockedPrincipalID string
-	err := tx.QueryRowContext(ctx, `SELECT id::text FROM cloud_principals WHERE id = $1 AND enabled = TRUE FOR UPDATE`, principalID).Scan(&lockedPrincipalID)
+	// NX-07: FOR NO KEY UPDATE (antes FOR UPDATE). Solo se protege enabled/role, que no son claves: así las
+	// comprobaciones de clave foránea (KEY SHARE) de otras emisiones y de la auditoría no esperan este bloqueo.
+	var kind string
+	err := tx.QueryRowContext(ctx, `SELECT id::text, kind FROM cloud_principals WHERE id = $1 AND enabled = TRUE FOR NO KEY UPDATE`, principalID).Scan(&lockedPrincipalID, &kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return principalTokenTargetError(ctx, tx, principalID)
 	}
 	if err != nil {
 		return fmt.Errorf("cloudstore: lock token principal: %w", err)
+	}
+	if kind == PrincipalKindServiceAccount && !features.ServiceAccountsEnabled() { // NX-07: respaldo del interruptor de cuentas de servicio
+		return ErrServiceAccountsDisabled
 	}
 	return nil
 }
@@ -654,7 +669,7 @@ func lockedEnabledHumanAdminIDsTx(ctx context.Context, tx *sql.Tx) ([]string, er
 		JOIN cloud_human_users h ON h.principal_id = p.id
 		WHERE p.kind = $1 AND p.role = $2 AND p.enabled = TRUE
 		ORDER BY p.id
-		FOR UPDATE OF p`, PrincipalKindHuman, PrincipalRoleAdmin)
+		FOR NO KEY UPDATE OF p`, PrincipalKindHuman, PrincipalRoleAdmin) // NX-07: sin KEY SHARE bloqueado
 	if err != nil {
 		return nil, fmt.Errorf("cloudstore: find stranded admin recovery target: %w", err)
 	}
@@ -806,6 +821,9 @@ func (cs *CloudStore) FindPrincipalTokenByHash(ctx context.Context, tokenHash st
 	if err := nexoCheckResolvedToken(ctx, token, nexoExpired); err != nil { // NX-07: token vencido (S3-01) y alcance en el contexto (S3-02)
 		return PrincipalToken{}, Principal{}, err
 	}
+	if principal.Kind == PrincipalKindServiceAccount && !features.ServiceAccountsEnabled() { // NX-07: con las cuentas de servicio apagadas, sus tokens no autentican (falla cerrado)
+		principal.Enabled = false
+	}
 	return token, principal, nil
 }
 
@@ -870,6 +888,9 @@ func (cs *CloudStore) MarkPrincipalTokenUsed(ctx context.Context, tokenID string
 func (cs *CloudStore) RevokePrincipalToken(ctx context.Context, tokenID, revokedByPrincipalID, reason string) error {
 	if cs == nil || cs.db == nil {
 		return fmt.Errorf("cloudstore: not initialized")
+	}
+	if err := nexoCheckText(reason); err != nil { // NX-07: el motivo es texto externo
+		return err
 	}
 	res, err := cs.db.ExecContext(ctx, `
 		UPDATE cloud_principal_tokens
@@ -1074,7 +1095,7 @@ func scanPrincipalToken(scanner interface{ Scan(dest ...any) error }) (Principal
 	if err := scanner.Scan(&token.ID, &token.PrincipalID, &token.TokenPrefix, &token.TokenHash, &token.Name, &token.CreatedByPrincipalID, &token.CreatedAt, &token.LastUsedAt, &token.RevokedAt, &token.RevokedByPrincipalID, &token.RevocationReason); err != nil {
 		return PrincipalToken{}, err
 	}
-	token.Name = security.NexoRedactAuditText(token.Name) // NX-07: nombres históricos que traían una credencial
+	redact.Struct(&token) // NX-07: nombres y motivos de revocación históricos que traían una credencial
 	return token, nil
 }
 
@@ -1182,7 +1203,7 @@ func normalizeCloudProjectGrant(project string) string {
 func guardLastActiveAdminTx(ctx context.Context, tx *sql.Tx, principalID string, nextRole string, nextEnabled bool) error {
 	var currentRole string
 	var currentEnabled bool
-	err := tx.QueryRowContext(ctx, `SELECT role, enabled FROM cloud_principals WHERE id = $1 FOR UPDATE`, principalID).Scan(&currentRole, &currentEnabled)
+	err := tx.QueryRowContext(ctx, `SELECT role, enabled FROM cloud_principals WHERE id = $1 FOR NO KEY UPDATE`, principalID).Scan(&currentRole, &currentEnabled) // NX-07
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}

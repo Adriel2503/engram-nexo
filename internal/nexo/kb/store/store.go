@@ -15,6 +15,7 @@ import (
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -130,6 +131,7 @@ func scanSpace(row interface{ Scan(...any) error }) (domain.Space, error) {
 	sp.Settings = map[string]any{}
 	_ = json.Unmarshal([]byte(settings), &sp.Settings)
 	sp.CreatedAt, sp.UpdatedAt = sp.CreatedAt.UTC(), sp.UpdatedAt.UTC()
+	redact.Struct(&sp) // NX-07: nombre, descripción, categorías y ajustes escritos antes de la validación
 	return sp, nil
 }
 
@@ -237,6 +239,7 @@ func scanDoc(row interface{ Scan(...any) error }) (DocRow, error) {
 	d.ValidUntil = timePtr(until)
 	d.RetiredAt = timePtr(retired)
 	d.ValidFrom, d.CreatedAt, d.UpdatedAt = d.ValidFrom.UTC(), d.CreatedAt.UTC(), d.UpdatedAt.UTC()
+	redact.Struct(&d) // NX-07: título, etiquetas, responsable y nota de retiro históricos sin credenciales (metadatos; el contenido va aparte)
 	return d, nil
 }
 
@@ -395,6 +398,7 @@ func scanVersion(row interface{ Scan(...any) error }, withContent bool, content 
 	_ = json.Unmarshal([]byte(origin), &v.Origin)
 	v.ValidUntil = timePtr(until)
 	v.ValidFrom, v.PublishedAt = v.ValidFrom.UTC(), v.PublishedAt.UTC()
+	redact.Struct(&v) // NX-07: metadatos de la versión (el contenido se asigna después y no se toca)
 	return v, nil
 }
 
@@ -700,9 +704,7 @@ func ListEvents(ctx context.Context, q Querier, slug string, beforeID int64, act
 			_ = json.Unmarshal([]byte(details), &e.Details)
 		}
 		// NX-07: filas históricas escritas antes de la redacción en escritura.
-		e.TargetID, e.ActorLabel = security.NexoRedactAuditText(e.TargetID), security.NexoRedactAuditText(e.ActorLabel)
-		e.UserAgent, e.ClientClaim = security.NexoRedactAuditText(e.UserAgent), security.NexoRedactAuditText(e.ClientClaim)
-		e.Details = security.NexoRedactAuditMetadata(e.Details)
+		redact.Struct(&e)
 		out = append(out, e)
 	}
 	return out, rows.Err()

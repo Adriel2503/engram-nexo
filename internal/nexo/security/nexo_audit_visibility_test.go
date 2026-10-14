@@ -7,19 +7,6 @@ import (
 	"time"
 )
 
-func TestNexoAuditMetadataDoesNotRevealContent(t *testing.T) {
-	code, _ := GenerateActivationCode()
-	input := map[string]any{"title": "contenido reservado", "payload": map[string]any{"title": "contenido reservado"}, "items": []any{map[string]any{"doc_key": "doc", "title": "contenido reservado"}}, "extra": "contenido reservado", "code": code, "scope": "read"}
-	hidden, _ := json.Marshal(NexoAuditMetadata(input, false))
-	if strings.Contains(string(hidden), "contenido reservado") || strings.Contains(string(hidden), code) || !strings.Contains(string(hidden), "payload_withheld") {
-		t.Fatal("la proyección filtra contenido")
-	}
-	visible, _ := json.Marshal(NexoAuditMetadata(input, true))
-	if !strings.Contains(string(visible), "contenido reservado") || strings.Contains(string(visible), code) {
-		t.Fatal("la proyección autorizada filtra credenciales")
-	}
-}
-
 func TestNexoAuditRedactsCredentialsAtWriteAndLog(t *testing.T) {
 	code, _ := GenerateActivationCode()
 	input := map[string]any{"user_agent": code, "filters": map[string]any{"actor": code}, "at": time.Now()}

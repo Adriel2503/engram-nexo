@@ -24,6 +24,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 )
 
 // Acciones de nexo_authz_events de las cuentas de servicio (SG-10).
@@ -39,6 +42,9 @@ const (
 
 // CodeServiceAccountExists es el rechazo de un slug repetido (409).
 const CodeServiceAccountExists = "service_account_exists"
+
+// CodeServiceAccountsDisabled es el rechazo (403) mientras NEXO_SERVICE_ACCOUNTS_ENABLED esté apagada.
+const CodeServiceAccountsDisabled = features.ServiceAccountsDisabledCode
 
 // serviceAccountMigrations crean la tabla lateral (aditiva e idempotente; la
 // ejecuta Migrate dentro de la transacción de migraciones de Nexo).
@@ -195,6 +201,7 @@ func scanServiceAccount(row interface{ Scan(...any) error }) (ServiceAccount, er
 		a.LastActivityAt = &v
 	}
 	a.Bindings = []ServiceAccountBinding{}
+	redact.Struct(&a) // NX-07: descripciones y nombres escritos antes de la validación
 	return a, err
 }
 
@@ -208,8 +215,14 @@ func (s *Service) CreateServiceAccount(ctx context.Context, actor Identity, in C
 	if err := s.requirePlatform(ctx, actor, CapPlatformUsersManage, map[string]any{"action": ActionServiceAccountCreated, "slug": slug}); err != nil {
 		return ServiceAccount{}, err
 	}
+	if !features.ServiceAccountsEnabled() { // NX-07: apagadas en la beta; el handler responde 403 antes y audita
+		return ServiceAccount{}, ruleErr(CodeServiceAccountsDisabled, "%s", features.ServiceAccountsDisabledMessageEN)
+	}
 	if !ValidServiceAccountSlug(slug) {
 		return ServiceAccount{}, ruleErr(CodeInvalid, "slug must be 2 to 63 lowercase letters, digits or hyphens (for example ci-lineamientos)")
+	}
+	if redact.Has(in.Description) || redact.Has(in.DisplayName) { // NX-07: texto externo sin credenciales
+		return ServiceAccount{}, ruleErr(CodeInvalid, "description and display_name must not contain credentials")
 	}
 	desc := strings.TrimSpace(in.Description)
 	if len([]rune(desc)) > 500 {
@@ -427,6 +440,9 @@ func (s *Service) UpdateServiceAccount(ctx context.Context, actor Identity, ref 
 	}
 	desc := current.Description
 	if in.Description != nil {
+		if redact.Has(*in.Description) { // NX-07
+			return ServiceAccount{}, ruleErr(CodeInvalid, "description must not contain credentials")
+		}
 		desc = strings.TrimSpace(*in.Description)
 		if len([]rune(desc)) > 500 {
 			return ServiceAccount{}, ruleErr(CodeInvalid, "description must be at most 500 characters")
@@ -476,6 +492,9 @@ func (s *Service) SetServiceAccountEnabled(ctx context.Context, actor Identity, 
 	}
 	if err := s.requirePlatform(ctx, actor, CapPlatformUsersManage, map[string]any{"action": action, "target": ref}); err != nil {
 		return ServiceAccount{}, false, err
+	}
+	if enabled && !features.ServiceAccountsEnabled() { // NX-07: habilitar de nuevo exige el interruptor; deshabilitar siempre se permite
+		return ServiceAccount{}, false, ruleErr(CodeServiceAccountsDisabled, "%s", features.ServiceAccountsDisabledMessageEN)
 	}
 	current, err := s.LookupServiceAccount(ctx, ref)
 	if err != nil {
@@ -554,6 +573,9 @@ func (s *Service) ExpireTokenWithin(ctx context.Context, actor Identity, princip
 
 // RevokeServiceAccountToken revoca un token de la cuenta y registra el evento.
 func (s *Service) RevokeServiceAccountToken(ctx context.Context, actor Identity, principalID, tokenID, reason string) (bool, error) {
+	if redact.Has(reason) { // NX-07: el motivo es texto externo
+		return false, ruleErr(CodeInvalid, "reason must not contain credentials")
+	}
 	changed := false
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `UPDATE cloud_principal_tokens SET revoked_at = NOW(), revoked_by_principal_id = $3::bigint, revocation_reason = NULLIF($4, '')

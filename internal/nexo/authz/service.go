@@ -123,7 +123,7 @@ func resolvePrincipal(ctx context.Context, q queryer, ref string, forUpdate bool
 	}
 	lock := ""
 	if forUpdate {
-		lock = " FOR UPDATE OF p"
+		lock = " FOR NO KEY UPDATE OF p" // NX-07: sin bloquear KEY SHARE de las FK de eventos
 	}
 	var row principalRow
 	var err error

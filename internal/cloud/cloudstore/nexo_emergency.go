@@ -128,7 +128,7 @@ func (cs *CloudStore) NexoEmergencyToken(ctx context.Context, params NexoEmergen
 	if err != nil {
 		return res, fmt.Errorf("cloudstore: emergency token: buscar usuario: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM cloud_principals WHERE id = $1::bigint FOR UPDATE`, principalID); err != nil {
+	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM cloud_principals WHERE id = $1::bigint FOR NO KEY UPDATE`, principalID); err != nil {
 		return res, fmt.Errorf("cloudstore: emergency token: bloquear persona: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, emergencyAdminGuardKey); err != nil {

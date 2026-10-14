@@ -22,6 +22,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud"
 	cloudauth "github.com/Gentleman-Programming/engram/v3/internal/cloud/auth"
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -96,6 +97,13 @@ func newNexoSecEnv(t *testing.T, envs map[string]string) *nexoSecEnv {
 	for _, k := range []string{security.RateLimitsEnv, security.AuthLockoutEnv, security.SuperadminAllowedCIDRsEnv, security.TokenMaxDaysEnv, security.AuditDedupEnv} {
 		t.Setenv(k, envs[k])
 	}
+	// NX-07: las cuentas de servicio están apagadas por defecto; este entorno siembra la cuenta "ci" con su token,
+	// así que las enciende de forma explícita (envs puede fijar otro valor para probar el interruptor).
+	saSwitch, ok := envs[features.ServiceAccountsEnv]
+	if !ok {
+		saSwitch = "true"
+	}
+	t.Setenv(features.ServiceAccountsEnv, "true") // se siembra la cuenta "ci" con su token; el valor pedido rige al terminar la siembra
 	ctx := context.Background()
 	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -139,6 +147,7 @@ func newNexoSecEnv(t *testing.T, envs map[string]string) *nexoSecEnv {
 		env.issue(p.name, p.name, security.TokenIssue{Days: 90, Scope: "write"})
 	}
 	resolver := cloudauth.NewPrincipalResolver(cloudauth.ResolverConfig{Hasher: hasher, ManagedTokens: nexoTestTokenLookup{cs: cs}, Legacy: cloudauth.LegacyCredentials{SyncToken: "shared-sync-token-e2e"}})
+	t.Setenv(features.ServiceAccountsEnv, saSwitch)
 	env.srv = New(cs, nexoRealAuth{r: resolver}, 0, WithAdminIdentityStore(cs), WithManagedTokenHasher(hasher), WithPrincipalStateStore(cs))
 	env.h = env.srv.Handler()
 	return env

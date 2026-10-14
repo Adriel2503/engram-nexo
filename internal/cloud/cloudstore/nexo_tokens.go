@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -107,3 +108,7 @@ func (cs *CloudStore) nexoFillTokenFacts(ctx context.Context, tokens []Principal
 	}
 	return tokens, nil
 }
+
+// ErrServiceAccountsDisabled: respaldo del interruptor NEXO_SERVICE_ACCOUNTS_ENABLED.
+// Ninguna emisión de token para una cuenta de servicio pasa con el interruptor apagado.
+var ErrServiceAccountsDisabled = features.ErrServiceAccountsDisabled

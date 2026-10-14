@@ -688,6 +688,92 @@ con una consulta externa esperando el pool; 514 chunks repartidos entre dos proy
 Inventario completo, evidencia y riesgos en `docs/nexo/op13-conexiones.md`.
 El máximo por defecto pasa a 25; `0` explícito sigue sin límite y el mínimo configurable sigue en 4 (§5).
 
+### NX-07 · Correcciones de las dos revisiones adversariales sobre develop (rama fix/revision-nexo3)
+
+**Motivo.** Dos revisiones adversariales (seguridad y concurrencia) sobre `develop` 28036fe encontraron
+campos libres que seguían saliendo a lectores sin rol, un interbloqueo entre activaciones cruzadas, un
+relleno de sesiones que cargaba cerca de 1 GiB en cada arranque, una CLI que perdía el token tras consumir
+el código y errores transaccionales descartados. Las rondas anteriores corrigieron campo por campo y cada
+revisión encontró otros; esta vez se cierra el **patrón**.
+
+**Enfoque.**
+- **Una proyección por esquema y por ruta de campo** (`internal/nexo/security/nexo_projection.go`):
+  `NexoProject(flujo, metadatos, lecturaDelÁmbito)`. Cada flujo (auditoría de seguridad, eventos de roles,
+  eventos de conocimiento, alertas, ejecuciones de publicación, métricas de evaluación, resumen de la revisión
+  de accesos) declara los campos que salen y su tipo (número, identificador, fecha, etiqueta administrativa,
+  texto, ruta, objeto, lista, contadores). Sin lectura del ámbito, **lo desconocido se omite** (objetos
+  completos incluidos, como `settings`) y la salida lleva `payload_withheld: true`; ya no hay una lista global
+  de nombres. Con lectura se entrega la copia completa, siempre normalizada a JSON y sin credenciales. Las
+  claves de secretos (`hash`, `password`, ...) nunca salen. Las exportaciones usan esquemas por tabla
+  (`nexo_projection_export.go`): una columna sin declarar no se exporta.
+- **Barrera de lectura por registro** (`redact.Struct`): limpia en el lugar TODOS los textos de una fila (cada
+  campo `string`, listas, claves y valores de mapas, campos `any` y documentos `json.RawMessage` anidados). Se
+  aplica al leer de la base (filas históricas) y otra vez al responder, con o sin permiso. Un campo nuevo queda
+  cubierto sin enumerarlo.
+- **Validar al escribir**: `redact.HasAny` rechaza (422/400, sin repetir el valor) un formato de credencial o
+  una cadena `postgres://` en nombre, descripción, categorías y ajustes de un espacio, notas de propuestas,
+  corridas de evaluación, motivos de revocación, usuario, correo y nombre de personas, descripción de cuentas de
+  servicio y origen final de una publicación. `redact.Has` ahora reconoce también `postgres://` y `password=`.
+- **Prueba canario de extremo a extremo** (`cloudserver/nexo_canary_*_test.go`, Postgres): escribe un `egc_`, un
+  `nxa_` y un texto reservado por campo en todos los campos de texto libre y recorre todas las salidas (API,
+  panel, exportación diaria, exportación de la CLI v2, exportación de la revisión de accesos, webhook, registro del
+  servidor). Falla si una credencial sale a cualquiera o si un texto reservado sale a un lector sin rol, salvo los
+  campos de identidad que un auditor ve por diseño (lista `allowedAudit` con el motivo de cada uno). Falla además si
+  aparece una columna de texto sin clasificar (`canaryColumns`) o una ruta GET sin recorrer.
+
+**Los once puntos.**
+1. Lista global de campos (`security/nexo_audit_visibility.go`): sustituida por la proyección por esquema.
+   `space.updated` con `settings={"cache":{"name":"texto reservado"}}` ya no llega al auditor sin `space.read`
+   (eventos del espacio, exportaciones diaria y CLI); mismo defecto cerrado en auditoría de seguridad, eventos de
+   roles, alertas y paneles.
+2. Corridas de evaluación: `retriever` y `mode` son enumeraciones validadas al escribir; `commit` es una referencia
+   de git validada; sin lectura de todos los espacios medidos se retienen `commit`, `note`, nombre del conjunto,
+   autor, configuración y detalle por clase; con permiso, claves y valores se redactan al guardar, leer y devolver
+   (también filas históricas). `search-status` usa la misma proyección.
+3. Historial con `project.read`: título y JSON del payload (claves y valores anidados) se redactan siempre, también
+   en el panel de historial.
+4. Otros lectores: motivo de revocación (`GET /admin/users/{id}/tokens`), User-Agent histórico de la última
+   actividad de cuentas de servicio, nota de revisión y etiquetas de propuestas, usuario/correo/nombre de personas
+   (auditoría, actividad, presencia, historial, eventos, revisión de accesos y sus CSV/JSON), descripciones de
+   cuentas de servicio: validados al escribir y limpiados al leer. Tablero de Engram: motivo de pausa de un
+   proyecto y auditoría de sincronización.
+5. Metadatos tipados: `redact.Metadata` normaliza structs, fechas y tipos con nombre a JSON (sin perder precisión
+   numérica, `json.Number`) antes de limpiar; `prepare` valida el origen **definitivo** después de incorporar el
+   `source_url` del front matter.
+6. Interbloqueo de activación: bloqueos de la persona con `FOR NO KEY UPDATE` en emisión, revocación y canje, en el
+   auxiliar `lockPrincipalTokenTargetTx` y en los demás bloqueos de `cloud_principals` que protegen solo
+   `enabled`/`role` (alta, habilitar, último administrador, recuperación, emergencia, motor de roles). Pruebas
+   deterministas con un punto de sincronización (`nexoActivationLockedHook`): emisiones recíprocas, revocaciones
+   cruzadas, matriz completa de parejas y ráfaga mixta con pool de 1, 4 y 25. Antes fallaban con `40P01`.
+7. Relleno de sesiones: páginas solo de claves, un payload a la vez, y marca `nexo_backfill_marks` al terminar una
+   pasada completa (los arranques siguientes no releen los payloads). Pico de memoria medido con chunks de 7 MiB.
+8. CLI: el token canjeado se guarda (`nexo-pending.json`, 0600, escritura atómica) antes de cualquier otra
+   operación de red; `engram nexo connect --server <url> --resume` continúa sin volver a canjear; se prevalida que
+   se puede escribir antes de canjear.
+9. Errores transaccionales de activación: el error real (SQLSTATE incluido) va al registro redactado con la
+   operación y los identificadores seguros; la respuesta pública no cambia. `nexoLogInternal` registra `sqlstate=`.
+10. Comprobaciones que Codex pidió: regresiones con pool de 1, 4 y 25, migración repetida, cuentas separadas de
+    migración y aplicación, compatibilidad de DSN y escaneo SQL con pgx 5.11 y Go 1.27 (ver el informe).
+11. Interruptor de cuentas de servicio `NEXO_SERVICE_ACCOUNTS_ENABLED` (decisión del usuario, 2026-10-14), por
+    defecto **false**: apagado, crear la cuenta, habilitarla de nuevo, emitir su token o rotarlo responde `403`
+    `service_accounts_disabled` (API, `POST /nexo/authz/v1/tokens`, rutas de Engram, panel y `engram nexo sa`),
+    queda auditado (`nexo.service_accounts.denied`) y no crea nada; los tokens de cuentas de servicio existentes no
+    autentican (falla cerrado) y el arranque avisa cuántas cuentas habilitadas hay (sin nombres); consultar,
+    revocar y deshabilitar siguen permitidos; el panel muestra un aviso en lugar de los formularios. Un valor
+    inválido impide arrancar. Con `true` rige el comportamiento anterior y el riesgo R2 (el administrador puede
+    emitir tokens de cuentas con roles de contenido; ver SG-17). No se tocó la decisión sobre la emisión por el
+    administrador con el interruptor en `true`.
+
+**Riesgo aceptado, sin cambios:** el administrador que emite un código de activación puede canjearlo él mismo
+(SG-17, SSO antes de producción).
+
+**Archivos propios nuevos.** `internal/nexo/security/nexo_projection.go`, `nexo_projection_export.go`,
+`internal/nexo/redact/struct.go`, `internal/nexo/features/serviceaccounts.go`, `cloudstore/nexo_text.go`,
+`cloudserver/nexo_service_accounts_switch.go`, `cloudserver/nexo_canary_*_test.go`, `nexo_revision3_test.go`,
+`nexo_history_redaction_test.go`, `nexo_service_accounts_switch_test.go`, `cloudstore/nexo_activation_locks_test.go`,
+`nexo_op13_memory_test.go`, `nexo_text_test.go`, `kb/client/nexo_activation_resume_test.go`,
+`nexocli/nexo_activation_resume_test.go`, `serviceaccounts_switch_test.go`. Archivos de Engram: ver §4.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
@@ -798,6 +884,15 @@ Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las
 | `internal/cloud/cloudstore/cloudstore.go:40` | NX-07 (SG-05, pool) | `New`: `nexoOpenDB("ENGRAM_DATABASE_URL", dsn, true)` reemplaza a `sql.Open("pgx", dsn)` (misma línea): exige TLS verificado si `NEXO_DB_REQUIRE_TLS=true`, aplica las variables `NEXO_DB_*` del pool y recuerda la configuración para el log y `GET /nexo/admin/database` (`nexo_dbconn.go`) |
 | `internal/cloud/cloudstore/cloudstore.go:523` | NX-07 (OP-13) | `backfillProjectSessionsFromChunks`: delega en `nexoBackfillProjectSessions` (`nexo_op13_pool.go`), páginas por clave compuesta, cursor cerrado y comprobado antes de insertar sesiones; regresión con una conexión y 514 chunks |
 | `internal/cloud/cloudstore/cloudstore.go:273-274` | NX-07 (pool) | `WriteChunk`: ante un choque de unicidad del INSERT, deshace y libera la transacción antes de `resolveChunkConflict` (que usa otra conexión del pool). Con el pool limitado, varias subidas simultáneas del mismo paquete nuevo podían ocupar todas las conexiones esperando otra (hallazgo de la revisión adversarial; regresión `TestNexoPoolConcurrentSameChunkDoesNotDeadlock`) |
+| `internal/cloud/cloudstore/identity.go:649-663` | NX-07 (revisión adversarial) | `lockPrincipalTokenTargetTx`: `FOR NO KEY UPDATE` (antes `FOR UPDATE`) y lectura de `kind`; con las cuentas de servicio apagadas devuelve `ErrServiceAccountsDisabled` (respaldo del interruptor `NEXO_SERVICE_ACCOUNTS_ENABLED`). Solo se protege `enabled`/`role`, que no son claves: las comprobaciones de clave foránea de otras emisiones y de la auditoría ya no esperan este bloqueo (emisiones recíprocas daban `40P01`) |
+| `internal/cloud/cloudstore/identity.go:426,672,1206` | NX-07 (revisión adversarial) | `SetHumanUserEnabled`, `lockedEnabledHumanAdminIDsTx` y `guardLastActiveAdminTx`: `FOR NO KEY UPDATE` en lugar de `FOR UPDATE` (mismo motivo; la sintaxis de la sentencia no cambia) |
+| `internal/cloud/cloudstore/identity.go:249-251,328-330` | NX-07 | `CreateHumanUser` y `CreateFirstAdminHumanUser`: `nexoCheckText` rechaza usuario, correo y nombre con formato de credencial (`ErrCredentialInText`) |
+| `internal/cloud/cloudstore/identity.go:407,1098` | NX-07 | `ListHumanUsers` y `scanPrincipalToken`: `redact.Struct` limpia usuario, correo, nombres y motivos de revocación históricos al leer |
+| `internal/cloud/cloudstore/identity.go:824-826` | NX-07 | `FindPrincipalTokenByHash`: con las cuentas de servicio apagadas el principal vuelve como deshabilitado (sus tokens no autentican; falla cerrado) |
+| `internal/cloud/cloudstore/identity.go:892-894` | NX-07 | `RevokePrincipalToken`: el motivo se valida (`nexoCheckText`) antes de guardarlo |
+| `internal/cloud/cloudstore/identity.go:14` | NX-07 | Imports de `internal/nexo/features` y `internal/nexo/redact` |
+| `internal/cloud/cloudstore/project_controls.go:61,65,112,159` | NX-07 | `SetProjectSyncEnabled` guarda motivo y autor sin credenciales; `GetProjectSyncControl` y `ListProjectSyncControls` limpian filas históricas con `redact.Struct` |
+| `internal/cloud/cloudstore/audit_log.go:80-82,205` | NX-07 | `InsertAuditEntry` guarda quien contribuye y los metadatos sin credenciales; `ListAuditEntriesPaginated` limpia filas históricas |
 | `cmd/engram/cloud_bootstrap.go:85-86, 100, 102` | NX-05 (SG-06) | `engram cloud bootstrap`: `case "emergency-token"` (llama a `cmdCloudBootstrapEmergencyToken`, archivo propio) y dos líneas de la ayuda; `recover-token` no cambia |
 
 | `internal/cloud/cloudserver/admin_handlers.go:231-233` | NX-07 (activación) | Enganche `nexoMaybeActivation`: otra persona recibe código; autoemisión sigue directa |
@@ -830,6 +925,7 @@ K6 (miembros, propuestas y panel en español) solo toca un archivo original de E
 | `NEXO_AUTH_LOCKOUT` (NX-07) | vacía: 20 tokens distintos por IP en 300 s bloquean 900 s; sin bloqueo por persona (A1, S4) | JSON `{"max_failures","user_max_failures","window_seconds","lockout_seconds"}` u `off`. `max_failures` (1 a 10 000) = tokens inválidos **distintos** por IP en la ventana (el mismo token repetido suma una vez); `user_max_failures` (por defecto `0`) = intentos por persona con token revocado o persona deshabilitada (no recomendado) |
 | `NEXO_SUPERADMIN_ALLOWED_CIDRS` (NX-07) | vacía (sin restricción, aviso al iniciar) | CIDR o IP separados por comas desde los que se usan `platform.admins.manage` y `platform.settings`; con valor y sin redes válidas, se niega todo |
 | `NEXO_ACTIVATION_TTL` (NX-07) | `24h` | Duración de Go del código, de `1h` a `168h`. Un valor inválido **impide arrancar el servidor** con un error que nombra la variable y no muestra el valor (validado en `cloudstore.nexoOpenDB`, junto a `NEXO_DB_MAX_OPEN_CONNS`). Se guarda solo el HMAC del código. La vida solicitada del token empieza al canjear |
+| `NEXO_SERVICE_ACCOUNTS_ENABLED` (NX-07) | `false` | Interruptor de las cuentas de servicio. Apagado: crear la cuenta, habilitarla de nuevo, emitir o rotar sus tokens responde `403` `service_accounts_disabled` (auditado, sin crear nada), los tokens de cuentas de servicio existentes no autentican y el arranque avisa cuántas cuentas habilitadas hay; consultar, revocar y deshabilitar siguen permitidos. Acepta `true`/`false` y `1`/`0`; cualquier otro valor **impide arrancar** con un error que nombra la variable y no muestra el valor. Con `true`: comportamiento anterior y riesgo R2 (SG-17) |
 | `NEXO_TOKEN_MAX_DAYS` (NX-07) | `365` | Caducidad máxima al emitir; por defecto 90 días (o el máximo si es menor) |
 | `NEXO_PERF_TEST` | — | Solo tests: `1` habilita la prueba de tiempos con 1 millón de filas |
 | `NEXO_KB_MAX_DOC_BYTES` (NX-10) | `2097152` (2 MB) | Tamaño máximo de un documento (entrada del conversor y Markdown resultante) |
@@ -922,6 +1018,8 @@ Se ejecutan solas al iniciar, al final de `migrate`, en una transacción con `pg
 | `cloud_principal_tokens` (NX-07 S3) | Columnas `nexo_expires_at TIMESTAMPTZ` (NULL = sin caducidad; las filas existentes quedan NULL; valor por defecto para filas nuevas `now() + 90 días`, o el máximo si es menor) y `nexo_scope TEXT NOT NULL DEFAULT 'write'` con CHECK `read`/`write`. Trigger `nexo_token_expiry_guard` (`BEFORE INSERT OR UPDATE OF nexo_expires_at`): solo una cuenta de servicio puede quedar sin caducidad |
 | `nexo_actor_presence` | Una fila por persona y token |
 | `nexo_activation_codes` (NX-07, activación) | Tabla aditiva: solo el HMAC del código (`code_hash`), persona, nombre, alcance, días, fechas, uso, revocación e intentos fallidos. Correcciones 2026-10-14: columnas `issued_by_token_id` e `issued_ip` (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, idempotente) para rechazar el canje por el emisor y la alerta `activation_same_ip` |
+| `nexo_backfill_marks` (NX-07, revisión adversarial 2026-10-14) | Tabla aditiva `(name TEXT PRIMARY KEY, done_at TIMESTAMPTZ DEFAULT now())`, creada con `CREATE TABLE IF NOT EXISTS` por el relleno de sesiones. La marca `project_sessions_from_chunks_v1` se guarda al terminar una pasada completa del relleno de `cloud_project_sessions`; si existe, los arranques siguientes no releen los payloads (las tres rutas que insertan en `cloud_chunks` indexan sus sesiones al escribir). Sin marca, la pasada se repite entera (idempotente). Con dos cuentas, la crea la cuenta que migra; la aplicación no la usa |
+| Bloqueos de `cloud_principals` (NX-07, revisión adversarial) | Sin cambio de esquema: los `SELECT ... FOR UPDATE` que protegen solo `enabled`/`role` pasan a `FOR NO KEY UPDATE` (la comprobación de clave foránea de otras emisiones y de la auditoría ya no espera) |
 | Índices | `cloud_mutations (actor_principal_id, seq)`, `(project, entity_key, seq)`, `(entity_key, seq)`; `nexo_activity_log (occurred_at DESC)`, `(actor_principal_id, occurred_at DESC)`, `(actor_principal_id, id DESC)`, `(actor_token_id, id DESC)`; `nexo_actor_presence (last_seen_at DESC, presence_key DESC)` |
 | `nexo_scopes` (NX-05) | Ámbitos: `(scope_type, scope_key)` PK, `visibility`, `default_role`, `status`, autor y fechas; fila `('platform', '*')`. Índice `(scope_type, visibility, status)`. Los proyectos de Engram sin fila son restringidos y activos |
 | `nexo_role_bindings` (NX-05) | Un rol por persona y ámbito (PK `principal_id, scope_type, scope_key`), FK a `cloud_principals` (CASCADE) y a `nexo_scopes`. Índice `(scope_type, scope_key, role)`. Triggers `nexo_role_bindings_validate` (combinación rol/nivel y cuentas de servicio, R-10) y `nexo_role_bindings_guard` (último superadmin, R-8) |
@@ -987,6 +1085,10 @@ $env:CLOUDSTORE_TEST_DSN = '<DSN de un Postgres de pruebas>'   # p. ej. un pgvec
 go build ./... ; go vet ./internal/cloud/... ./internal/nexo/...
 go test -count=1 ./internal/cloud/... ./internal/nexo/...
 go test -count=1 -run TestCloudRuntime ./cmd/engram/
+# NX-07 (revisión adversarial 2026-10-14): canario, interbloqueos, memoria del relleno y dos cuentas (usar una base propia; -p 1)
+go test -count=1 -p 1 -run "TestCanary|TestNexoSpaceSettings|TestNexoEvalRunsProjection|TestNexoHistoryRedacts|TestNexoFrontMatterSourceURL|TestNexoActivationInternalErrors|TestNexoServiceAccountsSwitch" ./internal/cloud/cloudserver/
+go test -count=1 -p 1 -run "TestNexoActivation|TestNexoOP13|TestNexoHumanUser|TestNexoRevokeReason|TestNexoEngramAdminText|TestNexoServiceAccount" ./internal/cloud/cloudstore/
+go test -count=1 ./internal/nexo/kb/client/ ./internal/nexo/nexocli/ ./internal/nexo/redact/ ./internal/nexo/security/
 # NX-07 S5: la puerta de seguridad de CI (.github/workflows/nexo-security.yml), en local
 go test -count=1 -p 1 ./internal/nexo/authz/... ./internal/nexo/security/... ./internal/nexo/routes/...
 go test -count=1 -p 1 -run TestNexo ./internal/cloud/cloudserver/ ./internal/cloud/cloudstore/

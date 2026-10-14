@@ -7,6 +7,7 @@ import (
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/store"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	"sort"
 	"strconv"
@@ -28,7 +29,11 @@ func (s *Service) nexoListEvents(ctx context.Context, id authz.Identity, slug st
 		return nil, err
 	}
 	for i := range items {
-		items[i].Details = security.NexoAuditMetadata(items[i].Details, allowed)
+		redact.Struct(&items[i]) // todo texto de la fila, con o sin permiso
+		items[i].Details = security.NexoProject(security.NexoStreamKB, items[i].Details, allowed)
+		if !allowed { // identificadores definidos por el productor; el resto de la fila no es contenido
+			items[i].TargetID = security.NexoIDOrEmpty(items[i].TargetID)
+		}
 	}
 	return items, nil
 }
@@ -42,8 +47,9 @@ func (s *Service) nexoListPublishRuns(ctx context.Context, id authz.Identity, sp
 		return nil, err
 	}
 	for i := range items {
-		items[i].Origin = security.NexoAuditMetadata(items[i].Origin, allowed)
-		items[i].Upload = security.NexoAuditMetadata(items[i].Upload, allowed)
+		redact.Struct(&items[i])
+		items[i].Origin = security.NexoProject(security.NexoStreamPublishRun, items[i].Origin, allowed)
+		items[i].Upload = security.NexoProject(security.NexoStreamPublishRun, items[i].Upload, allowed)
 		if !allowed {
 			items[i].Rejected = nil
 			items[i].PruneSkipped = ""
@@ -66,18 +72,32 @@ func (s *Service) nexoListEvalRuns(ctx context.Context, id authz.Identity, set s
 			}
 			allowed = allowed && ok
 		}
-		items[i].Config = security.NexoAuditMetadata(items[i].Config, allowed)
-		items[i].Metrics = security.NexoAuditMetadata(items[i].Metrics, allowed)
-		items[i].ByClass = security.NexoAuditMetadata(items[i].ByClass, allowed)
-		if !allowed {
-			items[i].Config = map[string]any{"payload_withheld": true}
-			items[i].ByClass = nil
-			items[i].Results = nil
-			items[i].Note = ""
-			items[i].QuestionSetName = ""
-		}
+		nexoProjectEvalRun(&items[i], allowed)
 	}
 	return items, nil
+}
+
+// nexoProjectEvalRun deja en una corrida lo que corresponde entregar. Todo texto
+// se limpia siempre (filas históricas y con permiso incluidos, claves y valores de
+// Config, Metrics y ByClass). Sin lectura de TODOS los espacios medidos se retienen los
+// campos libres (commit, nota, nombre del conjunto, autor, configuración y detalle por
+// clase); retriever y modo salen solo si tienen la forma de una enumeración, y las
+// métricas solo con los nombres numéricos del esquema.
+func nexoProjectEvalRun(r *store.EvalRun, allowed bool) {
+	redact.Struct(r)
+	if !allowed {
+		if !store.ValidEvalRetriever(r.Retriever) {
+			r.Retriever = ""
+		}
+		if !store.ValidEvalMode(r.Mode) {
+			r.Mode = ""
+		}
+		r.Metrics = security.NexoProject(security.NexoStreamEvalMetrics, r.Metrics, false)
+		r.Config = map[string]any{"payload_withheld": true}
+		r.ByClass = nil
+		r.Results = nil
+		r.Note, r.QuestionSetName, r.CommitRef, r.Actor = "", "", "", ""
+	}
 }
 
 func (s *Service) nexoDeadLetterVisible(ctx context.Context, id authz.Identity, d store.DeadLetter) (store.DeadLetter, error) {
@@ -142,4 +162,22 @@ func nexoRejectCredential(key, path, field string) *DocResult {
 	}
 	return &DocResult{DocKey: key, Path: path, Status: domain.ResultRejected, Code: domain.CodeSecret,
 		Reason: "el campo " + field + " contiene un formato de credencial (RN-K4); quítalo antes de publicar"}
+}
+
+// nexoCheckCredentialFree rechaza la escritura de un campo de texto libre
+// (nombre, descripción, etiquetas, ajustes, notas) que traiga un formato de
+// credencial o una cadena de conexión, en cualquier clave o valor anidado. La
+// respuesta nombra el campo y nunca repite el valor.
+func nexoCheckCredentialFree(fields map[string]any) error {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if redact.HasAny(fields[name]) {
+			return domain.Errorf(domain.KindInvalid, domain.CodeSecret, "el campo %s contiene un formato de credencial (RN-K4); quítalo antes de guardar", name)
+		}
+	}
+	return nil
 }

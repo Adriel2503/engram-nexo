@@ -7,8 +7,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -151,8 +154,40 @@ type EvalRun struct {
 	Actor             string         `json:"actor"`
 }
 
+// evalRetrieverRe: forma de un nombre de motor ("pgfts", "hybrid", "pgfts+rerank").
+var evalRetrieverRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,30}(\+[a-z][a-z0-9_]{0,30}){0,3}$`)
+
+// ValidEvalRetriever indica si s tiene la forma de un nombre de motor. Es una enumeración abierta
+// por construcción: el motor lo nombra el servidor, nunca texto libre.
+func ValidEvalRetriever(s string) bool { return evalRetrieverRe.MatchString(s) }
+
+// ValidEvalMode indica si s es un modo de búsqueda conocido, con el reordenamiento opcional ("hybrid+rerank").
+func ValidEvalMode(s string) bool {
+	base, rerank, hasRerank := strings.Cut(s, "+")
+	if hasRerank && rerank != "rerank" {
+		return false
+	}
+	switch base {
+	case "fts", "exact", "hybrid":
+		return true
+	}
+	return false
+}
+
+// evalCommitRe: referencia de git corta (hash, rama o etiqueta); nunca texto libre.
+var evalCommitRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@~^+-]{0,79}$`)
+
+// ValidEvalCommit indica si s tiene la forma de una referencia de git (vacío es válido).
+func ValidEvalCommit(s string) bool { return s == "" || evalCommitRe.MatchString(s) && !redact.Has(s) }
+
 // InsertEvalRun registra una corrida.
 func InsertEvalRun(ctx context.Context, q Querier, r EvalRun, act Actor) error {
+	// NX-07: toda corrida se guarda sin formatos de credencial (claves y valores de Config, Metrics, ByClass y Results; nota y nombre del conjunto).
+	r.Config, r.Metrics, r.ByClass = security.NexoRedactAuditMetadata(r.Config), security.NexoRedactAuditMetadata(r.Metrics), security.NexoRedactAuditMetadata(r.ByClass)
+	if r.Results != nil {
+		r.Results = redact.Value(r.Results)
+	}
+	r.Note, r.QuestionSetName, r.CommitRef = security.NexoRedactExternal(r.Note, 0), security.NexoRedactExternal(r.QuestionSetName, 0), security.NexoRedactExternal(r.CommitRef, 0)
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO nexo_kb_eval_runs (id, retriever, mode, index_version, config, config_sha256, question_set_sha256, question_set_name, spaces,
 			accepted, metrics, by_class, results, commit_ref, note, actor_principal_id, actor_token_id, actor_label)
@@ -198,6 +233,7 @@ func ListEvalRuns(ctx context.Context, q Querier, setSHA string, acceptedOnly bo
 		_ = json.Unmarshal([]byte(metrics), &r.Metrics)
 		_ = json.Unmarshal([]byte(byClass), &r.ByClass)
 		r.RanAt = r.RanAt.UTC()
+		redact.Struct(&r) // NX-07: filas históricas escritas antes de la redacción en escritura
 		out = append(out, r)
 	}
 	return out, rows.Err()

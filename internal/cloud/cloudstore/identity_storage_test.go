@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -657,6 +658,7 @@ func TestRecoverStrandedAdminTokenWithAuditRejectsUnsafeOrRepeatedState(t *testi
 }
 
 func TestRecoverStrandedAdminTokenWithAuditRejectsTokenOwnedByNonAdmin(t *testing.T) {
+	t.Setenv(features.ServiceAccountsEnv, "true") // NX-07: este caso emite tokens de una cuenta de servicio (apagadas por defecto)
 	ctx := context.Background()
 	cs := openIsolatedCloudStore(t)
 	admin, err := cs.CreateFirstAdminHumanUser(ctx, CreateHumanUserParams{Username: "recovery-target", DisplayName: "Recovery Target"})
