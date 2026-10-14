@@ -11,12 +11,15 @@ import (
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/stack/secrets"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/stack/state"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/stack/ui"
 )
 
 type SearchOptions struct {
 	Embedder, Model, Dims, URL, KeyFile, Deployment, Auth, Reranker, RerankModel, RerankURL, RerankKeyFile, RerankDeployment, RerankAuth, R1 string
 	Example                                                                                                                                  bool
 	key, rerankKey                                                                                                                           string
+	u                                                                                                                                        *ui.UI
+	retryKeys                                                                                                                                bool
 }
 
 func searchFlags(f *flag.FlagSet, s *SearchOptions) {

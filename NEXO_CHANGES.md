@@ -851,6 +851,14 @@ sin esos campos. Conservarlos junto con los regenerados hasta cerrar la revisió
 
 **Alcance.** Código y pruebas modificados/agregados solo bajo `internal/nexo/stack/seed/`; datos y `seed_test.go` sin cambios. Ningún archivo original de Engram, dependencia, contrato `stackapi` ni núcleo del stack modificado. Integración con servidor real (`httptest`) y Postgres local: solo base `nexoseed`, variable `CLOUDSTORE_TEST_DSN`, esquemas temporales y puertos 18490–18499. Resultados y límites de calidad en `.stack/informe-fase2.md`.
 
+### NX-OP15 · Recuperar pruebas de proveedores fallidas (feat/stack-clave-reintentar)
+
+`start` y la configuración interactiva ofrecen reintentar o seguir con búsqueda por palabras cuando falla la prueba de embeddings o del reordenador. El reintento permite revisar proveedor/modelo y reemplazar la clave con entrada oculta; seguir desactiva ambos proveedores y no guarda sus claves. Cancelar o fallar sin interacción conserva la configuración previa. Los diagnósticos distinguen clave/permisos, modelo, cuota y red mediante estados HTTP y los códigos estructurados de clave inválida/vencida de Gemini, sin mostrar cuerpos de respuesta ni secretos. Las respuestas inesperadas tienen un diagnóstico fijo.
+
+Cambios propios en `internal/nexo/stack/{search,search_config,search_test}.go` y el manual `docs/nexo/manuales/stack.md`; sin dependencias nuevas ni archivos originales de Engram modificados. Regresiones de ambos proveedores cubren clases de error, reintentos, reemplazo de clave, cancelación y continuidad de `start` hasta preparar el entorno.
+
+**Verificación.** Pruebas dirigidas de stack y nexocli en Windows; stack completo y nexocli en Linux con `golang:1.25` y toolchain Go 1.27.2; `GOOS=linux go vet` de esos paquetes: verdes. `golangci-lint` v2.14.0 contra `c604aae`: 0 issues. `deadcode-ratchet.sh`: sin funciones nuevas inaccesibles, ejecutado sobre una copia temporal de los archivos versionados más los cambios Go, con saltos normalizados (el CRLF de `go.mod` detiene el parser del script en la carpeta de Windows). `TestStackDockerSmoke` real pasó en 18492/55492 y limpió sus recursos propios. Las pruebas Postgres de seed exigen la base preexistente `nexoseed`; no se ejecutaron contra ella ni se alteró su fixture, ya que este cambio no toca la semilla.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
