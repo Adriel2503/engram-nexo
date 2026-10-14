@@ -41,7 +41,7 @@ func TestNexoSecondSuperadminAndSelfRenewal(t *testing.T) {
 	}
 	if rec := env.req(http.MethodPost, "/nexo/authz/v1/tokens", "carla", `{"principal":"diego","name":"laptop-diego","expires_in_days":90,"scope":"write"}`, ip); rec.Code != http.StatusCreated {
 		t.Fatalf("token del segundo superadmin: %d %s", rec.Code, rec.Body.String())
-	} else if raw, _ := nexoJSON(t, rec)["raw_token"].(string); raw == "" {
+	} else if raw, _ := nexoJSON(t, nexoRedeemForTest(t, env, rec))["raw_token"].(string); raw == "" {
 		t.Fatal("la emisión devuelve el token una sola vez")
 	} else {
 		env.tokens["diego"] = raw

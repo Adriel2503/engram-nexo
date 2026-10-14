@@ -15,9 +15,9 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // NexoTrustedProxiesEnv es la variable con los proxies confiables.
@@ -151,11 +151,8 @@ func nexoClientIP(r *http.Request, trusted []netip.Prefix) string {
 }
 
 func nexoTrimUserAgent(ua string) string {
-	ua = strings.TrimSpace(ua)
-	if utf8.RuneCountInString(ua) <= nexoMaxUserAgentRunes {
-		return ua
-	}
-	return string([]rune(ua)[:nexoMaxUserAgentRunes])
+	// NX-07: el User-Agent viene de afuera; se quitan formatos de credencial antes de recortar y guardar.
+	return security.NexoRedactExternal(ua, nexoMaxUserAgentRunes)
 }
 
 // nexoForwardedOrigin devuelve X-Forwarded-Proto y X-Forwarded-Host (primer

@@ -38,6 +38,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security/evidence"
 )
 
@@ -102,10 +103,10 @@ func (cs *CloudStore) NexoEmergencyToken(ctx context.Context, params NexoEmergen
 	if strings.TrimSpace(params.TokenPrefix) == "" || strings.TrimSpace(params.TokenHash) == "" {
 		return res, fmt.Errorf("cloudstore: token prefix and hash are required")
 	}
-	reason := strings.TrimSpace(params.Reason)
-	if r := []rune(reason); len(r) > emergencyReasonMaxRunes {
-		reason = string(r[:emergencyReasonMaxRunes])
+	if _, err := security.NexoCheckTokenName(params.Name); err != nil { // NX-07: nombre sin credenciales
+		return res, err
 	}
+	reason := security.NexoRedactExternal(params.Reason, emergencyReasonMaxRunes)
 
 	tx, err := cs.db.BeginTx(ctx, nil)
 	if err != nil {

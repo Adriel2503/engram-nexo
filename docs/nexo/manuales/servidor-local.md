@@ -401,8 +401,9 @@ la API. El detalle de roles y permisos está en [administracion.md](administraci
 3. En el formulario de creación: *Usuario*, *Correo* (opcional), *Nombre para mostrar* (opcional) y
    el rol *Miembro* o *Administrador*. Pulsa *Crear usuario*.
 4. Abre el usuario en la lista. En *Tokens*: nombre del token (por ejemplo `pc-ana`), *Días de vida*
-   (vacío = 90), alcance *Escritura* o *Solo lectura*. Pulsa *Crear token*.
-5. Copia el token que aparece. Se muestra **una sola vez**.
+   (vacío = 90), alcance *Escritura* o *Solo lectura*. Pulsa *Crear código de activación*.
+5. Entrega el código por un canal seguro. La persona lo canjea en `/dashboard/activate` o con
+   `engram nexo connect --server <url> --activate-stdin`. Solo ella recibe su token.
 
 ### Desde la API
 
@@ -413,7 +414,7 @@ Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" http:
 
 $r = Invoke-RestMethod -Method Post -Headers $h -ContentType "application/json" http://127.0.0.1:18095/nexo/authz/v1/tokens `
   -Body '{"principal":"ana","name":"pc-ana","expires_in_days":30,"scope":"write"}'
-$r.raw_token | Set-Clipboard        # queda en el portapapeles, sin mostrarse
+$r.activation_code | Set-Clipboard        # queda en el portapapeles, sin mostrarse
 ```
 
 ```bash
@@ -425,8 +426,20 @@ curl -s -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: a
 curl -s -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
   http://127.0.0.1:18095/nexo/authz/v1/tokens \
   -d '{"principal":"ana","name":"pc-ana","expires_in_days":30,"scope":"write"}'
-# La respuesta trae "raw_token": es el token de Ana. Se muestra una sola vez.
+# La respuesta trae "credential_type":"activation_code" y "activation_code", sin raw_token.
+# Ana canjea el código; no entregue ni utilice un token de otra persona.
 ```
+
+El código vence en 24 horas (configurable con `NEXO_ACTIVATION_TTL`, de `1h` a `168h`), es de
+un solo uso y fija el alcance y la vida del token desde el canje. Los pendientes se ven y revocan
+en el detalle del usuario o con las rutas de activaciones del manual de administración §3.3.
+Autoemisión, cuentas de servicio, bootstrap y emergencia conservan la entrega directa.
+
+Problema conocido (riesgo aceptado en local): quien emite el código lo conoce y podría canjearlo
+antes que la persona. Nexo rechaza el canje del mismo emisor autenticado y alerta si se canjea
+desde su misma IP en menos de un minuto (solo un indicio). Antes de producción hace falta SSO
+corporativo o el envío del código por el servidor al correo de la persona (SG-17); detalle en el
+manual de administración §3.3.
 
 Detalles:
 
@@ -736,6 +749,7 @@ proveedor. Para una demo con documentos internos, confirma que está permitido.
 |---|---|---|
 | `NEXO_RATE_LIMITS` | vacía: `sync` 600/600, `admin` 120/120, `login` 20/-, `nexo` 300/300, `other` 600/- (por IP / por token, por minuto) | JSON por grupo, por ejemplo `{"nexo":{"ip":3000,"token":3000}}` (`0` = sin límite), u `off` para desactivarlo. Útil en pruebas de carga |
 | `NEXO_AUTH_LOCKOUT` | vacía: 20 tokens distintos inválidos desde una IP en 300 s bloquean 900 s | JSON `{"max_failures","user_max_failures","window_seconds","lockout_seconds"}` u `off`. En local todas las peticiones vienen de la misma IP: si pruebas tokens inválidos a propósito, puedes bloquearte |
+| `NEXO_ACTIVATION_TTL` | `24h` | Plazo de los códigos de activación: duración de Go entre `1h` y `168h`; un valor inválido impide arrancar el servidor (el error nombra la variable, sin mostrar el valor). Agréguela a `environment` de cloud en Compose si desea cambiarla |
 | `NEXO_TOKEN_MAX_DAYS` | `365` | Caducidad máxima al emitir un token (por defecto se emiten con 90 días) |
 | `NEXO_SUPERADMIN_ALLOWED_CIDRS` | vacía (sin restricción, con aviso) | Redes desde las que se administran admins y ajustes de plataforma |
 | `NEXO_TRUSTED_PROXIES` | vacía | IP o CIDR de un proxy cuyas cabeceras `X-Forwarded-For`, `X-Forwarded-Proto` y `X-Forwarded-Host` se creen. En local, sin proxy, se deja vacía |

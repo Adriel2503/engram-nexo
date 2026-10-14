@@ -135,9 +135,13 @@ func (s *Service) SearchStatus(ctx context.Context, id authz.Identity) (SearchSt
 	out.DeadTotal = total
 	for _, d := range dead {
 		d.Error = cleanProviderMessage(d.Error, cfg.APIKey)
+		d, err = s.nexoDeadLetterVisible(ctx, id, d)
+		if err != nil {
+			return out, err
+		}
 		out.Dead = append(out.Dead, d)
 	}
-	if out.EvalRuns, err = store.ListEvalRuns(ctx, s.db, "", false, statusEvalRuns); err != nil {
+	if out.EvalRuns, err = s.nexoListEvalRuns(ctx, id, "", false, statusEvalRuns); err != nil {
 		return out, err
 	}
 	return out, nil

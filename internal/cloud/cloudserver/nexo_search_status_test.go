@@ -83,9 +83,21 @@ func TestNexoSearchStatusWithProvider(t *testing.T) {
 	}
 	env.exec(`INSERT INTO nexo_kb_index_versions (index_kind, version, config, status, built_at) VALUES ('vector', 0,
 		'{"provider":"openai","model":"text-embedding-3-small","dims":1536}', 'retired', now() - interval '3 days')`)
+	// NX-07 / R-6: los textos libres del diagnóstico (errores de indexación, nombre y notas de las
+	// evaluaciones) solo se muestran a quien lee el espacio; el rol de plataforma de carla no basta.
+	// Antes de este cambio la pantalla los mostraba por tener platform.settings. Ahora carla es
+	// lectora del espacio "arq", al que pertenecen la carta muerta y la evaluación.
+	if rec := env.req(http.MethodPost, "/nexo/kb/v1/spaces", "carla", `{"slug":"arq","name":"Arquitectura","owner":"ana","visibility":"restricted"}`, "10.91.0.2"); rec.Code != http.StatusCreated {
+		t.Fatalf("crear el espacio arq: %d %.200s", rec.Code, rec.Body.String())
+	}
+	var arqID string
+	if err := env.db.QueryRow(`SELECT id::text FROM nexo_kb_spaces WHERE slug = 'arq'`).Scan(&arqID); err != nil {
+		t.Fatal(err)
+	}
+	env.exec(`INSERT INTO nexo_role_bindings (principal_id, scope_type, scope_key, role) VALUES ($1::bigint, 'space', 'arq', 'lector')`, env.ids["carla"])
 	env.exec(`INSERT INTO nexo_kb_index_dead (index_version, section_id, space_id, last_error, fail_count)
-		VALUES ($1, gen_random_uuid(), gen_random_uuid(), $2, 5)`, vi.Version,
-		"gemini: 400 Bad Request: https://generativelanguage.googleapis.com/v1beta/models/x:embedContent?key="+searchFakeKey+" token "+searchFakeKey+" API key not valid")
+		VALUES ($1, gen_random_uuid(), $3::uuid, $2, 5)`, vi.Version,
+		"gemini: 400 Bad Request: https://generativelanguage.googleapis.com/v1beta/models/x:embedContent?key="+searchFakeKey+" token "+searchFakeKey+" API key not valid", arqID)
 	if err := kbstore.InsertEvalRun(ctx, env.db, kbstore.EvalRun{ID: kbstore.NewID(), Retriever: "hybrid", Mode: "hybrid", ConfigSHA256: "c", QuestionSetSHA256: "q",
 		QuestionSetName: "wiki-rp", Spaces: []string{"arq"}, Accepted: true,
 		Metrics: map[string]any{"questions": 120, "hit_at_5": 0.9167, "mrr": 0.8123, "no_answer_accuracy": 1.0}}, kbstore.Actor{Label: "test"}); err != nil {

@@ -40,7 +40,7 @@ const (
 	ExportDirEnv = "NEXO_AUDIT_EXPORT_DIR"
 	ExportKeyEnv = "NEXO_AUDIT_EXPORT_KEY"
 	// ExportFormat identifica el formato del archivo de firma.
-	ExportFormat = "nexo-audit-export/v1"
+	ExportFormat = "nexo-audit-export/v2"
 	// MinExportKeyBytes es el largo mínimo de la clave HMAC.
 	MinExportKeyBytes = 32
 )
@@ -212,6 +212,11 @@ func ExportDay(ctx context.Context, db *sql.DB, cfg ExportConfig, table string, 
 				sig.LastSeq, sig.LastHash = seq, h
 				sig.ChainedRows++
 				sig.Rows++
+				line, err = nexoExportMetadataLine(line)
+				if err != nil {
+					_ = rows.Close()
+					return res, err
+				}
 				buf.WriteString(line)
 				buf.WriteByte('\n')
 			}
@@ -295,6 +300,10 @@ func writeLines(ctx context.Context, db *sql.DB, buf *bytes.Buffer, q string, co
 		var line string
 		if err := rows.Scan(&line); err != nil {
 			return fmt.Errorf("evidence: exportar: %w", err)
+		}
+		line, err = nexoExportMetadataLine(line)
+		if err != nil {
+			return err
 		}
 		buf.WriteString(line)
 		buf.WriteByte('\n')
@@ -384,7 +393,7 @@ func VerifyExport(ctx context.Context, path string, key []byte, db *sql.DB) (Exp
 		return chk, fmt.Errorf("evidence: firma ilegible: %w", err)
 	}
 	chk.Table, chk.Date = sig.Table, sig.Date
-	if sig.Format != ExportFormat {
+	if sig.Format != ExportFormat && sig.Format != "nexo-audit-export/v1" {
 		problem("formato de firma desconocido %q", sig.Format)
 	}
 	if len(key) == 0 {

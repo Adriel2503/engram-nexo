@@ -32,6 +32,9 @@ var secretPatterns = []secretPattern{
 	{"openai_or_anthropic_key", regexp.MustCompile(`\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}\b`)},
 	{"google_api_key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`)},
 	{"engram_token", regexp.MustCompile(`\begc_[A-Za-z0-9_-]{24,}\b`)},
+	// NX-07: código de activación de Nexo (nxa_ + 256 bits). Sin \b inicial: también dentro de
+	// una clave o ruta (doc_key, origen), donde va pegado a letras o guion bajo.
+	{"activation_code", regexp.MustCompile(`nxa_[A-Za-z0-9_-]{16,}`)},
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
 	{"connection_string_password", regexp.MustCompile(`\b[a-z][a-z0-9+.-]{1,20}://[^\s:/@]+:([^\s@/]{3,})@[^\s/]+`)},
 	// NX-10 2b (SG-09, ampliación de la detección; la política ante una

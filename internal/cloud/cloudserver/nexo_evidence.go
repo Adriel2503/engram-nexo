@@ -177,6 +177,9 @@ func (s *CloudServer) handleNexoAlerts(w http.ResponseWriter, r *http.Request, s
 		nexoInternalError(w, "nexo alerts", err)
 		return
 	}
+	if !s.nexoFilterAlerts(w, r, items) {
+		return
+	}
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionAlertsRead, map[string]any{"filters": p.filters(), "result_count": len(items)}) {
 		return
 	}
@@ -221,6 +224,7 @@ func (s *CloudServer) handleNexoAlertAction(w http.ResponseWriter, r *http.Reque
 	if !s.nexoRecordAuditAction(w, r, nexoAuditActionAlertAck, map[string]any{"alert_id": alertID}) {
 		return
 	}
+	ack.WithholdNote() // NX-07: no se repite el texto libre; el ámbito de la alerta no se verifica aquí
 	jsonResponse(w, http.StatusOK, map[string]any{"alert_id": alertID, "ack": ack})
 }
 

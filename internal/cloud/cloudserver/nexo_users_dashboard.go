@@ -91,6 +91,16 @@ func (s *CloudServer) nexoRenderManagedUserDetail(w http.ResponseWriter, r *http
 		return false
 	}
 	v := dashboard.NexoUserDetailView{NexoUsersView: s.nexoUsersView(r), Notice: notice, Error: errText}
+	principal, _ := s.dashboardPrincipalFromRequest(r)
+	v.Self = nexoSamePrincipal(principal.ID, user.PrincipalID)
+	if a := s.nexoActivations(); a != nil && s.canManageManagedUsers(r) {
+		var err error
+		v.Activations, err = a.NexoPendingActivations(r.Context(), user.PrincipalID)
+		if err != nil {
+			nexoInternalError(w, "activaciones pendientes", errors.New("consulta fallida"))
+			return true
+		}
+	}
 	if notice == "" && errText == "" && r.Method == http.MethodGet && r.URL.Query().Get("rol") == "actualizado" {
 		v.Notice = "Rol actualizado. El cambio quedó en la auditoría."
 	}

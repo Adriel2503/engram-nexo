@@ -20,6 +20,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // AlertWebhookEnv es la URL del webhook.
@@ -99,7 +101,10 @@ type webhookAlert struct {
 
 // Payload arma el cuerpo de una alerta.
 func Payload(a Alert) WebhookPayload {
-	text := fmt.Sprintf("[Nexo] alerta %s (%s, capa %s): %s", a.Rule, a.Severity, a.Layer, a.Summary)
+	// NX-07: el sujeto puede venir de texto externo (clave de documento, proyecto): también las
+	// alertas históricas salen sin formatos de credencial.
+	a.Subject = security.NexoRedactAuditText(a.Subject)
+	text := fmt.Sprintf("[Nexo] alerta %s (%s, capa %s): %s", a.Rule, a.Severity, a.Layer, a.Subject)
 	return WebhookPayload{
 		Text:    text,
 		Summary: fmt.Sprintf("Nexo: %s", a.Rule),

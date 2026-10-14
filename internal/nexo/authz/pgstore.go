@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 )
 
 // ErrInvalidCursor indica un cursor de paginación ilegible.
@@ -131,14 +133,15 @@ func (p *PGStore) RecordEvent(ctx context.Context, ev Event) error {
 func insertEvent(ctx context.Context, exec execer, ev Event) error {
 	var details any
 	if len(ev.Details) > 0 {
-		raw, err := json.Marshal(ev.Details)
+		// NX-07: detalles sin formatos de credencial, incluso si vienen de texto externo.
+		raw, err := json.Marshal(redact.Metadata(ev.Details))
 		if err != nil {
 			return fmt.Errorf("authz: encode event details: %w", err)
 		}
 		details = string(raw)
 	}
 	actor := ev.Actor
-	label := strings.TrimSpace(actor.Label)
+	label := redact.External(actor.Label, 0)
 	var actorPID, actorTID any
 	if actor.Managed() {
 		actorPID = parseBigint(actor.PrincipalID)
@@ -160,7 +163,7 @@ func insertEvent(ctx context.Context, exec execer, ev Event) error {
 		ev.Action, string(ev.Scope.Type), ev.Scope.Key, parseBigint(ev.TargetPrincipalID),
 		nullText(string(ev.RoleBefore)), nullText(string(ev.RoleAfter)),
 		actorPID, actorTID, label, actor.Managed(),
-		nullText(actor.ClientIP), nullText(actor.UserAgent), nullText(truncate(actor.ClientClaim, 128)), details)
+		nullText(actor.ClientIP), nullText(redact.External(actor.UserAgent, 0)), nullText(truncate(redact.External(actor.ClientClaim, 0), 128)), details)
 	if err != nil {
 		return fmt.Errorf("authz: insert event: %w", err)
 	}
@@ -238,6 +241,9 @@ func (p *PGStore) ListEvents(ctx context.Context, q EventQuery) ([]EventRecord, 
 		if len(details) > 0 {
 			_ = json.Unmarshal(details, &r.Details)
 		}
+		// NX-07: filas históricas escritas antes de la redacción en escritura.
+		r.Actor, r.UserAgent, r.ClientClaim = redact.Text(r.Actor), redact.Text(r.UserAgent), redact.Text(r.ClientClaim)
+		r.Details = redact.Metadata(r.Details)
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {

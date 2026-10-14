@@ -113,8 +113,10 @@ func (v NexoUsersView) roleOf(principalID string) string {
 // NexoUserDetailView agrega lo propio del detalle.
 type NexoUserDetailView struct {
 	NexoUsersView
-	Notice string
-	Error  string
+	Activations []cloudstore.NexoActivation
+	Self        bool
+	Notice      string
+	Error       string
 }
 
 // optionsFor devuelve las opciones con la actual marcada.

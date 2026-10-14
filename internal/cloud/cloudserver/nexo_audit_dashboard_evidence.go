@@ -170,6 +170,8 @@ func (s *CloudServer) auditPanelIntegrity(w http.ResponseWriter, r *http.Request
 // ─── Alertas ─────────────────────────────────────────────────────────────────
 
 var auditRuleLabels = map[string]string{
+	evidence.RuleActivationRepeated:      "Canje de activación repetido",
+	evidence.RuleActivationSameIP:        "Código canjeado desde la IP del emisor",
 	evidence.RuleAuthzDeniedBurst:        "Ráfaga de acciones denegadas",
 	evidence.RuleAuthFailuresBurst:       "Ráfaga de fallos de autenticación",
 	evidence.RulePlatformRoleChanged:     "Cambio de rol de plataforma",
@@ -291,6 +293,9 @@ func (s *CloudServer) auditPanelAlertsRender(w http.ResponseWriter, r *http.Requ
 	if !s.auditPanelRecord(w, r, nexoAuditActionAlertsRead, "", map[string]any{"filters": p.filters(), "result_count": len(items)}) {
 		return
 	}
+	if !s.nexoFilterAlerts(w, r, items) {
+		return
+	}
 	for _, a := range items {
 		when, iso := auditTime(a.OccurredAt)
 		sev, class := auditSeverity(a.Severity)
@@ -304,6 +309,9 @@ func (s *CloudServer) auditPanelAlertsRender(w http.ResponseWriter, r *http.Requ
 			row.AckBy = a.Ack.Label
 			row.AckWhen, row.AckWhenISO = auditTime(a.Ack.OccurredAt)
 			row.AckNote = auditTruncate(a.Ack.Note, 300)
+			if a.Ack.NoteWithheld {
+				row.AckNote = "texto no mostrado: requiere rol de lectura en el ámbito de la alerta"
+			}
 		}
 		page.Alerts = append(page.Alerts, row)
 	}
@@ -451,6 +459,9 @@ func auditSummaryInt(m map[string]any, key string) (int, bool) {
 func auditReviewLast(now time.Time, rec evidence.ReviewRecord) dashboard.NexoReviewLast {
 	when, iso := auditTime(rec.OccurredAt)
 	out := dashboard.NexoReviewLast{When: when, WhenISO: iso, Age: auditAgo(now, rec.OccurredAt), By: auditFirst(rec.Reviewer, "desconocido"), Notes: auditTruncate(rec.Notes, 600), Hash: rec.ReportSHA256}
+	if rec.NoteWithheld { // NX-07: sin ámbito verificable, el texto libre no se muestra
+		out.Notes = "guardadas; el texto no se muestra aquí porque una revisión de accesos no tiene un ámbito para verificar quién puede leerlo."
+	}
 	var parts []string
 	for _, f := range []struct{ key, text string }{
 		{"people", "personas y cuentas"}, {"inactive", "inactivas"}, {"tokens_no_expiry", "tokens sin caducidad"}, {"service_accounts_stale", "cuentas de servicio sin uso"},

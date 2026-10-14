@@ -452,6 +452,7 @@ func (s *CloudServer) nexoEffectiveTokenScope(ctx context.Context, principal clo
 
 // Rutas del panel que no exigen una sesión con alcance write.
 var nexoDashboardScopeExempt = map[string]bool{
+	"/dashboard/activate":  true,
 	"/dashboard/login":     true,
 	"/dashboard/logout":    true,
 	"/dashboard/bootstrap": true,

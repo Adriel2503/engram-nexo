@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // PublishRun es una ejecución de publicación (lote, subida o aprobación).
@@ -51,6 +53,15 @@ func jsonOrNil(v any) any {
 
 // InsertPublishRun registra una ejecución.
 func InsertPublishRun(ctx context.Context, q Querier, w PublishRunWrite) error {
+	// NX-07: origen, subida, rechazos y fuente son texto externo (repositorio, rutas, claves de
+	// documento): se quitan formatos de credencial antes de guardar.
+	w.Source, w.PruneSkipped = security.NexoRedactExternal(w.Source, 0), security.NexoRedactExternal(w.PruneSkipped, 0)
+	w.Origin, w.Upload = security.NexoRedactAuditMetadata(w.Origin), security.NexoRedactAuditMetadata(w.Upload)
+	if w.Rejected != nil {
+		if r, ok := security.NexoRedactAuditMetadata(map[string]any{"r": w.Rejected})["r"].([]any); ok {
+			w.Rejected = r
+		}
+	}
 	origin := jsonOrNil(w.Origin)
 	if origin == nil {
 		origin = "{}"
@@ -65,11 +76,13 @@ func InsertPublishRun(ctx context.Context, q Querier, w PublishRunWrite) error {
 		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, now(), NULLIF($7, ''), $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12, NULLIF($13, ''), $14,
 			$15::bigint, $16::bigint, $17, NULLIF($18, ''), NULLIF($19, ''))`,
 		w.ID, w.SpaceID, w.Space, w.Kind, w.DryRun, w.StartedAt, w.Source, origin, jsonOrNil(w.Upload), summary, jsonOrNil(w.Rejected),
-		w.Pruned, w.PruneSkipped, w.Skipped, nullBigint(w.Act.PrincipalID), nullBigint(w.Act.TokenID), labelOrUnknown(w.Act.Label), w.Act.ClientIP, w.Act.UserAgent)
+		w.Pruned, w.PruneSkipped, w.Skipped, nullBigint(w.Act.PrincipalID), nullBigint(w.Act.TokenID), labelOrUnknown(w.Act.Label), w.Act.ClientIP, security.NexoRedactExternal(w.Act.UserAgent, 0))
 	return err
 }
 
+// labelOrUnknown limpia el nombre del autor de formatos de credencial (NX-07).
 func labelOrUnknown(s string) string {
+	s = security.NexoRedactExternal(s, 0)
 	if s == "" {
 		return "desconocido"
 	}
@@ -104,6 +117,12 @@ func ListPublishRuns(ctx context.Context, q Querier, spaceID string, before *tim
 		_ = json.Unmarshal([]byte(summary), &r.Summary)
 		if rejected != "" {
 			_ = json.Unmarshal([]byte(rejected), &r.Rejected)
+		}
+		// NX-07: ejecuciones históricas escritas antes de la redacción en escritura.
+		r.Source, r.PruneSkipped, r.Actor = security.NexoRedactAuditText(r.Source), security.NexoRedactAuditText(r.PruneSkipped), security.NexoRedactAuditText(r.Actor)
+		r.Origin, r.Upload = security.NexoRedactAuditMetadata(r.Origin), security.NexoRedactAuditMetadata(r.Upload)
+		if red, ok := security.NexoRedactAuditMetadata(map[string]any{"r": r.Rejected})["r"].([]any); ok {
+			r.Rejected = red
 		}
 		r.StartedAt, r.FinishedAt = r.StartedAt.UTC(), r.FinishedAt.UTC()
 		out = append(out, r)

@@ -522,6 +522,7 @@ func TestNexoTokenExpiryAndScopeHTTP(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("emitir: %d %s", rec.Code, rec.Body.String())
 	}
+	rec = nexoRedeemForTest(t, env, rec)
 	tok := nexoJSON(t, rec)["token"].(map[string]any)
 	exp, err := time.Parse(time.RFC3339Nano, tok["expires_at"].(string))
 	if err != nil || time.Until(exp) < 89*24*time.Hour || time.Until(exp) > 90*24*time.Hour+time.Minute || tok["scope"] != "write" {
@@ -549,6 +550,7 @@ func TestNexoTokenExpiryAndScopeHTTP(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("token read: %d %s", rec.Code, rec.Body.String())
 	}
+	rec = nexoRedeemForTest(t, env, rec)
 	env.tokens["ana-read"] = nexoJSON(t, rec)["raw_token"].(string)
 	// Un token read no sube cambios de proyecto (rutas de Engram).
 	for _, path := range []string{"/sync/mutations/push", "/sync/push"} {
@@ -612,8 +614,13 @@ func TestNexoDashboardSessionFollowsToken(t *testing.T) {
 	}
 	// Emisión desde el panel con alcance read y 15 días.
 	created := performDashboardForm(env.srv, http.MethodPost, "/dashboard/admin/users/"+env.ids["ana"]+"/tokens", "name=panel&scope=read&expires_in_days=15", cookie, false)
-	if created.Code != http.StatusOK || !strings.Contains(created.Body.String(), "alcance lectura") {
+	if created.Code != http.StatusOK || !strings.Contains(created.Body.String(), "Código de activación") {
 		t.Fatalf("emisión en el panel: %d %s", created.Code, created.Body.String())
+	}
+	code := nexoActivationCodeRe.FindString(created.Body.String())
+	activated := env.req(http.MethodPost, "/nexo/authz/v1/activate", "", `{"code":"`+code+`"}`, "10.88.0.1")
+	if activated.Code != http.StatusCreated {
+		t.Fatal("canje del panel fallido")
 	}
 	if n := env.count(`SELECT count(*) FROM cloud_principal_tokens WHERE name = 'panel' AND nexo_scope = 'read' AND nexo_expires_at BETWEEN now() + interval '14 days' AND now() + interval '15 days 1 minute'`); n != 1 {
 		t.Fatalf("token del panel: %d", n)
@@ -675,12 +682,12 @@ func TestNexoReadScopeDenyByDefault(t *testing.T) {
 	}
 	// /admin/*: todas las POST niegan a un admin con token read.
 	adminPosts := map[string]string{
-		"/admin/users":                                   `{"username":"x9"}`,
-		"/admin/users/" + ids["ana"] + "/enable":         ``,
-		"/admin/users/" + ids["ana"] + "/disable":        ``,
-		"/admin/users/" + ids["ana"] + "/tokens":         `{"name":"x"}`,
-		"/admin/tokens/1/revoke":                         ``,
-		"/admin/users/" + ids["ana"] + "/grants":         `{"project":"x"}`,
+		"/admin/users":                                    `{"username":"x9"}`,
+		"/admin/users/" + ids["ana"] + "/enable":          ``,
+		"/admin/users/" + ids["ana"] + "/disable":         ``,
+		"/admin/users/" + ids["ana"] + "/tokens":          `{"name":"x"}`,
+		"/admin/tokens/1/revoke":                          ``,
+		"/admin/users/" + ids["ana"] + "/grants":          `{"project":"x"}`,
 		"/admin/users/" + ids["ana"] + "/grants/x/revoke": ``,
 	}
 	for path, body := range adminPosts {
