@@ -26,19 +26,22 @@ templ nexoRoleChip(role string) {
 // nexoRolePicker son los cuatro roles como grupo de opciones con su
 // descripción. Los que quien mira no puede asignar salen desactivados con la
 // razón; el servidor los rechaza igual.
-templ nexoRolePicker(options []NexoUserRoleOption, idPrefix string) {
-	<fieldset class="nx-roles">
-		<legend>Rol de plataforma</legend>
+templ nexoRolePicker(options []NexoUserRoleOption, idPrefix string, legend string) {
+	<fieldset class="nx-pform">
+		<legend>{ legend }</legend>
+		<div class="nx-roles-list">
 		for _, o := range options {
 			<label class="nx-role-opt" for={ idPrefix + "-" + o.Value }>
 				<input id={ idPrefix + "-" + o.Value } type="radio" name="role" value={ o.Value } checked?={ o.Selected } disabled?={ o.Disabled }/>
 				<span class="nx-role-name">{ o.Label }</span>
 				<span class="nx-role-desc">{ o.Desc }</span>
+				<span class="nx-role-engram">{ NexoEngramShort(o.Value) }</span>
 				if o.Disabled {
 					<span class="nx-hint">Solo un superadmin puede asignarlo.</span>
 				}
 			</label>
 		}
+		</div>
 	</fieldset>
 }
 
@@ -54,14 +57,14 @@ templ NexoManagedUsersPage(canManageManagedUsers bool, v NexoUsersView) {
 		if canManageManagedUsers {
 			<div class="data-frame">
 				<h3 class="section-block-title">Crear usuario</h3>
-				<form method="post" action="/dashboard/admin/users" class="nx-user-form">
+				<form method="post" action="/dashboard/admin/users" class="managed-user-form">
 					<input type="hidden" name="csrf_token" value={ v.CSRF }/>
 					<div class="nx-user-fields">
 						<label for="nx-u-username">Usuario<input id="nx-u-username" type="text" name="username" required autocomplete="off"/></label>
 						<label for="nx-u-email">Correo <span class="nx-hint">opcional</span><input id="nx-u-email" type="email" name="email" autocomplete="off"/></label>
 						<label for="nx-u-name">Nombre <span class="nx-hint">opcional</span><input id="nx-u-name" type="text" name="display_name" autocomplete="off"/></label>
 					</div>
-					@nexoRolePicker(v.optionsForCreate(), "nx-new-role")
+					@nexoRolePicker(v.optionsForCreate(), "nx-new-role", "Rol de plataforma")
 					<div><button type="submit">Crear usuario</button></div>
 				</form>
 				<p class="muted">Un usuario nuevo no sincroniza ningún proyecto hasta que un administrador le dé acceso en su página.</p>
@@ -163,7 +166,7 @@ templ NexoManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.P
 			if v.CanChangeRole {
 				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/role") } class="nx-user-form">
 					<input type="hidden" name="csrf_token" value={ v.CSRF }/>
-					@nexoRolePicker(v.optionsFor(v.roleOf(user.PrincipalID)), "nx-role")
+					@nexoRolePicker(v.optionsFor(v.roleOf(user.PrincipalID)), "nx-role", "Cambiar a")
 					<div><button type="submit">Cambiar rol</button> <span class="nx-hint">Te pediremos confirmar antes de aplicarlo.</span></div>
 				</form>
 			} else {

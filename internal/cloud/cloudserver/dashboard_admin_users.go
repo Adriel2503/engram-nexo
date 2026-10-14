@@ -251,6 +251,9 @@ func (s *CloudServer) handleDashboardManagedUserDetail(w http.ResponseWriter, r 
 		http.Error(w, fmt.Sprintf("list grants: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if s.nexoRenderManagedUserDetail(w, r, user, tokens, grants, "", "", http.StatusOK) { // NX-05: detalle con el rol de Nexo
+		return
+	}
 	renderDashboardAdminComponent(w, r, s.dashboardAdminLayout(r, "Managed User", dashboard.ManagedUserDetailPage(user, tokens, grants, s.canManageManagedUsers(r))))
 }
 

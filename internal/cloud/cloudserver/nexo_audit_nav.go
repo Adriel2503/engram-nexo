@@ -39,6 +39,7 @@ const (
 
 type nexoAuditNavEntry struct {
 	allowed bool
+	role    string // rol de plataforma de Nexo para la cabecera (NX-05); "" = sin dato
 	until   time.Time
 }
 
@@ -48,17 +49,29 @@ type nexoAuditNavCache struct {
 	entries map[string]nexoAuditNavEntry
 }
 
-func (c *nexoAuditNavCache) get(key string, now time.Time) (allowed, ok bool) {
+func (c *nexoAuditNavCache) get(key string, now time.Time) (allowed bool, role string, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, found := c.entries[key]
 	if !found || !now.Before(e.until) {
-		return false, false
+		return false, "", false
 	}
-	return e.allowed, true
+	return e.allowed, e.role, true
 }
 
-func (c *nexoAuditNavCache) put(key string, allowed bool, now time.Time) {
+// forget descarta lo guardado de una persona (todas sus sesiones): se llama
+// al cambiar su rol de plataforma para que la cabecera no muestre el anterior.
+func (c *nexoAuditNavCache) forget(principalID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if strings.HasPrefix(k, principalID+"|") {
+			delete(c.entries, k)
+		}
+	}
+}
+
+func (c *nexoAuditNavCache) put(key string, allowed bool, role string, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
@@ -74,65 +87,81 @@ func (c *nexoAuditNavCache) put(key string, allowed bool, now time.Time) {
 			clear(c.entries)
 		}
 	}
-	c.entries[key] = nexoAuditNavEntry{allowed: allowed, until: now.Add(nexoAuditNavTTL)}
+	c.entries[key] = nexoAuditNavEntry{allowed: allowed, role: role, until: now.Add(nexoAuditNavTTL)}
 }
 
 // nexoAuditNavMiddleware marca en el contexto las peticiones del panel de
 // quien tiene platform.audit.read. No cambia la respuesta ni el estado.
 func (s *CloudServer) nexoAuditNavMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.nexoAuditNavWanted(r) && s.nexoAuditNavAllowed(r) {
-			r = r.WithContext(dashboard.WithNexoAuditNav(r.Context()))
+		if s.nexoAuditNavWanted(r) {
+			allowed, role := s.nexoAuditNavInfo(r)
+			ctx := r.Context()
+			if allowed {
+				ctx = dashboard.WithNexoAuditNav(ctx)
+			}
+			if role != "" {
+				ctx = dashboard.WithNexoRole(ctx, role) // NX-05: el rol de plataforma junto al nombre
+			}
+			r = r.WithContext(ctx)
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
 // nexoAuditNavWanted: solo las páginas HTML del panel con la marca de Nexo.
-// Los recursos estáticos, el acceso y los POST no dibujan el menú.
+// Los recursos estáticos, el acceso y los POST no dibujan el menú, salvo los
+// POST de Administración que responden con una página completa (confirmación
+// y errores del cambio de rol, NX-05).
 func (s *CloudServer) nexoAuditNavWanted(r *http.Request) bool {
-	if !dashboard.NexoBrand() || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+	path := r.URL.Path
+	adminPost := r.Method == http.MethodPost && strings.HasPrefix(path, "/dashboard/admin/")
+	if !dashboard.NexoBrand() || (r.Method != http.MethodGet && r.Method != http.MethodHead && !adminPost) {
 		return false
 	}
-	path := r.URL.Path
 	if path != "/dashboard" && !strings.HasPrefix(path, "/dashboard/") {
 		return false
 	}
 	return !strings.HasPrefix(path, "/dashboard/static/") && path != "/dashboard/login" && path != "/dashboard/logout"
 }
 
-// nexoAuditNavAllowed decide si la sesión de la petición ve la pestaña.
-// Falla cerrado: sin sesión firmada válida, sin base de Nexo, con una
-// identidad no administrada o ante cualquier error, la respuesta es no.
-func (s *CloudServer) nexoAuditNavAllowed(r *http.Request) bool {
+// nexoAuditNavInfo decide si la sesión de la petición ve la pestaña y qué rol
+// de plataforma muestra la cabecera. Falla cerrado: sin sesión firmada
+// válida, sin base de Nexo, con una identidad no administrada o ante
+// cualquier error, la pestaña se oculta y no hay rol.
+func (s *CloudServer) nexoAuditNavInfo(r *http.Request) (allowed bool, role string) {
 	cookie, err := r.Cookie(dashboardSessionCookieName)
 	if err != nil {
-		return false
+		return false, ""
 	}
 	principal, err := s.parseDashboardPrincipalSession(cookie.Value)
 	if err != nil {
-		return false
+		return false, ""
 	}
 	key := principal.ID + "|" + principal.TokenID
 	now := time.Now()
-	if allowed, ok := s.nexo.auditNav.get(key, now); ok {
-		return allowed
+	if allowed, role, ok := s.nexo.auditNav.get(key, now); ok {
+		return allowed, role
 	}
 	svc, ok := s.nexoAuthz()
 	if !ok {
-		return false
+		return false, ""
 	}
 	ctx := WithPrincipal(r.Context(), principal)
 	id := nexoAuthzIdentity(ctx)
 	ctx = authz.WithRequestCache(authz.WithIdentity(ctx, id))
 	if !id.Managed() {
-		return false
+		return false, ""
 	}
-	// Can no registra denegaciones: esto solo decide qué se dibuja.
+	// Can no registra denegaciones: esto solo decide qué se dibuja. La misma
+	// consulta trae el rol efectivo de plataforma para la cabecera.
 	d, err := svc.Engine().Can(ctx, id, authz.PlatformScope(), authz.CapPlatformAuditRead)
 	if err != nil {
-		return false
+		return false, ""
 	}
-	s.nexo.auditNav.put(key, d.Allowed, now)
-	return d.Allowed
+	if d.Role != authz.RoleNone {
+		role = string(d.Role)
+	}
+	s.nexo.auditNav.put(key, d.Allowed, role, now)
+	return d.Allowed, role
 }

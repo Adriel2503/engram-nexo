@@ -37,7 +37,7 @@ func TestNexoPanelPagesAreInSpanish(t *testing.T) {
 		{"/dashboard/admin/health", []string{"Salud del servidor"}, []string{"Admin Health"}},
 		{"/dashboard/admin/audit-log", []string{"Auditoría", "Cargando la auditoría..."}, []string{"Loading audit log..."}},
 		{"/dashboard/admin/audit-log/list", []string{"Filtrar", "Todos los resultados", `placeholder="Desde (RFC3339)"`, "Sin registros de auditoría"}, []string{"All Outcomes", ">Filter<", "From (RFC3339)", "No Audit Entries"}},
-		{"/dashboard/admin/users", []string{"Crear usuario", `placeholder="Usuario"`, `placeholder="Nombre para mostrar (opcional)"`, "Un usuario nuevo parte sin permisos"},
+		{"/dashboard/admin/users", []string{"Crear usuario", "Rol de plataforma", "Un usuario nuevo no sincroniza ningún proyecto"}, // NX-05: la pantalla de Usuarios es la de Nexo (rol de plataforma), ya en español
 			[]string{"Create User", "Display name (optional)", "deny-by-default"}},
 		{"/dashboard/admin/users/" + env.ids["ana"], []string{"Crear token", "Días de vida (por defecto 90)", "Alcance: escritura", "Permisos de proyecto", "Dar permiso", "Nombre del proyecto",
 			"El token se muestra una sola vez", "Deshabilitar usuario"},

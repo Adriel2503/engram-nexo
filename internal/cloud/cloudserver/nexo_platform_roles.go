@@ -32,26 +32,7 @@ import (
 // guardia de alcance del panel (nexoDashboardScopeGuard) y cada ruta vuelve a
 // comprobar su capacidad. Falla cerrado ante un error.
 func (s *CloudServer) nexoDashboardAdmin(r *http.Request, principal cloudauth.Principal) (allowed, handled bool) {
-	if principal.Source != cloudauth.PrincipalSourceManagedToken {
-		return false, false
-	}
-	svc, available := s.nexoAuthz()
-	if !available {
-		return false, false
-	}
-	ctx := WithPrincipal(r.Context(), principal)
-	id := nexoAuthzIdentity(ctx)
-	if !id.Managed() {
-		return false, false
-	}
-	id.TokenScope = ""
-	ctx = authz.WithRequestCache(authz.WithIdentity(ctx, id))
-	d, err := svc.Engine().Can(ctx, id, authz.PlatformScope(), authz.CapPlatformUsersManage)
-	if err != nil {
-		nexoLogInternal("dashboard admin decision", err)
-		return false, true
-	}
-	return d.Allowed, true
+	return s.nexoDashboardCan(r, principal, authz.CapPlatformUsersManage) // nexo_users_dashboard.go
 }
 
 // nexoFillPlatformRoles pone el rol de plataforma de Nexo en cada persona

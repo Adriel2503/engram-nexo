@@ -2464,3 +2464,172 @@ body.nexo .nxs-table .nxs-num {
 	font-variant-numeric: tabular-nums;
 	line-height: 1.2;
 }
+
+/* ─── NX-05: roles de plataforma (Administración > Usuarios) ──────────────────
+ * Los cuatro roles van de menor a mayor privilegio; el chip sube de gris a
+ * azul, verde claro y verde pleno. En el selector cada rol es una fila con su
+ * nombre, lo que permite y cómo lo ve Engram (la columna derivada).
+ */
+
+.nx-chip-top { background: var(--nx-green); color: #fff; }
+
+body.nexo .user-info .nx-chip {
+	font-size: 0.75rem;
+	padding: 0 0.5rem;
+}
+
+body.nexo .nx-users form.nx-user-form,
+body.nexo .nx-users form.managed-user-form {
+	display: grid;
+	gap: 1.25rem;
+}
+
+.nx-user-fields {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 1rem;
+}
+
+.nx-user-fields label {
+	margin: 0;
+	font-size: var(--nx-s2);
+	font-weight: 600;
+}
+
+.nx-user-fields input {
+	margin: 0.25rem 0 0;
+}
+
+.nx-pform {
+	border: 0;
+	margin: 0;
+	padding: 0;
+	min-width: 0;
+}
+
+.nx-roles-list {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.5rem;
+}
+
+.nx-pform legend {
+	padding: 0;
+	margin: 0 0 0.35rem;
+	font-size: var(--nx-s2);
+	font-weight: 600;
+}
+
+body.nexo label.nx-role-opt {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	column-gap: 0.75rem;
+	row-gap: 0.1rem;
+	align-items: start;
+	margin: 0;
+	padding: 0.65rem 0.9rem;
+	border: 1px solid var(--nx-line);
+	border-radius: var(--nx-radius-control);
+	background: var(--nx-surface);
+	cursor: pointer;
+	font-weight: 400;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.nx-role-opt input[type="radio"] {
+	grid-row: 1 / span 4;
+	margin: 0.3rem 0 0;
+	accent-color: var(--nx-green);
+}
+
+body.nexo label.nx-role-opt:has(input:checked) {
+	border-color: var(--nx-green);
+	background: var(--nx-green-tint);
+}
+
+body.nexo label.nx-role-opt:has(input:focus-visible) {
+	outline: 2px solid var(--nx-green);
+	outline-offset: 2px;
+}
+
+body.nexo label.nx-role-opt:has(input:disabled) {
+	cursor: not-allowed;
+	background: var(--nx-paper);
+	color: var(--nx-ink-soft);
+}
+
+.nx-role-name {
+	font-weight: 600;
+	color: var(--nx-ink);
+}
+
+.nx-role-desc {
+	font-size: var(--nx-s2);
+	color: var(--nx-ink-soft);
+}
+
+.nx-role-engram {
+	font-size: var(--nx-s1);
+	color: var(--nx-ink-soft);
+	font-variant-numeric: tabular-nums;
+}
+
+.nx-role-opt .nx-hint {
+	margin: 0;
+	color: var(--nx-exp-fg);
+}
+
+.nx-role-panel {
+	display: grid;
+	gap: 0.9rem;
+	margin: 0 0 1.5rem;
+}
+
+.nx-role-panel p {
+	margin: 0;
+}
+
+.nx-role-now {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.nx-role-change {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem;
+	font-size: var(--nx-s4);
+}
+
+.nx-role-change .nx-chip {
+	font-size: var(--nx-s3);
+	padding: 0.2rem 0.85rem;
+}
+
+.nx-role-change [aria-hidden="true"] {
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s2);
+}
+
+.nx-confirm-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.nx-role-opt input[type="radio"]:checked {
+	background-color: var(--nx-green);
+	border-color: var(--nx-green);
+}
+
+@media (max-width: 720px) {
+	.nx-user-fields,
+	.nx-roles-list {
+		grid-template-columns: 1fr;
+	}
+}

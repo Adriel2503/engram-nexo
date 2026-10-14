@@ -303,6 +303,7 @@ func (s *CloudServer) routes() {
 		NexoValidateLoginTokenRequest: func(r *http.Request, token string) error { // NX-04
 			return s.nexoValidateDashboardLogin(r, token) // NX-07: bloqueo por fallos (S2-02)
 		},
+		NexoUsersView: s.nexoUsersView, // NX-05: Administración > Usuarios con el rol de Nexo
 	})
 	s.mux.HandleFunc("GET /dashboard/bootstrap", s.handleDashboardBootstrapPage)
 	s.mux.HandleFunc("POST /dashboard/bootstrap", s.handleDashboardBootstrapSubmit)

@@ -10,7 +10,6 @@ package dashboard
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/a-h/templ"
 
@@ -60,6 +59,14 @@ func NexoEngramView(role string) string {
 		return "Engram lo ve como administrador. Se deriva de este rol; no se edita aparte."
 	}
 	return "Engram lo ve como miembro. Se deriva de este rol; no se edita aparte."
+}
+
+// / NexoEngramShort es la equivalencia en una línea para el selector.
+func NexoEngramShort(role string) string {
+	if role == NexoRoleSuperadmin || role == NexoRoleAdmin {
+		return "En Engram figura como admin"
+	}
+	return "En Engram figura como member"
 }
 
 // NexoRoleChipClass es la clase del chip del rol (estructura del tema:
@@ -159,14 +166,4 @@ func (h *handlers) nexoUsersList(r *http.Request, rows []cloudstore.HumanUser, c
 		return ManagedUsersListPartial(rows, canManage)
 	}
 	return NexoManagedUsersListPartial(rows, canManage, h.cfg.NexoUsersView(r))
-}
-
-func nexoRoleValue(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	for _, r := range NexoRoleOrder {
-		if r == s {
-			return r
-		}
-	}
-	return NexoRoleMiembro
 }
