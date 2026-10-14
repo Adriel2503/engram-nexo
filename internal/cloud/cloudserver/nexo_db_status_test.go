@@ -52,7 +52,7 @@ func TestNexoDBStatusRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Pool.MaxOpen != 0 || st.Pool.MaxIdle != 10 || st.Pool.Open < 1 || st.Pool.InUse < 0 {
+	if st.Pool.MaxOpen != 25 || st.Pool.MaxIdle != 10 || st.Pool.Open < 1 || st.Pool.InUse < 0 {
 		t.Errorf("pool: %+v", st.Pool)
 	}
 	if st.Server.PostgresVersion == "" || st.Server.MaxConnections < 1 {

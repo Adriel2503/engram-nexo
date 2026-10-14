@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/httpapi"
 	kbservice "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/service"
@@ -21,7 +22,7 @@ import (
 // petición; guarda el modo de búsqueda leído una vez del catálogo).
 var nexoKBServices sync.Map // *sql.DB -> *kbservice.Service
 
-func (s *CloudServer) nexoKBService(_ *http.Request) (*kbservice.Service, error) {
+func (s *CloudServer) nexoKBService(r *http.Request) (*kbservice.Service, error) {
 	roles, ok := s.nexoAuthz()
 	if !ok {
 		return nil, errors.New("nexo kb: store is not configured")
@@ -36,7 +37,18 @@ func (s *CloudServer) nexoKBService(_ *http.Request) (*kbservice.Service, error)
 	if v, ok := nexoKBServices.Load(db); ok {
 		return v.(*kbservice.Service), nil
 	}
-	v, _ := nexoKBServices.LoadOrStore(db, kbservice.New(db, roles))
+	// OP-13: resolver fuera de toda transacción antes de entregar el servicio.
+	ctx := context.Background()
+	if r != nil {
+		ctx = r.Context()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	svc := kbservice.New(db, roles)
+	if err := svc.Initialize(ctx); err != nil {
+		return nil, err
+	}
+	v, _ := nexoKBServices.LoadOrStore(db, svc)
 	return v.(*kbservice.Service), nil
 }
 

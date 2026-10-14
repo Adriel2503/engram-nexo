@@ -7,20 +7,14 @@ package security
 // recupera conexiones que un firewall o un balanceador cortó en silencio).
 // Estas variables fijan valores por defecto:
 //
-//	NEXO_DB_MAX_OPEN_CONNS     0    sin límite (el tope es max_connections de Postgres)
+//	NEXO_DB_MAX_OPEN_CONNS     25   conexiones abiertas como máximo por réplica
 //	NEXO_DB_MAX_IDLE_CONNS     10   conexiones en reposo que se conservan
 //	NEXO_DB_CONN_MAX_LIFETIME  30m  vida máxima de una conexión
 //	NEXO_DB_CONN_MAX_IDLE_TIME 5m   tiempo máximo en reposo de una conexión
 //
-// Por qué sin límite por defecto (OP-13, backlog): hay código, de Engram y de
-// Nexo, que con una transacción o un cursor abiertos pide otra conexión del
-// mismo pool (relleno de sesiones al migrar, WriteChunk ante un choque,
-// publicación de conocimiento con la caché del modo sin tildes fría,
-// VectorSupport). Con un límite, varias de esas operaciones a la vez pueden
-// ocupar todas las conexiones esperando otra y colgar el servidor. Sin
-// límite, al llegar a max_connections de Postgres las peticiones nuevas
-// fallan con error y el resto sigue. Fijar un límite exige antes la revisión
-// completa de esas conexiones anidadas (OP-13).
+// OP-13: corregidas las adquisiciones anidadas de publicación/aprobación,
+// fallback vectorial y relleno de sesiones. Un 0 explícito conserva el modo
+// sin límite. Presupuesto: max_connections >= réplicas × 25 + margen.
 //
 // Un valor inválido (entero fuera de rango, un límite menor que el mínimo,
 // duración que no se entiende o menor o igual que cero, reposo mayor que el
@@ -47,7 +41,7 @@ const (
 
 // Valores por defecto y topes.
 const (
-	DefaultDBMaxOpen     = 0 // sin límite (ver arriba y OP-13)
+	DefaultDBMaxOpen     = 25
 	DefaultDBMaxIdle     = 10
 	DefaultDBMaxLifetime = 30 * time.Minute
 	DefaultDBMaxIdleTime = 5 * time.Minute
@@ -56,10 +50,8 @@ const (
 	// LowDBMaxOpen: por debajo de esto el log avisa de que las peticiones
 	// pueden esperar una conexión libre.
 	LowDBMaxOpen = 5
-	// MinDBMaxOpen: mínimo aceptado. Hay código (por ejemplo el relleno de
-	// sesiones de Engram al migrar, cloudstore.go) que mantiene un cursor
-	// abierto y pide otra conexión del mismo pool: con 1 el arranque se
-	// bloquea para siempre. 4 deja margen para esos anidamientos.
+	// MinDBMaxOpen es el mínimo operativo configurable. OP-13 también se
+	// verifica con una conexión; este mínimo no encubre consultas anidadas.
 	MinDBMaxOpen = 4
 )
 
@@ -122,7 +114,7 @@ func ParsePoolConfig(get func(string) string) (PoolConfig, error) {
 	// el máximo, el valor de reposo por defecto no puede superarlo: se ajusta
 	// sin error. Si el reposo se fijó a mano y supera el máximo, es un error.
 	if openSet && cfg.MaxOpen > 0 && cfg.MaxOpen < MinDBMaxOpen {
-		errs = append(errs, fmt.Errorf("%s=%d no es válido: use 0 (sin límite) o al menos %d (con menos, una migración que anida consultas puede bloquear el arranque)", DBMaxOpenEnv, cfg.MaxOpen, MinDBMaxOpen))
+		errs = append(errs, fmt.Errorf("%s=%d no es válido: use 0 (sin límite) o al menos %d", DBMaxOpenEnv, cfg.MaxOpen, MinDBMaxOpen))
 	}
 	if cfg.Unlimited() {
 		if len(errs) > 0 {

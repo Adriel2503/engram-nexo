@@ -118,10 +118,18 @@ func (p *PGVector) search(ctx context.Context, b VectorBackend, qvec []float32, 
 	// SET LOCAL solo vale dentro de la transacción. Un parámetro que la
 	// versión no conoce aborta la transacción: se reintenta sin él.
 	if _, err := tx.ExecContext(ctx, `SET LOCAL hnsw.ef_search = `+strconv.Itoa(max(cand, 40))); err != nil {
+		// OP-13: completar el rollback devuelve la conexión antes del fallback.
+		if err := tx.Rollback(); err != nil {
+			return nil, false, err
+		}
 		return p.searchPlain(ctx, sqlText, append(args, cand, limit))
 	}
 	if b.Support.Iterative && (p.opts.Iterative == "relaxed_order" || p.opts.Iterative == "strict_order") {
 		if _, err := tx.ExecContext(ctx, `SET LOCAL hnsw.iterative_scan = `+p.opts.Iterative); err != nil {
+			// OP-13: completar el rollback devuelve la conexión antes del fallback.
+			if err := tx.Rollback(); err != nil {
+				return nil, false, err
+			}
 			return p.searchPlain(ctx, sqlText, append(args, cand, limit))
 		}
 	}

@@ -13,7 +13,7 @@ func TestParsePoolConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != (PoolConfig{MaxOpen: 0, MaxIdle: 10, MaxLifetime: 30 * time.Minute, MaxIdleTime: 5 * time.Minute}) {
+	if cfg != (PoolConfig{MaxOpen: 25, MaxIdle: 10, MaxLifetime: 30 * time.Minute, MaxIdleTime: 5 * time.Minute}) {
 		t.Fatalf("por defecto: %+v", cfg)
 	}
 }
@@ -30,7 +30,7 @@ func TestParsePoolConfigValues(t *testing.T) {
 	if err != nil || cfg.MaxOpen != 4 || cfg.MaxIdle != 4 {
 		t.Fatalf("máximo bajo: %+v, %v", cfg, err)
 	}
-	// 0 explícito = sin límite (el valor por defecto, OP-13); el reposo no se
+	// 0 explícito = sin límite; el reposo no se
 	// compara con el máximo.
 	cfg, err = ParsePoolConfig(poolEnv(map[string]string{DBMaxOpenEnv: "0", DBMaxIdleEnv: "30"}))
 	if err != nil || !cfg.Unlimited() || cfg.MaxIdle != 30 {
@@ -54,9 +54,8 @@ func TestParsePoolConfigInvalid(t *testing.T) {
 		{"duración cero", map[string]string{DBMaxIdleTimeEnv: "0s"}, DBMaxIdleTimeEnv},
 		{"duración negativa", map[string]string{DBMaxLifetimeEnv: "-5m"}, DBMaxLifetimeEnv},
 		{"reposo mayor que el máximo", map[string]string{DBMaxOpenEnv: "5", DBMaxIdleEnv: "8"}, DBMaxIdleEnv},
-		// Regresión (revisión adversarial): con 1 conexión el relleno de
-		// sesiones al migrar espera una conexión que él mismo retiene.
-		{"una conexión bloquea el arranque", map[string]string{DBMaxOpenEnv: "1"}, DBMaxOpenEnv},
+		// Se conserva el mínimo operativo configurable tras corregir OP-13.
+		{"una conexión está debajo del mínimo", map[string]string{DBMaxOpenEnv: "1"}, DBMaxOpenEnv},
 		{"debajo del mínimo", map[string]string{DBMaxOpenEnv: "3"}, DBMaxOpenEnv},
 	}
 	for _, c := range cases {
@@ -74,9 +73,16 @@ func TestParsePoolConfigInvalid(t *testing.T) {
 
 func TestPoolConfigString(t *testing.T) {
 	s := DefaultPoolConfig().String()
-	for _, want := range []string{"sin limite", "10", "30m0s", "5m0s", DBMaxOpenEnv} {
+	for _, want := range []string{"25", "10", "30m0s", "5m0s", DBMaxOpenEnv} {
 		if !strings.Contains(s, want) {
 			t.Errorf("String() = %q; falta %q", s, want)
 		}
+	}
+}
+
+func TestPoolConfigExplicitUnlimitedString(t *testing.T) {
+	cfg, err := ParsePoolConfig(poolEnv(map[string]string{DBMaxOpenEnv: "0"}))
+	if err != nil || !strings.Contains(cfg.String(), "sin limite") {
+		t.Fatalf("cero explícito: %v", err)
 	}
 }
