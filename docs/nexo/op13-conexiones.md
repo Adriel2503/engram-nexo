@@ -15,7 +15,7 @@ Las líneas corresponden al código corregido; se indica expresamente cuando son
 | Mutex del modo frío | Original: `internal/nexo/kb/store/store.go:45` retenía `modeMu` durante la consulta con `s.DB`; `IndexOpts` lo esperaba dentro de tx | `foldInApp` (`store.go:51`) libera el mutex antes de consultar (`store.go:59`). Solo lo adquiere para leer/publicar la caché. `IndexOpts` (`store.go:469`) ya no espera un mutex retenido durante SQL |
 | Fallback tras fallar `hnsw.ef_search` | `internal/nexo/kb/search/vector.go:120` → `searchPlain` → consulta del pool en `vector.go:141`; el rollback diferido retenía la primera conexión | Rollback explícito y completo en `vector.go:122` antes del fallback; devuelve el error si rollback falla |
 | Fallback tras fallar `hnsw.iterative_scan` | `internal/nexo/kb/search/vector.go:128` → mismo `searchPlain` | Rollback completo en `vector.go:130` antes del fallback |
-| Relleno de sesiones al migrar | Original: `internal/cloud/cloudstore/cloudstore.go:523` abría un cursor y `cloudstore.go:535` insertaba con `cs.db` sin cerrarlo | Delegación marcada en `cloudstore.go:523`. `internal/cloud/cloudstore/nexo_op13_pool.go:18` lee páginas de 128 por `(project_name, chunk_id)`, cierra y comprueba el cursor (`nexo_op13_pool.go:33`), después inserta (`nexo_op13_pool.go:41`). Sin OFFSET ni acumulación de todos los payloads |
+| Relleno de sesiones al migrar | Original: `internal/cloud/cloudstore/cloudstore.go:523` abría un cursor y `cloudstore.go:535` insertaba con `cs.db` sin cerrarlo | Delegación marcada en `cloudstore.go:523`. `internal/cloud/cloudstore/nexo_op13_pool.go` lee páginas de 512 claves `(project_name, chunk_id)`, cierra y comprueba el cursor, y por cada clave lee su payload solo, lo indexa y lo suelta (`nexoBackfillChunk`). Sin OFFSET ni acumulación de payloads; marca `nexo_backfill_marks` al terminar una pasada completa |
 | Choque de unicidad en `WriteChunk` | `internal/cloud/cloudstore/cloudstore.go:253`, `cloudstore.go:273`, `cloudstore.go:275` → `resolveChunkConflict` | Caso histórico ya corregido: rollback y `tx = nil` antes de otra consulta. Conserva `NX-07 (pool)`; cubierto también en la batería mixta |
 
 El mutex amplifica el defecto compartido de publicación/aprobación; no es un cuarto defecto.
@@ -146,7 +146,7 @@ go test -json -p 1 -count=1 -timeout=15m -skip '^TestCompatibilityPublicBinary$/
 
 - 25 es un presupuesto inicial por réplica. Observar esperas y dimensionar `max_connections`
   según réplicas y consumidores reales.
-- La página limita la cantidad de payloads a 128; su memoria depende del tamaño de los chunks.
+- Corregido en la revisión adversarial del 2026-10-14: el relleno pagina solo claves `(project_name, chunk_id)` y lee un payload a la vez (antes retenía una página de 128 payloads, cerca de 1 GiB con subidas de 8 MiB); al terminar una pasada completa deja la marca `nexo_backfill_marks` y los arranques siguientes no releen los payloads. Medido: 66 MiB de pico con 24 chunks de 7 MiB (345 MiB antes).
 - El modo de texto queda cacheado: cambios del catálogo requieren la política existente de
   reindexado/reinicio. Consultas frías concurrentes pueden repetir una lectura, sin mutex durante SQL.
 - El fallback vectorial devuelve el error si no logra completar rollback.
@@ -189,7 +189,7 @@ go test -json -p 1 -count=1 -timeout=10m -run '^TestCompatibilityPublicBinary$|^
 
 - 25 es un presupuesto inicial por réplica. Observar esperas y dimensionar `max_connections`
   según réplicas y consumidores reales.
-- La página limita la cantidad de payloads a 128; su memoria depende del tamaño de los chunks.
+- Corregido en la revisión adversarial del 2026-10-14: el relleno pagina solo claves `(project_name, chunk_id)` y lee un payload a la vez (antes retenía una página de 128 payloads, cerca de 1 GiB con subidas de 8 MiB); al terminar una pasada completa deja la marca `nexo_backfill_marks` y los arranques siguientes no releen los payloads. Medido: 66 MiB de pico con 24 chunks de 7 MiB (345 MiB antes).
 - El modo de texto queda cacheado: cambios del catálogo requieren la política existente de
   reindexado/reinicio. Consultas frías concurrentes pueden repetir una lectura, sin mutex durante SQL.
 - El fallback vectorial devuelve el error si no logra completar rollback.
@@ -203,7 +203,7 @@ Trabajo sin commits, merges, push ni cambios de rama.
 
 - 25 es un presupuesto inicial por réplica. Observar esperas y dimensionar `max_connections`
   según réplicas y consumidores reales.
-- La página limita la cantidad de payloads a 128; su memoria depende del tamaño de los chunks.
+- Corregido en la revisión adversarial del 2026-10-14: el relleno pagina solo claves `(project_name, chunk_id)` y lee un payload a la vez (antes retenía una página de 128 payloads, cerca de 1 GiB con subidas de 8 MiB); al terminar una pasada completa deja la marca `nexo_backfill_marks` y los arranques siguientes no releen los payloads. Medido: 66 MiB de pico con 24 chunks de 7 MiB (345 MiB antes).
 - El modo de texto queda cacheado: cambios del catálogo requieren la política existente de
   reindexado/reinicio. Consultas frías concurrentes pueden repetir una lectura, sin mutex durante SQL.
 - El fallback vectorial devuelve el error si no logra completar rollback.
@@ -223,7 +223,7 @@ ni su contraseña. Caché, binario jq, diagnóstico y copia de HEAD se retiraron
 
 - 25 es un presupuesto inicial por réplica. Observar esperas y dimensionar `max_connections`
   según réplicas y consumidores reales.
-- La página limita la cantidad de payloads a 128; su memoria depende del tamaño de los chunks.
+- Corregido en la revisión adversarial del 2026-10-14: el relleno pagina solo claves `(project_name, chunk_id)` y lee un payload a la vez (antes retenía una página de 128 payloads, cerca de 1 GiB con subidas de 8 MiB); al terminar una pasada completa deja la marca `nexo_backfill_marks` y los arranques siguientes no releen los payloads. Medido: 66 MiB de pico con 24 chunks de 7 MiB (345 MiB antes).
 - El modo de texto queda cacheado: cambios del catálogo requieren la política existente de
   reindexado/reinicio. Consultas frías concurrentes pueden repetir una lectura, sin mutex durante SQL.
 - El fallback vectorial devuelve el error si no logra completar rollback.

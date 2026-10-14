@@ -236,6 +236,9 @@ func (s *Service) ApproveProposal(ctx context.Context, id authz.Identity, propID
 	if p.Status != domain.ProposalOpen {
 		return ApproveResult{}, domain.Errorf(domain.KindConflict, domain.CodeProposalState, "proposal is %s, not open", p.Status)
 	}
+	if err := nexoCheckCredentialFree(map[string]any{"note": in.Note}); err != nil { // NX-07
+		return ApproveResult{}, err
+	}
 	key := firstNonEmpty(p.DocKey, in.DocKey)
 	if key == "" {
 		key = "propuestas/" + ingest.Slugify(p.Title)
@@ -383,6 +386,9 @@ func (s *Service) WithdrawProposal(ctx context.Context, id authz.Identity, propI
 }
 
 func (s *Service) closeProposal(ctx context.Context, id authz.Identity, sp domain.Space, p store.Proposal, status, action, note string) (store.Proposal, error) {
+	if err := nexoCheckCredentialFree(map[string]any{"note": note}); err != nil { // NX-07: la nota del cierre es texto libre
+		return store.Proposal{}, err
+	}
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		now, err := store.Now(ctx, tx)
 		if err != nil {

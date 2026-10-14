@@ -197,7 +197,7 @@ func TestNexoAuditPanelLogFilters(t *testing.T) {
 	// desconocida como "nota" se retiene sin lectura del ámbito. Por eso los textos de esta prueba van en campos conocidos.
 	env.insertAudit("x.uno", "success", "proy-a", `{"reason":"hola"}`)
 	env.insertAudit("x.dos", "denied", "proy-b", ``)
-	env.insertAudit("x.secreto", "success", "", `{"authorization":"Bearer abcdef1234567890","status":"visible","tok":"egc_live_0123abcd_`+strings.Repeat("Ab-9", 11)+`","token_hash":"hmac-sha256:v1:AAAABBBBCCCCDDDD","hash_x":"zz","client_ip":"10.1.1.1","nested":{"password":"p","outcome":"si"}}`)
+	env.insertAudit("x.secreto", "success", "", `{"authorization":"Bearer abcdef1234567890","source":"visible","tok":"egc_live_0123abcd_`+strings.Repeat("Ab-9", 11)+`","token_hash":"hmac-sha256:v1:AAAABBBBCCCCDDDD","hash_x":"zz","client_ip":"10.1.1.1","filters":{"password":"p","outcome":"si"}}`)
 	env.insertAudit("nexo.history.read", "success", "", `{"filters":{"entity_key":"obs-xyz"},"result_count":2}`)
 	base := "/dashboard/admin/audit"
 
@@ -234,7 +234,7 @@ func TestNexoAuditPanelLogFilters(t *testing.T) {
 
 	// Detalle: lo seguro se ve, los secretos no.
 	body = env.mustBody("luis", base+"?action=x.secreto", 200)
-	for _, want := range []string{"status", "visible", "nested", "outcome=si"} {
+	for _, want := range []string{"source", "visible", "filters", "outcome=si"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detalle sin %q: %.800s", want, body)
 		}

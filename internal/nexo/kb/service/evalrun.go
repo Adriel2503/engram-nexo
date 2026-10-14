@@ -163,6 +163,20 @@ func (s *Service) RecordEvalRun(ctx context.Context, id authz.Identity, in Recor
 	if mode == "" {
 		mode = "fts"
 	}
+	// NX-07: nombre del conjunto, configuración, nota, clases y resultados son texto externo.
+	if err := nexoCheckCredentialFree(map[string]any{"report.set": in.Report.Set, "config": in.Config, "note": in.Note, "report.by_class": in.Report.ByClass, "report.results": in.Report.Results}); err != nil {
+		return store.EvalRun{}, err
+	}
+	// NX-07: retriever, modo y commit se validan al escribir (no son texto libre): se entregan sin lectura del espacio.
+	if !store.ValidEvalMode(mode) {
+		return store.EvalRun{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "mode must be fts, exact or hybrid (optionally followed by +rerank)")
+	}
+	if !store.ValidEvalRetriever(in.Report.Retriever) {
+		return store.EvalRun{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "report.retriever must be a lowercase engine name such as pgfts, hybrid or pgfts+rerank")
+	}
+	if !store.ValidEvalCommit(strings.TrimSpace(in.CommitRef)) {
+		return store.EvalRun{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "commit must be a git reference (letters, digits and . _ / @ ~ ^ + -, up to 80 characters)")
+	}
 	run := store.EvalRun{ID: store.NewID(), Retriever: in.Report.Retriever, Mode: mode, IndexVersion: store.IndexVersionPGFTS, Config: cfg,
 		ConfigSHA256: ingest.SHA256Hex(string(rawCfg)), QuestionSetSHA256: in.Report.SetSHA256, QuestionSetName: in.Report.Set, Spaces: in.Spaces,
 		Accepted: in.Accepted, Metrics: metrics, ByClass: byClass, Results: in.Report.Results, CommitRef: truncate(in.CommitRef, 80), Note: truncate(in.Note, 500)}

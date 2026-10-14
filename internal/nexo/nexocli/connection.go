@@ -45,9 +45,20 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 	fromStdin := fs.Bool("token-stdin", false, "leer el token de la entrada estándar")
 	activation := fs.String("activate", "", "código de activación (mejor --activate-stdin)")
 	activationStdin := fs.Bool("activate-stdin", false, "leer el código; sin mostrarlo si hay terminal")
+	resume := fs.Bool("resume", false, "continuar una activación interrumpida con el token ya canjeado y guardado (no pide código)")
 	asJSON := fs.Bool("json", false, "salida JSON")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *resume {
+		if strings.TrimSpace(*server) == "" || *activation != "" || *activationStdin || *token != "" || *fromStdin {
+			_, _ = fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> --resume")
+			return 2
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		res, err := client.ResumeActivation(ctx, dataDir, *server)
+		return finishConnect(res, err, *asJSON, stdout, stderr)
 	}
 	code := strings.TrimSpace(*activation)
 	if *activationStdin {
@@ -78,7 +89,7 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 		tok = strings.TrimSpace(os.Getenv("NEXO_TOKEN"))
 	}
 	if strings.TrimSpace(*server) == "" || (tok == "" && code == "") {
-		_, _ = fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> (--activate-stdin | --activate <codigo> | --token-stdin | --token <token> | NEXO_TOKEN)")
+		_, _ = fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> (--activate-stdin | --activate <codigo> | --resume | --token-stdin | --token <token> | NEXO_TOKEN)")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -90,11 +101,16 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 	} else {
 		res, err = client.Connect(ctx, dataDir, *server, tok)
 	}
+	return finishConnect(res, err, *asJSON, stdout, stderr)
+}
+
+// finishConnect imprime el resultado de Connect (nunca el token).
+func finishConnect(res client.ConnectResult, err error, asJSON bool, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "No se conectó: "+err.Error())
 		return 1
 	}
-	if *asJSON {
+	if asJSON {
 		_ = json.NewEncoder(stdout).Encode(res)
 		return 0
 	}

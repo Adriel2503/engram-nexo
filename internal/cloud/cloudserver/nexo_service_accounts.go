@@ -210,6 +210,9 @@ type nexoSACreateBody struct {
 }
 
 func (s *CloudServer) handleNexoSACreate(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity) {
+	if s.nexoSADenied(w, r, nexoRespondJSON, "create") { // NX-07: interruptor de cuentas de servicio
+		return
+	}
 	var body nexoSACreateBody
 	if err := decodeJSONBody(r, &body); err != nil {
 		nexoAuthzBadRequest(w, fmt.Sprintf("invalid body: %v", err))
@@ -263,6 +266,9 @@ func (s *CloudServer) handleNexoSAAction(w http.ResponseWriter, r *http.Request,
 		writeNexoNotFound(w)
 		return
 	}
+	if action == "enable" && s.nexoSADenied(w, r, nexoRespondJSON, "enable") { // NX-07
+		return
+	}
 	a, changed, err := svc.SetServiceAccountEnabled(r.Context(), id, ref, action == "enable")
 	if err != nil {
 		nexoSAWriteError(w, err)
@@ -299,6 +305,9 @@ func (s *CloudServer) nexoSARequireTokens(w http.ResponseWriter, r *http.Request
 }
 
 func (s *CloudServer) handleNexoSAIssueToken(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity) {
+	if s.nexoSADenied(w, r, nexoRespondJSON, "token") { // NX-07
+		return
+	}
 	store, ok := s.adminStore(w)
 	if !ok {
 		return
@@ -362,6 +371,9 @@ func (s *CloudServer) handleNexoSATokenAction(w http.ResponseWriter, r *http.Req
 	tokenID, action, ok := strings.Cut(r.PathValue("tokenAction"), ":")
 	if !ok || (action != "rotate" && action != "revoke") || strings.TrimSpace(tokenID) == "" {
 		writeNexoNotFound(w)
+		return
+	}
+	if action == "rotate" && s.nexoSADenied(w, r, nexoRespondJSON, "rotate") { // NX-07
 		return
 	}
 	store, ok := s.adminStore(w)

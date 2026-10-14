@@ -32,6 +32,9 @@ type CreateSpaceInput struct {
 // (loadSpace) y el ámbito queda bien formado.
 func (s *Service) CreateSpace(ctx context.Context, id authz.Identity, in CreateSpaceInput) (domain.Space, error) {
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
+	if err := nexoCheckCredentialFree(map[string]any{"name": in.Name, "description": in.Description, "categories": in.Categories}); err != nil { // NX-07
+		return domain.Space{}, err
+	}
 	if !domain.ValidSlug(slug) {
 		return domain.Space{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "slug must match ^[a-z0-9][a-z0-9-]{1,62}$")
 	}
@@ -196,6 +199,9 @@ func (s *Service) UpdateSpace(ctx context.Context, id authz.Identity, slug strin
 	}
 	if in.Name == nil && in.Description == nil && in.Categories == nil && in.Settings == nil && in.Visibility == nil && in.DefaultRole == nil {
 		return domain.Space{}, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "nothing to update")
+	}
+	if err := nexoCheckCredentialFree(map[string]any{"name": in.Name, "description": in.Description, "categories": in.Categories, "settings": in.Settings}); err != nil { // NX-07
+		return domain.Space{}, err
 	}
 	var cats []string
 	if in.Categories != nil {

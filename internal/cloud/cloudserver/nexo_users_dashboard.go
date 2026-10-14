@@ -19,6 +19,7 @@ package cloudserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,7 +98,7 @@ func (s *CloudServer) nexoRenderManagedUserDetail(w http.ResponseWriter, r *http
 		var err error
 		v.Activations, err = a.NexoPendingActivations(r.Context(), user.PrincipalID)
 		if err != nil {
-			nexoInternalError(w, "activaciones pendientes", errors.New("consulta fallida"))
+			nexoInternalError(w, "activaciones pendientes", fmt.Errorf("consulta de pendientes destinatario=%s: %w", user.PrincipalID, err))
 			return true
 		}
 	}

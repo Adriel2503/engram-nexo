@@ -23,6 +23,7 @@ import (
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/dashboard"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/features"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
@@ -113,6 +114,11 @@ func (s *CloudServer) saPanelHome(w http.ResponseWriter, r *http.Request, svc *a
 }
 
 func (s *CloudServer) saPanelCreate(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity) {
+	if s.nexoSADenied(w, r, func(_ http.ResponseWriter, status int, code, message string) { // NX-07: interruptor de cuentas de servicio
+		s.saPanelRender(w, r, svc, id, saPanelState{errText: saPanelCodeText(code, message), status: status})
+	}, "create") {
+		return
+	}
 	a, err := svc.CreateServiceAccount(r.Context(), id, authz.CreateServiceAccountInput{
 		Slug: strings.TrimSpace(r.FormValue("slug")), Description: r.FormValue("description"), Owner: r.FormValue("owner"),
 	})
@@ -134,6 +140,9 @@ func (s *CloudServer) saPanelAction(w http.ResponseWriter, r *http.Request, svc 
 	respond := func(_ http.ResponseWriter, status int, code string, message string) {
 		st.status, st.errText = status, saPanelCodeText(code, message)
 		s.saPanelRender(w, r, svc, id, st)
+	}
+	if (op == "enable" || op == "token" || op == "rotate") && s.nexoSADenied(w, r, respond, op) { // NX-07
+		return
 	}
 	switch op {
 	case "disable", "enable":
@@ -220,6 +229,8 @@ func (s *CloudServer) saPanelAction(w http.ResponseWriter, r *http.Request, svc 
 // saPanelCodeText traduce los rechazos de validación de la emisión.
 func saPanelCodeText(code, message string) string {
 	switch code {
+	case features.ServiceAccountsDisabledCode: // NX-07
+		return features.ServiceAccountsDisabledMessage
 	case "no_expiry_forbidden":
 		return "Solo un superadmin puede emitir tokens sin caducidad."
 	case authz.CodePrincipalDisabled:
@@ -298,7 +309,7 @@ func saPanelStaleNote(a authz.ServiceAccount, owner string) string {
 func (s *CloudServer) saPanelRender(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity, st saPanelState) {
 	ctx := r.Context()
 	all := r.URL.Query().Get("all") == "1"
-	page := dashboard.NexoSAPage{CSRF: s.kbCSRFToken(r), Notice: st.notice, Error: st.errText, ShowAll: all, NewToken: st.newToken, NewTokenNote: st.note}
+	page := dashboard.NexoSAPage{CSRF: s.kbCSRFToken(r), Notice: st.notice, Error: st.errText, ShowAll: all, NewToken: st.newToken, NewTokenNote: st.note, Disabled: !features.ServiceAccountsEnabled()}
 	q := authz.ServiceAccountQuery{Limit: authz.MaxLimit}
 	if !all {
 		on := true

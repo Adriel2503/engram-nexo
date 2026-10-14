@@ -6,6 +6,11 @@ archivos desde el panel (`/dashboard/kb`) o con `engram nexo kb upload`; git y G
 requisito. Esta plantilla sirve a los equipos que ya mantienen sus lineamientos en un repositorio de
 GitHub y quieren que cada merge a `main` publique solo.
 
+> **Requiere `NEXO_SERVICE_ACCOUNTS_ENABLED=true` en el servidor.** Las cuentas de servicio están
+> apagadas por defecto en la beta: sin esa variable el servidor no crea la cuenta ni emite su token
+> (`403 service_accounts_disabled`) y los tokens que ya existían no autentican. Active la variable
+> solo si va a usar esta plantilla; antes de eso, publique desde el panel o con `engram nexo kb upload`.
+
 Archivo: `publicar-conocimiento.yml` (esta carpeta). Se copia a
 `.github/workflows/publicar-conocimiento.yml` del repositorio de lineamientos.
 

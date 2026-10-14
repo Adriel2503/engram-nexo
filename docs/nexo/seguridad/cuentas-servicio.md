@@ -7,6 +7,19 @@
 | Fecha | 2026-10-13 |
 | Manual | `docs/nexo/manuales/administracion.md` §3.8 |
 
+
+## 0. Interruptor para la beta (2026-10-14)
+
+Las cuentas de servicio están **apagadas por defecto** (`NEXO_SERVICE_ACCOUNTS_ENABLED=false`): no hay
+automatizaciones previstas y apagarlas elimina el riesgo R2 (un administrador sin rol en un espacio emite el
+token de una cuenta que sí tiene rol publicador y lo usa para leer o modificar sus documentos). Apagadas:
+crear la cuenta, habilitarla de nuevo, emitir su token (API, `POST /nexo/authz/v1/tokens`, rutas de Engram,
+panel, CLI) y rotarlo responden `403` `service_accounts_disabled`, quedan auditados
+(`nexo.service_accounts.denied`) y no crean nada; los tokens existentes no autentican (falla cerrado, con aviso al
+arrancar con el número de cuentas habilitadas); consultar, revocar y deshabilitar siguen permitidos. Un valor
+inválido impide arrancar. Con `true` rige todo lo que sigue, con el riesgo R2 documentado: el administrador puede
+emitir tokens de cuentas con roles de contenido. Solución futura: credenciales de cliente OAuth o federación de
+identidad de carga (propuesta de autenticación, sección 4.3). Backlog: SG-17.
 ## 1. Objetivo
 
 Que un pipeline de CI o un bot publique en los espacios de conocimiento con su propia identidad, sin

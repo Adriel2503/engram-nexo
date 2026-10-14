@@ -101,7 +101,7 @@ func nexoAuthzWriteError(w http.ResponseWriter, err error) {
 			status, class = http.StatusBadRequest, constants.UpgradeErrorClassRepairable
 		case authz.CodeNotFound:
 			status, class = http.StatusNotFound, constants.UpgradeErrorClassRepairable
-		case authz.CodeSelfPromotion:
+		case authz.CodeSelfPromotion, authz.CodeServiceAccountsDisabled: // NX-07
 			status = http.StatusForbidden
 		case authz.CodeServiceAccountRole:
 			status = http.StatusUnprocessableEntity

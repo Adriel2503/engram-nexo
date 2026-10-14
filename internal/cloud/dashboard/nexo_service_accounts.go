@@ -12,9 +12,12 @@ type NexoSAPage struct {
 	Error     string
 	CanManage bool // platform.users.manage: alta, deshabilitar y habilitar
 	CanTokens bool // platform.tokens.manage: emitir, rotar y revocar
-	ShowAll   bool
-	Accounts  []NexoSARow
-	Selected  *NexoSADetail
+	// Disabled: NEXO_SERVICE_ACCOUNTS_ENABLED está apagada; la página muestra un aviso y no
+	// ofrece crear, habilitar, emitir ni rotar (consultar, revocar y deshabilitar siguen).
+	Disabled bool
+	ShowAll  bool
+	Accounts []NexoSARow
+	Selected *NexoSADetail
 	// NewToken es el token recién emitido: se muestra esta sola vez.
 	NewToken     string
 	NewTokenNote string

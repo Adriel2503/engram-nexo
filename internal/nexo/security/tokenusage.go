@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 )
 
 // TokenLastSeen es la última acción registrada de un token.
@@ -73,6 +75,7 @@ func LoadTokensLastSeen(ctx context.Context, db *sql.DB, principalID string, tok
 		if err := rows.Scan(&id, &ls.At, &ls.IP, &ls.UserAgent, &ls.Source); err != nil {
 			return nil, fmt.Errorf("nexo: último uso de tokens: %w", err)
 		}
+		redact.Struct(&ls) // NX-07: User-Agent histórico (presencia, eventos de conocimiento y de roles) sin credenciales
 		out[id] = ls
 	}
 	return out, rows.Err()

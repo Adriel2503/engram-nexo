@@ -314,3 +314,24 @@ Referencias de diseño: [OWASP Logging Cheat Sheet](https://cheatsheetseries.owa
 - `TestCloudSyncPowerShellMissingEngram`
 
 HEAD permanece en `5f7b565`, rama `feat/auditoria-activacion`. Sin commits.
+
+## Adenda: segunda revisión adversarial (2026-10-14, rama fix/revision-nexo3)
+
+Dos revisiones adversariales de Codex sobre `develop` (seguridad y concurrencia) dejaron once puntos (diez del
+encargo más el interruptor de cuentas de servicio). Detalle, diseño de la proyección por esquema, de la
+barrera de lectura (`redact.Struct`) y de la prueba canario, y los comandos de verificación: `NEXO_CHANGES.md`
+(entrada "Correcciones de las dos revisiones adversariales sobre develop"). Resumen de lo que cambia respecto de
+este informe:
+
+- La proyección de metadatos ya no usa una lista global de nombres: cada flujo declara los campos que salen
+  (`security.NexoProject`) y lo desconocido se omite sin lectura del ámbito. Las exportaciones (diaria y CLI v2)
+  conservan solo las columnas declaradas por tabla.
+- Los textos externos (usuario, correo, nombres, descripciones, notas, motivos, ajustes de espacio, corridas de
+  evaluación) se validan al escribir y se limpian al leer, incluidas las filas históricas.
+- Emisión, revocación y canje de activaciones bloquean a la persona con `FOR NO KEY UPDATE`: dos
+  administradores que se emiten códigos recíprocos ya no se interbloquean (antes `40P01`).
+- La CLI guarda el token canjeado antes de cualquier otra operación y `engram nexo connect --resume` continúa.
+- Los errores transaccionales de la activación se registran con su SQLSTATE; la respuesta pública no cambia.
+- `NEXO_SERVICE_ACCOUNTS_ENABLED` (defecto `false`) apaga las cuentas de servicio durante la beta.
+
+El problema conocido (el administrador que emite el código puede canjearlo; SG-17) no cambia.

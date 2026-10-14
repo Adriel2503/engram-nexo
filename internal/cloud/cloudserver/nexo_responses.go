@@ -10,10 +10,13 @@ package cloudserver
 // TestNexoResponsesHaveNoSecrets.
 
 import (
+	"errors"
 	"fmt"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	"log"
 	"net/http"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/cloud/constants"
 )
@@ -28,5 +31,12 @@ func nexoInternalError(w http.ResponseWriter, what string, err error) {
 // servidor. Lo usan nexoInternalError (API JSON) y las páginas del panel, que
 // responden 500 con un texto genérico en español y nunca muestran el error.
 func nexoLogInternal(what string, err error) {
-	log.Printf("[nexo] %s: %s", what, security.NexoRedactAuditText(fmt.Sprint(err)))
+	// El SQLSTATE se registra aparte: permite buscar interbloqueos (40P01) o permisos denegados
+	// (42501) sin depender del texto del mensaje ni de cómo lo envuelva el llamador.
+	state := ""
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code != "" {
+		state = " sqlstate=" + security.NexoRedactAuditText(pgErr.Code)
+	}
+	log.Printf("[nexo] %s: %s%s", what, security.NexoRedactAuditText(fmt.Sprint(err)), state)
 }

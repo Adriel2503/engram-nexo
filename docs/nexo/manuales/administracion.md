@@ -418,6 +418,19 @@ Una **cuenta de servicio** es una identidad para un pipeline o un bot: publica e
 propio token, sin usar el de una persona. La auditoría muestra la cuenta (por ejemplo `ci-wiki`)
 como autora de cada publicación.
 
+> **Apagadas por defecto en la beta (`NEXO_SERVICE_ACCOUNTS_ENABLED=false`).** No hay automatizaciones
+> previstas y, mientras el administrador pueda emitir el token de una cuenta con roles de contenido,
+> existe el riesgo R2 (docs/nexo/mejoras-y-referencias.md, SG-17). Con la variable apagada (valor por
+> defecto), crear una cuenta, habilitarla de nuevo, emitir su token o rotarlo responde `403` con el
+> código `service_accounts_disabled` (API, panel y `engram nexo sa ...`), queda en la auditoría
+> (`nexo.service_accounts.denied`) y no crea nada; los tokens de cuentas de servicio que ya existían
+> **no autentican** y el servidor lo avisa al arrancar (cuántas cuentas habilitadas hay, sin nombres).
+> Siguen permitidos consultar (listar y ver), revocar tokens y deshabilitar. Para usarlas, quien
+> administra el servidor define `NEXO_SERVICE_ACCOUNTS_ENABLED=true` (también `1`) y reinicia; cualquier
+> otro valor impide arrancar. Con `true` rige el comportamiento descrito abajo, con el riesgo R2: el
+> administrador puede emitir tokens de cuentas con roles de contenido. La solución futura son
+> credenciales de cliente OAuth o federación de identidad de carga (propuesta de autenticación, §4.3).
+
 Reglas:
 
 - Toda cuenta tiene una **persona responsable** (obligatoria): a quien se le pregunta por ella.
@@ -1255,6 +1268,18 @@ hashes originales de la cadena. La firma HMAC protege el archivo proyectado; `ve
 sigue leyendo archivos v1 y v2. Los archivos v1 ya emitidos no se modifican: proteja su acceso
 y conservación, porque podrían contener títulos o textos. El webhook transmite regla, severidad,
 capa e identificador del sujeto, sin el resumen libre ni los detalles.
+
+**Qué ve quien audita sin leer el contenido (proyección por esquema).** Cada tipo de registro declara los
+campos que salen: números, identificadores (ids, claves de documento, nombres de proyecto y de espacio),
+fechas, enumeraciones y etiquetas administrativas (usuario, nombre de token o de cuenta de servicio, motivo de
+una revocación, User-Agent y declaración del cliente). Todo lo demás se omite, **objetos desconocidos incluidos**
+(por ejemplo `settings` de un espacio, nombres, descripciones, notas, comandos, `commit`, retriever y modo no
+validados) y el registro lleva `payload_withheld: true`. Las credenciales (`egc_`, `nxa_`, `Bearer ...`,
+`postgres://`) nunca salen, ni a quien lee el contenido: se escriben rechazadas (`secret_detected` o 400) y las
+filas históricas se entregan con `[credencial oculta]`. Una columna nueva no sale a un auditor ni a una
+exportación hasta que se declara en su esquema (`internal/nexo/security/nexo_projection*.go`). Riesgo abierto:
+la clave de un documento (`doc_key`) es un identificador definido por quien publica y los eventos y alertas de
+conocimiento la conservan; no la ponga en una clave si el nombre es sensible.
 
 **Texto que viene de afuera (credenciales).** El User-Agent, la declaración del cliente
 (`client_claim`), los nombres de token y de actor, las notas, el proyecto y las claves de documento

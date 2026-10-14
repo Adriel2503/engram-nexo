@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"   // NX-07
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security" // NX-07
 )
 
 // ─── Outcome and Action Constants ─────────────────────────────────────────────
@@ -74,6 +77,9 @@ func (cs *CloudStore) InsertAuditEntry(ctx context.Context, entry AuditEntry) er
 	if r := strings.TrimSpace(entry.ReasonCode); r != "" {
 		reasonCode = &r
 	}
+	// NX-07: quien contribuye y los metadatos son texto externo: sin formatos de credencial al guardar.
+	entry.Contributor = security.NexoRedactExternal(entry.Contributor, 0)
+	entry.Metadata = security.NexoRedactAuditMetadata(entry.Metadata)
 	var metadataJSON []byte
 	if len(entry.Metadata) > 0 {
 		var merr error
@@ -196,6 +202,7 @@ func (cs *CloudStore) ListAuditEntriesPaginated(ctx context.Context, filter Audi
 				return nil, 0, fmt.Errorf("cloudstore: ListAuditEntriesPaginated unmarshal metadata: %w", err)
 			}
 		}
+		redact.Struct(&row) // NX-07: filas históricas
 		result = append(result, row)
 	}
 	if err := dbRows.Err(); err != nil {

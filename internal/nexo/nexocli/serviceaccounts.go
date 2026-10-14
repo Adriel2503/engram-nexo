@@ -83,6 +83,11 @@ func runServiceAccounts(args []string, dataDir string, stdout, stderr io.Writer)
 			_, _ = fmt.Fprintln(stderr, ue.msg)
 			return 2
 		}
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.Code == "service_accounts_disabled" { // NX-07: interruptor apagado; el mensaje del servidor explica cómo activarlas
+			_, _ = fmt.Fprintln(stderr, "error:", apiErr.Msg)
+			return 1
+		}
 		_, _ = fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
