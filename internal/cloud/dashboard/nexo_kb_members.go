@@ -121,10 +121,10 @@ type NexoProposalPage struct {
 	Rationale   string
 	Category    string
 	// Stale avisa que el documento cambió desde la versión que vio el autor.
-	Stale       string
-	CurrentHTML string // Markdown ya renderizado (mdhtml)
-	CurrentName string // "Versión vigente (v3)"
-	HasCurrent  bool
+	Stale        string
+	CurrentHTML  string // Markdown ya renderizado (mdhtml)
+	CurrentName  string // "Versión vigente (v3)"
+	HasCurrent   bool
 	ProposedHTML string
 	// Decisión (propuesta cerrada).
 	Decision string
@@ -142,8 +142,10 @@ type NexoProposalPage struct {
 	FormReason string
 }
 
-func nexoMembersURL(slug string) string { return "/dashboard/kb/spaces/" + url.PathEscape(slug) + "/members" }
-func nexoSpaceURL(slug string) string   { return "/dashboard/kb/spaces/" + url.PathEscape(slug) }
+func nexoMembersURL(slug string) string {
+	return "/dashboard/kb/spaces/" + url.PathEscape(slug) + "/members"
+}
+func nexoSpaceURL(slug string) string { return "/dashboard/kb/spaces/" + url.PathEscape(slug) }
 func nexoProposalsURL(slug string) string {
 	return "/dashboard/kb/spaces/" + url.PathEscape(slug) + "/proposals"
 }

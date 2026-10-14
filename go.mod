@@ -16,8 +16,8 @@ require (
 	golang.org/x/sys v0.49.0
 	golang.org/x/text v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/libc v1.70.0
-	modernc.org/sqlite v1.46.2
+	modernc.org/libc v1.75.6
+	modernc.org/sqlite v1.58.0
 )
 
 require (

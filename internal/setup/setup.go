@@ -1720,7 +1720,7 @@ func installCodex() (*Result, error) {
 	}
 
 	// Step 1: add the marketplace (idempotent — tolerate "already" in output).
-	nexoReplaceForeignCodexMarketplace(codexBin, path) // NX-10
+	nexoReplaceForeignCodexMarketplace(codexBin, path)                                                                  // NX-10
 	addOut, err := runCommand(codexBin, "plugin", "marketplace", "add", codexMarketplace, "--ref", codexMarketplaceRef) // NX-10
 	addOutputStr := strings.TrimSpace(string(addOut))
 	if err != nil && !strings.Contains(strings.ToLower(addOutputStr), "already") {

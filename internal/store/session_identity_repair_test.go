@@ -200,10 +200,11 @@ func TestSessionIdentityRepairRejectsShadowedJournalIdentifiers(t *testing.T) {
 	}
 }
 
+// NX-OP14: gofmt de la tabla existente, sin cambiar casos ni comportamiento.
 func TestShadowedIdentitySourceOrderAndDepth(t *testing.T) {
 	for _, tc := range []struct {
 		name, payload, identifier string
-		want bool
+		want                      bool
 	}{
 		{"source first", `{"id":"","id":"other"}`, "id", true},
 		{"source last", `{"id":"other","ID":""}`, "id", true},

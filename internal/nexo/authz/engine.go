@@ -27,11 +27,11 @@ type Authorizer interface {
 
 // PlatformFacts son los datos crudos para resolver el rol de plataforma.
 type PlatformFacts struct {
-	Found              bool   // existe el principal
-	Enabled            bool   // habilitado
-	Kind               string // human | service_account
-	EngramRole         string // admin | member: columna DERIVADA del rol de Nexo; no decide nada (solo sirve para detectar desalineaciones)
-	Binding            Role   // fila en nexo_role_bindings (RoleNone si no hay)
+	Found      bool   // existe el principal
+	Enabled    bool   // habilitado
+	Kind       string // human | service_account
+	EngramRole string // admin | member: columna DERIVADA del rol de Nexo; no decide nada (solo sirve para detectar desalineaciones)
+	Binding    Role   // fila en nexo_role_bindings (RoleNone si no hay)
 }
 
 // ScopeFacts son los datos crudos para resolver el rol en un proyecto o espacio.
