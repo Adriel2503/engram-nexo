@@ -171,7 +171,7 @@ Ordenados; cada uno incluye lo del anterior.
 
 | Dato existente de Engram | Equivale a |
 |---|---|
-| Principal con `role = admin` sin rol Nexo | admin (el de bootstrap: superadmin) |
+| Principal con `role = admin` sin rol Nexo | Hasta la unificación: admin (el de bootstrap: superadmin). Desde `design.md` §11 la migración lo materializa una vez como asignación de Nexo y la columna se deriva del rol de Nexo; una columna `admin` sin asignación ya no concede nada |
 | Principal con `role = member` | miembro |
 | Fila en `cloud_project_grants` sin rol Nexo en ese proyecto | publicador en ese proyecto (es lo que permite Engram hoy) |
 

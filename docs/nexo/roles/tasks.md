@@ -51,3 +51,18 @@ en `docs/nexo/seguridad/design.md` §8.2.
 | R2 | 2 días |
 | R3 | 2 días |
 | R4 | 1 día |
+
+## Unificación de roles de plataforma (feat/roles-unificados)
+
+Diseño: `design.md` §11. Alcance: solo plataforma y su relación con los espacios (los proyectos de
+memoria no cambian).
+
+| Id | Tarea | Verificación |
+|---|---|---|
+| U-01 | Triggers que derivan la columna `role` de Engram del rol de Nexo y corrección única al migrar (marca `nexo_platform_role_unification`) | `TestPGUnificationAtMigration` |
+| U-02 | Alta de personas con rol de Nexo (`CreateHumanUser`, primer admin, `CreatePrincipal`, `UpdatePrincipal`) | `TestNexoPlatformRoleCreateKeepsBothColumnsCoherent` |
+| U-03 | Decisiones de las rutas de Engram por `Engine.Can` | `TestNexoEngramAdminRoutesDecideThroughNexo` |
+| U-04 | Panel: alta con cuatro roles, lista y detalle con el rol de Nexo, cambio con confirmación y CSRF, rol en la cabecera | `TestNexoPlatformRoleChangeFromPanel`, `TestNexoPlatformRoleShownInHeaderAndList` |
+| U-05 | `engram cloud bootstrap admin` dice que queda como superadmin | `TestCloudBootstrapAdminBecomesNexoSuperadmin` |
+| U-06 | `engram nexo authz reconcile-roles [--apply]`, alerta `platform_role_drift` y marca `role_drift` | `TestAuthzReconcileRoles`, `TestPlatformRoleDriftAlertAndAccessReviewFlag` |
+| U-07 | Un admin no crea auditor, admin ni superadmin; auto-promoción 403; último superadmin 409; token heredado como hoy; proyectos sin cambios | `TestNexoPlatformRoleAdminOnlyCreatesMembers`, `TestNexoPlatformRoleChangeDeniedAndLastSuperadmin`, `TestNexoLegacyAdminTokenKeepsDocumentedBehavior`, `TestNexoPlatformRoleChangeDoesNotTouchProjectGrants` |
