@@ -64,7 +64,7 @@ func TestNexoOP13VectorFallbackSingleConnection(t *testing.T) {
 		t.Fatal("DSN de pruebas inválida")
 	}
 	admin := stdlib.OpenDB(*cfg)
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	var vectorSchema string
 	if err := admin.QueryRow(`SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='vector'`).Scan(&vectorSchema); err != nil {
 		t.Fatal("esta regresión requiere pgvector en la base de pruebas")
@@ -76,7 +76,7 @@ func TestNexoOP13VectorFallbackSingleConnection(t *testing.T) {
 	defer func() { _, _ = admin.Exec("DROP SCHEMA " + schema + " CASCADE") }()
 	cfg.RuntimeParams["search_path"] = schema
 	setup := stdlib.OpenDB(*cfg)
-	defer setup.Close()
+	defer func() { _ = setup.Close() }()
 	section, spaceID := store.NewID(), store.NewID()
 	for _, stmt := range []string{
 		`CREATE TABLE nexo_kb_sections (id uuid PRIMARY KEY, space_id uuid, is_current boolean, valid_from timestamptz, valid_until timestamptz, category text, tags text[])`,
@@ -96,7 +96,7 @@ func TestNexoOP13VectorFallbackSingleConnection(t *testing.T) {
 		t.Run(target, func(t *testing.T) {
 			connector := &op13FaultConnector{Connector: stdlib.GetConnector(*cfg), target: target}
 			db := sql.OpenDB(connector)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			db.SetMaxOpenConns(1) // después de los datos
 			p := &PGVector{st: store.New(db), opts: VectorOptions{Candidates: 40, Iterative: "relaxed_order"}}
 			backend := VectorBackend{Index: store.VectorIndex{Version: 1, Dims: 3}, Support: store.VectorSupport{Available: true, Schema: vectorSchema, Iterative: true}}

@@ -24,7 +24,7 @@ func TestNexoOP13BackfillSingleConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal("no se pudo abrir la base de pruebas")
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	if _, err := admin.ExecContext(context.Background(), "CREATE SCHEMA "+schema); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestNexoOP13BackfillSingleConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal("no se pudo abrir el esquema de pruebas")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	for _, stmt := range []string{
 		"CREATE TABLE cloud_chunks (project_name text NOT NULL, chunk_id text NOT NULL, payload jsonb NOT NULL, PRIMARY KEY(project_name, chunk_id))",
 		"CREATE TABLE cloud_project_sessions (project_name text NOT NULL, session_id text NOT NULL, PRIMARY KEY(project_name, session_id))",
