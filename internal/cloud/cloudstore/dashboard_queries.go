@@ -956,7 +956,7 @@ func (cs *CloudStore) buildDashboardReadModel() (dashboardReadModel, error) {
 // withRegisteredProjects preserves content-derived inventory and adds empty registrations.
 func (m dashboardReadModel) withRegisteredProjects(controls []ProjectSyncControl) dashboardReadModel {
 	for _, control := range controls {
-		project := strings.TrimSpace(control.Project)
+		project := strings.TrimSpace(control.NexoAuthorizationProject()) // NX-07: identidad original
 		if project == "" {
 			continue
 		}
@@ -1497,11 +1497,11 @@ func (s *DashboardScopedStore) ListProjectSyncControls() ([]ProjectSyncControl, 
 func (s *DashboardScopedStore) filterProjectSyncControls(controls []ProjectSyncControl) ([]ProjectSyncControl, error) {
 	filtered := make([]ProjectSyncControl, 0, len(controls))
 	for _, control := range controls {
-		if _, err := s.scopedProject(control.Project); err != nil {
+		if _, err := s.scopedProject(control.NexoAuthorizationProject()); err != nil { // NX-07: nunca la etiqueta redactada
 			if errors.Is(err, ErrDashboardProjectForbidden) {
 				continue
 			}
-			return nil, fmt.Errorf("cloudstore: validate dashboard sync control project %q: %w", control.Project, err)
+			return nil, fmt.Errorf("cloudstore: validate dashboard sync control project: %w", err)
 		}
 		filtered = append(filtered, control)
 	}

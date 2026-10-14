@@ -303,7 +303,7 @@ func countPausedProjects(controls []cloudstore.ProjectSyncControl) int {
 func controlsByProject(controls []cloudstore.ProjectSyncControl) map[string]cloudstore.ProjectSyncControl {
 	indexed := make(map[string]cloudstore.ProjectSyncControl, len(controls))
 	for _, control := range controls {
-		indexed[control.Project] = control
+		indexed[control.NexoAuthorizationProject()] = control // NX-07: clave original, no la etiqueta redactada
 	}
 	return indexed
 }

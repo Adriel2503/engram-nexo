@@ -622,10 +622,10 @@ func (s *Service) prune(ctx context.Context, id authz.Identity, sp domain.Space,
 	if err != nil {
 		return "prune failed: " + err.Error()
 	}
-	sort.Slice(docs, func(i, j int) bool { return docs[i].DocKey < docs[j].DocKey })
+	sort.Slice(docs, func(i, j int) bool { return docs[i].NexoDocKey() < docs[j].NexoDocKey() }) // NX-07: claves originales
 	var gone []store.DocRow
 	for _, d := range docs {
-		if !present[d.DocKey] {
+		if !present[d.NexoDocKey()] { // NX-07: pertenencia con la clave original
 			gone = append(gone, d)
 		}
 	}
@@ -646,7 +646,7 @@ func (s *Service) prune(ctx context.Context, id authz.Identity, sp domain.Space,
 			res.Pruned = append(res.Pruned, DocResult{DocKey: d.DocKey, Status: domain.ResultRetired, Version: d.CurrentVersion, Reason: "not present in " + ps.OriginRef})
 			continue
 		}
-		_, err := s.retire(ctx, id, sp, d.DocKey, "", "pruned: not present in "+ps.OriginRef, map[string]any{"reason": "prune", "origin_ref": ps.OriginRef})
+		_, err := s.retire(ctx, id, sp, d.NexoDocKey(), "", "pruned: not present in "+ps.OriginRef, map[string]any{"reason": "prune", "origin_ref": ps.OriginRef})
 		if err != nil {
 			res.Pruned = append(res.Pruned, DocResult{DocKey: d.DocKey, Status: domain.ResultRejected, Code: "internal_error", Reason: err.Error()})
 			continue

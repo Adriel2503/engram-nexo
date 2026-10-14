@@ -239,7 +239,7 @@ func (s *Service) ApproveProposal(ctx context.Context, id authz.Identity, propID
 	if err := nexoCheckCredentialFree(map[string]any{"note": in.Note}); err != nil { // NX-07
 		return ApproveResult{}, err
 	}
-	key := firstNonEmpty(p.DocKey, in.DocKey)
+	key := firstNonEmpty(p.NexoDocKey(), in.DocKey) // NX-07: clave original, no la copia redactada
 	if key == "" {
 		key = "propuestas/" + ingest.Slugify(p.Title)
 	}

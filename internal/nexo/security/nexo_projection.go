@@ -71,6 +71,8 @@ const (
 	NexoFieldList
 	// NexoFieldCounters: objeto cuyas claves son identificadores y cuyos valores son números.
 	NexoFieldCounters
+	// NexoFieldInteger: entero BIGINT validado, sin booleanos, fracciones ni desbordamiento.
+	NexoFieldInteger
 )
 
 // NexoField describe un campo permitido.
@@ -85,6 +87,7 @@ type NexoSchema map[string]NexoField
 
 var (
 	nfNum   = NexoField{Kind: NexoFieldNumber}
+	nfInt   = NexoField{Kind: NexoFieldInteger}
 	nfID    = NexoField{Kind: NexoFieldID}
 	nfTime  = NexoField{Kind: NexoFieldTime}
 	nfLabel = NexoField{Kind: NexoFieldLabel}
@@ -123,10 +126,10 @@ var nexoFilterSchema = nfMerge(
 // (NexoFieldText) solo salen con permiso de lectura del ámbito.
 var nexoSchemas = map[NexoStream]NexoSchema{
 	NexoStreamAudit: nfMerge(
-		nfFields(nfNum, "enabled result_count rejected failures window_seconds lockout_seconds nexo_repeated nexo_window_seconds nexo_user_agents_truncated issuer_ip_match emergency recovery recovery_check_failed created_admin recovered inactive_days people ok"),
-		nfFields(nfID, "source credential_id client_ip kind role platform_role token_prefix id via project scope activation_id group key_type last_reason counts alert_id review_id report_sha256 nexo_principal_id space format table day"),
+		nfFields(nfNum, "enabled result_count rejected failures window_seconds lockout_seconds nexo_repeated nexo_window_seconds nexo_user_agents_truncated issuer_ip_match emergency recovery recovery_check_failed created_admin recovered inactive_days people ok only_flagged bytes"),
+		nfFields(nfID, "source credential_id client_ip kind role platform_role token_prefix id via project scope activation_id group key_type last_reason counts alert_id review_id report_sha256 content_sha256 nexo_principal_id space format table day"),
 		nfFields(nfTime, "expires_at minute locked_until nexo_first_at nexo_last_at nexo_window_start"),
-		nfFields(nfLabel, "username name reason"),
+		nfFields(nfLabel, "username name reason file"),
 		nfFields(nfText, "user_agent credential_fp"),
 		NexoSchema{
 			"expires_in_days":  nfNum,
@@ -139,8 +142,8 @@ var nexoSchemas = map[NexoStream]NexoSchema{
 		},
 	),
 	NexoStreamRoles: nfMerge(
-		nfFields(nfNum, "owner_principal_id temporary count self_approval heuristic"),
-		nfFields(nfID, "action capability target scope scope_type scope_key rule hidden role role_before role_after engram_role_before engram_role_after engram_role_requested visibility default_role status_before status_after slug token_id new_token_id token_prefix principal_id actor source via reason_code kind missing"),
+		nfFields(nfNum, "hidden temporary count self_approval heuristic"),
+		nfFields(nfID, "action capability target scope scope_type scope_key rule role role_before role_after engram_role_before engram_role_after engram_role_requested visibility default_role status_before status_after slug token_id new_token_id token_prefix principal_id owner_principal_id actor source via reason_code kind missing"),
 		nfFields(nfTime, "expires_at"),
 		nfFields(nfLabel, "reason description name token_name username"),
 		NexoSchema{"grace_minutes": nfNum, "scope": nfID, "route": nfRoute},
@@ -291,9 +294,18 @@ func nexoProjectValue(spec NexoField, v any, depth int) (any, bool, bool) {
 		case nil, bool, json.Number, float64, int, int64:
 			return v, true, false
 		}
+	case NexoFieldInteger:
+		return nexoProjectInteger(v)
 	case NexoFieldID:
 		if s, ok := v.(string); ok && nexoIDRe.MatchString(s) && !redact.Has(s) {
 			return s, true, false
+		}
+		// NX-07: los identificadores numéricos (BIGINT) llegan como números; un entero válido no lleva texto.
+		switch v.(type) {
+		case int, int64, float64, json.Number:
+			if n, ok, _ := nexoProjectInteger(v); ok && n != nil {
+				return n, true, false
+			}
 		}
 	case NexoFieldRoute:
 		if s, ok := v.(string); ok && nexoRouteRe.MatchString(s) {
@@ -331,6 +343,13 @@ func nexoProjectValue(spec NexoField, v any, depth int) (any, bool, bool) {
 			return out, true, w
 		}
 	case NexoFieldList:
+		if strings, ok := v.([]string); ok {
+			list := make([]any, len(strings))
+			for i, s := range strings {
+				list[i] = s
+			}
+			v = list
+		}
 		if l, ok := v.([]any); ok && spec.Elem != nil {
 			out, w := make([]any, 0, len(l)), false
 			for _, e := range l {

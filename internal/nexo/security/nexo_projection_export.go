@@ -13,7 +13,8 @@ import "github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 var nexoExportChainColumns = []string{"nexo_prev_hash", "nexo_hash", "nexo_chain_seq"}
 
 var nexoExportActor = nfMerge(
-	nfFields(nfID, "client_ip actor_principal_id actor_token_id"),
+	nfFields(nfID, "client_ip"),
+	nfFields(nfInt, "actor_principal_id actor_token_id"),
 	nfFields(nfNum, "actor_verified"),
 	nfFields(nfLabel, "actor_label actor_email user_agent client_claim"),
 )
@@ -22,35 +23,41 @@ var nexoExportActor = nfMerge(
 // texto libre (resumen, notas) no se declaran: nunca se exportan.
 var nexoExportSchemas = map[string]NexoSchema{
 	"cloud_auth_audit_log": nfMerge(
-		nfFields(nfID, "id actor_principal_id actor_source target_principal_id project action outcome reason_code"),
+		nfFields(nfID, "actor_source project action outcome reason_code"),
+		nfFields(nfInt, "id actor_principal_id target_principal_id"),
 		nfFields(nfTime, "occurred_at"),
 		NexoSchema{"metadata": nfObj(nexoSchemas[NexoStreamAudit])},
 	),
 	"nexo_authz_events": nfMerge(
 		nexoExportActor,
-		nfFields(nfID, "id action scope_type scope_key target_principal_id role_before role_after"),
+		nfFields(nfID, "action scope_type scope_key role_before role_after"),
+		nfFields(nfInt, "id target_principal_id"),
 		nfFields(nfTime, "occurred_at"),
 		NexoSchema{"details": nfObj(nexoSchemas[NexoStreamRoles])},
 	),
 	"nexo_kb_events": nfMerge(
 		nexoExportActor,
-		nfFields(nfID, "id space_id space_slug action target_kind target_id"),
+		nfFields(nfID, "space_id space_slug action target_kind target_id"),
+		nfFields(nfInt, "id"),
 		nfFields(nfTime, "occurred_at"),
 		NexoSchema{"details": nfObj(nexoSchemas[NexoStreamKB])},
 	),
 	"nexo_alerts": nfMerge(
-		nfFields(nfID, "id rule severity layer subject"),
+		nfFields(nfID, "rule severity layer subject"),
+		nfFields(nfInt, "id"),
 		nfFields(nfLabel, "dedup_key"),
 		nfFields(nfTime, "occurred_at"),
 		NexoSchema{"details": nfObj(nexoSchemas[NexoStreamAlert])},
 	),
 	"nexo_alert_acks": nfMerge(
-		nfFields(nfID, "id alert_id acknowledged_by_principal_id acknowledged_by_token_id client_ip"),
+		nfFields(nfID, "client_ip"),
+		nfFields(nfInt, "id alert_id acknowledged_by_principal_id acknowledged_by_token_id"),
 		nfFields(nfLabel, "acknowledged_by_label user_agent"),
 		nfFields(nfTime, "occurred_at"),
 	),
 	"nexo_access_reviews": nfMerge(
-		nfFields(nfID, "id reviewer_principal_id reviewer_token_id report_sha256 client_ip"),
+		nfFields(nfID, "report_sha256 client_ip"),
+		nfFields(nfInt, "id reviewer_principal_id reviewer_token_id"),
 		nfFields(nfLabel, "reviewer_label user_agent"),
 		nfFields(nfTime, "occurred_at"),
 		NexoSchema{"summary": nfObj(nexoSchemas[NexoStreamReviewSummary])},
@@ -64,7 +71,7 @@ var nexoExportSchemas = map[string]NexoSchema{
 func NexoExportRow(table string, row map[string]any) map[string]any {
 	clean := redact.Metadata(row)
 	schema := nexoExportSchemas[table]
-	if table == "nexo_alerts" && clean["layer"] == "conocimiento" { // los detalles de la capa de conocimiento llevan texto del documento
+	if table == "nexo_alerts" && row["layer"] == "conocimiento" { // los detalles de la capa de conocimiento llevan texto del documento
 		schema = nfMerge(schema, NexoSchema{"details": nfObj(nexoSchemas[NexoStreamAlertKB])})
 	}
 	out, _ := nexoProjectObject(schema, clean, 0)

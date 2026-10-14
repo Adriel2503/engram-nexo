@@ -4,7 +4,10 @@ package cloudserver
 //
 // Todo registro que sale de aquí pasa por dos barreras:
 //
-//  1. redact.Struct limpia, en el lugar, TODOS los textos de la fila (cada campo
+// Primero se autoriza con la identidad original conservada por el almacén.
+// Después se limpia exclusivamente la copia de salida:
+//
+//  1. redact.Struct limpia TODOS los textos de la fila (cada campo
 //     string, mapas, listas y documentos JSON anidados), con o sin permiso de
 //     lectura: un campo nuevo queda cubierto sin enumerarlo;
 //  2. los metadatos (mapas) pasan por security.NexoProject con el esquema de su
@@ -40,12 +43,13 @@ func (s *CloudServer) nexoFilterHistory(w http.ResponseWriter, r *http.Request, 
 	for i := range items {
 		// El título y el payload de una memoria pueden traer una credencial pegada por quien la escribió:
 		// leer el proyecto no autoriza usarla. Se limpia una copia siempre, con o sin permiso.
-		redact.Struct(&items[i])
-		allowed, err := s.nexoAuditContentAllowed(ctx, authz.ProjectScope(items[i].Project))
+		scope := items[i].NexoAuthorizationScope(authz.ProjectScope(items[i].Project))
+		allowed, err := s.nexoAuditContentAllowed(ctx, scope)
 		if err != nil {
 			nexoInternalError(w, "visibilidad del historial", fmt.Errorf("autorización no disponible: %w", err))
 			return false
 		}
+		redact.Struct(&items[i]) // NX-07: solo la salida, después de autorizar
 		if !allowed {
 			items[i].Title = ""
 			items[i].Payload = nil
@@ -57,16 +61,13 @@ func (s *CloudServer) nexoFilterHistory(w http.ResponseWriter, r *http.Request, 
 func (s *CloudServer) nexoFilterSecurityAudit(w http.ResponseWriter, r *http.Request, items []cloudstore.NexoAuditRecord) bool {
 	ctx := authz.WithRequestCache(r.Context())
 	for i := range items {
-		redact.Struct(&items[i])
-		scope := authz.ProjectScope(items[i].Project)
-		if space, ok := items[i].Metadata["space"].(string); ok && items[i].Project == "" {
-			scope = authz.SpaceScope(space)
-		}
+		scope := items[i].NexoAuthorizationScope(authz.NexoAuditScope(items[i].Project, items[i].Metadata))
 		allowed, err := s.nexoAuditContentAllowed(ctx, scope)
 		if err != nil {
 			nexoInternalError(w, "visibilidad de auditoría", fmt.Errorf("autorización no disponible: %w", err))
 			return false
 		}
+		redact.Struct(&items[i]) // NX-07: la autorización ya usó el ámbito original
 		items[i].Metadata = security.NexoProject(security.NexoStreamAudit, items[i].Metadata, allowed)
 	}
 	return true
@@ -74,12 +75,13 @@ func (s *CloudServer) nexoFilterSecurityAudit(w http.ResponseWriter, r *http.Req
 func (s *CloudServer) nexoFilterRoleEvents(w http.ResponseWriter, r *http.Request, items []authz.EventRecord) bool {
 	ctx := authz.WithRequestCache(r.Context())
 	for i := range items {
-		redact.Struct(&items[i])
-		allowed, err := s.nexoAuditContentAllowed(ctx, authz.Scope{Type: authz.ScopeType(items[i].ScopeType), Key: items[i].ScopeKey})
+		scope := items[i].NexoAuthorizationScope(authz.Scope{Type: authz.ScopeType(items[i].ScopeType), Key: items[i].ScopeKey})
+		allowed, err := s.nexoAuditContentAllowed(ctx, scope)
 		if err != nil {
 			nexoInternalError(w, "visibilidad de eventos", fmt.Errorf("autorización no disponible: %w", err))
 			return false
 		}
+		redact.Struct(&items[i]) // NX-07: solo la copia de salida
 		items[i].Details = security.NexoProject(security.NexoStreamRoles, items[i].Details, allowed)
 	}
 	return true
@@ -87,18 +89,13 @@ func (s *CloudServer) nexoFilterRoleEvents(w http.ResponseWriter, r *http.Reques
 func (s *CloudServer) nexoFilterAlerts(w http.ResponseWriter, r *http.Request, items []evidence.Alert) bool {
 	ctx := authz.WithRequestCache(r.Context())
 	for i := range items {
-		redact.Struct(&items[i])
-		scope := authz.ProjectScope("")
-		if key, ok := items[i].Details["space"].(string); ok {
-			scope = authz.SpaceScope(key)
-		} else if key, ok := items[i].Details["project"].(string); ok {
-			scope = authz.ProjectScope(key)
-		}
+		scope := items[i].NexoAuthorizationScope(authz.NexoAlertScope(items[i].Details))
 		allowed, err := s.nexoAuditContentAllowed(ctx, scope)
 		if err != nil {
 			nexoInternalError(w, "visibilidad de alertas", fmt.Errorf("autorización no disponible: %w", err))
 			return false
 		}
+		redact.Struct(&items[i]) // NX-07: ámbito y capa se decidieron con los originales
 		alertStream := security.NexoStreamAlert
 		if items[i].Layer == evidence.LayerKnowledge {
 			alertStream = security.NexoStreamAlertKB

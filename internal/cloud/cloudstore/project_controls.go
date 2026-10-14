@@ -14,6 +14,7 @@ import (
 // ProjectSyncControl holds the per-project sync enable/pause record.
 // The backing table is cloud_project_controls (Postgres, added in migrate()).
 type ProjectSyncControl struct {
+	source       string // NX-07: proyecto original (privado); Project es solo la copia de salida redactada
 	Project      string
 	SyncEnabled  bool
 	PausedReason *string
@@ -156,11 +157,21 @@ func (cs *CloudStore) ListProjectSyncControls() ([]ProjectSyncControl, error) {
 		if updatedAt != nil {
 			ctrl.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
 		}
-		redact.Struct(&ctrl) // NX-07: filas históricas
+		ctrl.source = ctrl.Project // NX-07: la autorización usa el proyecto original, nunca la etiqueta redactada
+		redact.Struct(&ctrl)       // NX-07: filas históricas
 		result = append(result, ctrl)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("cloudstore: ListProjectSyncControls iterate: %w", err)
 	}
 	return result, nil
+}
+
+// NexoAuthorizationProject devuelve el proyecto sin redactar con el que se decide
+// la pertenencia a un ámbito; la copia de salida (Project) nunca autoriza.
+func (c ProjectSyncControl) NexoAuthorizationProject() string {
+	if c.source != "" {
+		return c.source
+	}
+	return c.Project
 }

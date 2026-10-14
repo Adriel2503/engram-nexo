@@ -393,7 +393,7 @@ func (a *api) listDocuments(w http.ResponseWriter, r *http.Request, svc *service
 	next := ""
 	if len(docs) > limit {
 		docs = docs[:limit]
-		next = encodeCursor(cursor{Key: docs[len(docs)-1].DocKey})
+		next = encodeCursor(cursor{Key: docs[len(docs)-1].NexoDocKey()}) // NX-07: el cursor usa la clave original
 	}
 	writeJSON(w, http.StatusOK, newPage(docs, next, limit))
 }

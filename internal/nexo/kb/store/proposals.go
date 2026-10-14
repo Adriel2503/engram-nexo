@@ -9,37 +9,39 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Proposal es una propuesta (nexo_kb_proposals).
 type Proposal struct {
-	ID              string     `json:"id"`
-	SpaceID         string     `json:"-"`
-	Space           string     `json:"space"`
-	TargetDocID     string     `json:"-"`
-	DocKey          string     `json:"doc_key,omitempty"`
-	BaseVersion     int        `json:"base_version,omitempty"`
-	Title           string     `json:"title"`
-	Category        string     `json:"category,omitempty"`
-	Tags            []string   `json:"tags"`
-	ContentMD       string     `json:"content_md,omitempty"`
-	Rationale       string     `json:"rationale,omitempty"`
-	ValidFrom       *time.Time `json:"valid_from,omitempty"`
-	ValidUntil      *time.Time `json:"valid_until,omitempty"`
-	Status          string     `json:"status"`
-	ProposedByID    string     `json:"proposed_by_principal_id,omitempty"`
-	ProposedBy      string     `json:"proposed_by"`
-	ProposedByEmail string     `json:"proposed_by_email,omitempty"`
-	ProposedClaim   string     `json:"proposed_by_client,omitempty"`
-	ReviewedByID    string     `json:"reviewed_by_principal_id,omitempty"`
-	ReviewedBy      string     `json:"reviewed_by,omitempty"`
-	ReviewNote      string     `json:"review_note,omitempty"`
-	DecidedAt       *time.Time `json:"decided_at,omitempty"`
-	ResultVersionID string     `json:"result_version_id,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID              string           `json:"id"`
+	SpaceID         string           `json:"-"`
+	Space           string           `json:"space"`
+	TargetDocID     string           `json:"-"`
+	DocKey          string           `json:"doc_key,omitempty"`
+	BaseVersion     int              `json:"base_version,omitempty"`
+	Title           string           `json:"title"`
+	Category        string           `json:"category,omitempty"`
+	Tags            []string         `json:"tags"`
+	ContentMD       string           `json:"content_md,omitempty"`
+	Rationale       string           `json:"rationale,omitempty"`
+	ValidFrom       *time.Time       `json:"valid_from,omitempty"`
+	ValidUntil      *time.Time       `json:"valid_until,omitempty"`
+	Status          string           `json:"status"`
+	ProposedByID    string           `json:"proposed_by_principal_id,omitempty"`
+	ProposedBy      string           `json:"proposed_by"`
+	ProposedByEmail string           `json:"proposed_by_email,omitempty"`
+	ProposedClaim   string           `json:"proposed_by_client,omitempty"`
+	ReviewedByID    string           `json:"reviewed_by_principal_id,omitempty"`
+	ReviewedBy      string           `json:"reviewed_by,omitempty"`
+	ReviewNote      string           `json:"review_note,omitempty"`
+	DecidedAt       *time.Time       `json:"decided_at,omitempty"`
+	ResultVersionID string           `json:"result_version_id,omitempty"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
+	KeySource       domain.KeySource `json:"-"` // NX-07: doc_key original, privado
 }
 
 // InsertProposal crea una propuesta abierta.
@@ -82,6 +84,7 @@ func scanProposal(row interface{ Scan(...any) error }) (Proposal, error) {
 		p.Tags[i] = redact.Text(p.Tags[i])
 	}
 	p.ReviewNote, p.ProposedBy, p.ProposedByEmail, p.ProposedClaim, p.ReviewedBy = redact.Text(p.ReviewNote), redact.Text(p.ProposedBy), redact.Text(p.ProposedByEmail), redact.Text(p.ProposedClaim), redact.Text(p.ReviewedBy)
+	p.KeySource.Remember(p.DocKey) // NX-07: la clave original decide la publicación al aprobar
 	p.DocKey, p.Category = redact.Text(p.DocKey), redact.Text(p.Category)
 	p.ValidFrom, p.ValidUntil, p.DecidedAt = timePtr(vf), timePtr(vu), timePtr(dec)
 	p.CreatedAt, p.UpdatedAt = p.CreatedAt.UTC(), p.UpdatedAt.UTC()

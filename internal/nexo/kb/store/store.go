@@ -239,7 +239,8 @@ func scanDoc(row interface{ Scan(...any) error }) (DocRow, error) {
 	d.ValidUntil = timePtr(until)
 	d.RetiredAt = timePtr(retired)
 	d.ValidFrom, d.CreatedAt, d.UpdatedAt = d.ValidFrom.UTC(), d.CreatedAt.UTC(), d.UpdatedAt.UTC()
-	redact.Struct(&d) // NX-07: título, etiquetas, responsable y nota de retiro históricos sin credenciales (metadatos; el contenido va aparte)
+	d.KeySource.Remember(d.DocKey) // NX-07: la clave original decide poda, paginación y escritura
+	redact.Struct(&d)              // NX-07: título, etiquetas, responsable y nota de retiro históricos sin credenciales (metadatos; el contenido va aparte)
 	return d, nil
 }
 

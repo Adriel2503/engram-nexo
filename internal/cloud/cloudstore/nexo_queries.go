@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/authz"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/redact"
 )
 
@@ -65,22 +66,23 @@ type NexoAuditQuery struct {
 
 // NexoAuditRecord es un evento de la auditoría de seguridad.
 type NexoAuditRecord struct {
-	ID                string         `json:"id"`
-	OccurredAt        time.Time      `json:"occurred_at"`
-	ActorPrincipalID  string         `json:"actor_principal_id,omitempty"`
-	ActorUsername     string         `json:"actor_username,omitempty"`
-	ActorDisplayName  string         `json:"actor_display_name,omitempty"`
-	ActorEmail        string         `json:"actor_email,omitempty"`
-	ActorSource       string         `json:"actor_source"`
-	TargetPrincipalID string         `json:"target_principal_id,omitempty"`
-	TargetUsername    string         `json:"target_username,omitempty"`
-	Project           string         `json:"project,omitempty"`
-	Action            string         `json:"action"`
-	Outcome           string         `json:"outcome"`
-	ReasonCode        string         `json:"reason_code,omitempty"`
-	ClientIP          string         `json:"client_ip,omitempty"`
-	UserAgent         string         `json:"user_agent,omitempty"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
+	authz.NexoScopeSource `json:"-"`
+	ID                    string         `json:"id"`
+	OccurredAt            time.Time      `json:"occurred_at"`
+	ActorPrincipalID      string         `json:"actor_principal_id,omitempty"`
+	ActorUsername         string         `json:"actor_username,omitempty"`
+	ActorDisplayName      string         `json:"actor_display_name,omitempty"`
+	ActorEmail            string         `json:"actor_email,omitempty"`
+	ActorSource           string         `json:"actor_source"`
+	TargetPrincipalID     string         `json:"target_principal_id,omitempty"`
+	TargetUsername        string         `json:"target_username,omitempty"`
+	Project               string         `json:"project,omitempty"`
+	Action                string         `json:"action"`
+	Outcome               string         `json:"outcome"`
+	ReasonCode            string         `json:"reason_code,omitempty"`
+	ClientIP              string         `json:"client_ip,omitempty"`
+	UserAgent             string         `json:"user_agent,omitempty"`
+	Metadata              map[string]any `json:"metadata,omitempty"`
 }
 
 // NexoActivityQuery filtra nexo_activity_log.
@@ -156,26 +158,27 @@ type NexoHistoryQuery struct {
 
 // NexoHistoryRecord es una versión de un recuerdo.
 type NexoHistoryRecord struct {
-	Seq              string          `json:"seq"`
-	Version          int64           `json:"version"`
-	Project          string          `json:"project"`
-	Entity           string          `json:"entity"`
-	EntityKey        string          `json:"entity_key"`
-	Op               string          `json:"op"`
-	OccurredAt       time.Time       `json:"occurred_at"`
-	Actor            string          `json:"actor,omitempty"`
-	ActorEmail       string          `json:"actor_email,omitempty"`
-	ActorVerified    bool            `json:"actor_verified"`
-	ActorPrincipalID string          `json:"actor_principal_id,omitempty"`
-	ActorUsername    string          `json:"actor_username,omitempty"`
-	CurrentEmail     string          `json:"current_email,omitempty"`
-	TokenID          string          `json:"token_id,omitempty"`
-	TokenPrefix      string          `json:"token_prefix,omitempty"`
-	TokenName        string          `json:"token_name,omitempty"`
-	ClientClaim      string          `json:"client_claim,omitempty"`
-	PayloadWithheld  bool            `json:"payload_withheld"`
-	Title            string          `json:"title,omitempty"`
-	Payload          json.RawMessage `json:"payload,omitempty"`
+	authz.NexoScopeSource `json:"-"`
+	Seq                   string          `json:"seq"`
+	Version               int64           `json:"version"`
+	Project               string          `json:"project"`
+	Entity                string          `json:"entity"`
+	EntityKey             string          `json:"entity_key"`
+	Op                    string          `json:"op"`
+	OccurredAt            time.Time       `json:"occurred_at"`
+	Actor                 string          `json:"actor,omitempty"`
+	ActorEmail            string          `json:"actor_email,omitempty"`
+	ActorVerified         bool            `json:"actor_verified"`
+	ActorPrincipalID      string          `json:"actor_principal_id,omitempty"`
+	ActorUsername         string          `json:"actor_username,omitempty"`
+	CurrentEmail          string          `json:"current_email,omitempty"`
+	TokenID               string          `json:"token_id,omitempty"`
+	TokenPrefix           string          `json:"token_prefix,omitempty"`
+	TokenName             string          `json:"token_name,omitempty"`
+	ClientClaim           string          `json:"client_claim,omitempty"`
+	PayloadWithheld       bool            `json:"payload_withheld"`
+	Title                 string          `json:"title,omitempty"`
+	Payload               json.RawMessage `json:"payload,omitempty"`
 }
 
 // ─── Utilidades ──────────────────────────────────────────────────────────────
@@ -325,7 +328,7 @@ func (cs *CloudStore) ListAuthAudit(ctx context.Context, q NexoAuditQuery) ([]Ne
 			}
 		}
 		// NX-07: filas históricas escritas antes de la redacción en escritura.
-		redact.Struct(&rec) // todos los textos de la fila (también nombres, correos y usuarios de personas)
+		rec = nexoRedactAuditRecord(rec)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -588,7 +591,7 @@ func (cs *CloudStore) MutationHistory(ctx context.Context, q NexoHistoryQuery) (
 			rec.Payload = json.RawMessage(payload.String)
 		}
 		// NX-07: las columnas de autoría se escribieron con texto externo (nombre, declaración del cliente).
-		redact.Struct(&rec) // incluye título y payload (claves y valores anidados)
+		rec = nexoRedactHistoryRecord(rec)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
