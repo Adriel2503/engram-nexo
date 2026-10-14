@@ -1,6 +1,6 @@
 .PHONY: templ lint perf-check perf-baseline deadcode-check deadcode-baseline
 
-GOLANGCI_LINT_VERSION := 2.13.2
+GOLANGCI_LINT_VERSION := 2.14.0
 
 templ:
 	go tool templ generate -path ./internal/cloud/dashboard

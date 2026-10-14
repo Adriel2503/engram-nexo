@@ -60,7 +60,7 @@ jobs:
       - name: Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
           cache-dependency-path: .engram-nexo/go.sum
       - name: Compilar engram (fork)
         working-directory: .engram-nexo

@@ -302,11 +302,11 @@ configuration-split comparison fails.
 
 ### Lint Ratchet
 
-CI runs golangci-lint v2.13.2 with the `errcheck`, `staticcheck`, and `unused`
+CI runs golangci-lint v2.14.0 with the `errcheck`, `staticcheck`, and `unused`
 linters. It reports only findings introduced by the pull request or the pushed
 main revision, so existing debt does not block adoption while new debt fails
 the check. When local lint is warranted by risk or the absence of PR CI, install
-golangci-lint v2.13.2 and run `make lint`; the target requires that exact version
+golangci-lint v2.14.0 and run `make lint`; the target requires that exact version
 on `PATH` and fails before linting if it is missing or different. It reports
 findings in staged, unstaged, untracked, and latest committed changes compared
 with `HEAD~`.

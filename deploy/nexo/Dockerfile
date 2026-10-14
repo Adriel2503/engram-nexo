@@ -13,7 +13,7 @@
 # Verificar:
 #   docker run --rm nexo-engram-cloud:3.4.0-nexo.2 version   -> engram 3.4.0-nexo.2
 
-FROM --platform=$BUILDPLATFORM golang:1.25.10-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
