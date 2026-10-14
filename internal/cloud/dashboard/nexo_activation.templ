@@ -1,0 +1,76 @@
+package dashboard
+
+import (
+ "net/url"
+ "strconv"
+
+ "github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
+)
+
+// NX-07: el código se muestra una vez al administrador para entregarlo.
+templ NexoActivationIssuedPage(code string, a cloudstore.NexoActivation) {
+ <section class="frame-section">
+  <h2>Código de activación</h2>
+  <p>Entrega este código a la persona por un canal seguro. Vence en { formatTimeValue(a.ExpiresAt) } y se puede canjear una sola vez.</p>
+  <pre><code>{ code }</code></pre>
+  <p>La persona abre <a href="/dashboard/activate">Activar mi cuenta</a>, o ejecuta <code>engram nexo connect --server &lt;servidor&gt; --activate-stdin</code>. Solo ella recibe el token definitivo.</p>
+  <p>Alcance: { nexoActivationScope(a.Scope) }. Vida del token desde el canje: { strconv.Itoa(a.TokenDays) } días.</p>
+  <a href={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(a.PrincipalID)) }>Volver a la persona</a>
+ </section>
+}
+
+templ NexoPendingActivationList(items []cloudstore.NexoActivation, principalID, csrf string) {
+ <h3 class="section-block-title">Códigos de activación pendientes</h3>
+ <div class="data-frame">
+  if len(items) == 0 {
+   <p class="muted">No hay códigos pendientes. Los usados, revocados o vencidos no aparecen aquí.</p>
+  } else {
+   <table class="data-table"><thead><tr><th>Identificador</th><th>Nombre</th><th>Alcance</th><th>Vida del token</th><th>Vence</th><th>Acción</th></tr></thead><tbody>
+    for _, a := range items {
+     <tr><td>{ a.ID }</td><td>{ a.Name }</td><td>{ nexoActivationScope(a.Scope) }</td><td>{ strconv.Itoa(a.TokenDays) } días</td><td>{ formatTimeValue(a.ExpiresAt) }</td><td>
+      <form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(principalID) + "/activations/" + url.PathEscape(a.ID) + "/revoke") }>
+       <input type="hidden" name="csrf_token" value={ csrf }/>
+       <button type="submit">Revocar código</button>
+      </form>
+     </td></tr>
+    }
+   </tbody></table>
+  }
+ </div>
+}
+
+// Pantalla pública: no establece sesión, no guarda el código ni el token en URL.
+templ NexoActivatePage(rawToken string, errorMsg string) {
+ <!DOCTYPE html>
+ <html lang="es" data-theme="light">
+  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Activar mi cuenta — Nexo IA</title>
+   <link rel="stylesheet" href="/dashboard/static/pico.min.css"/><link rel="stylesheet" href="/dashboard/static/styles.css"/><link rel="stylesheet" href="/dashboard/static/nexo_theme.css"/>
+  </head>
+  <body class={ nexoBodyClass() }><main class="container frame-section">
+   <h1>Activar mi cuenta</h1>
+   if errorMsg != "" {
+    <div class="nx-note nx-note-error" role="alert"><p>{ errorMsg }</p></div>
+   }
+   if rawToken == "" {
+    <p>Ingresa el código que te entregó el administrador. Vence en el plazo indicado y solo se puede usar una vez.</p>
+    <form method="post" action="/dashboard/activate">
+     <label>Código de activación<input type="password" name="code" required autocomplete="off" maxlength="256"/></label>
+     <button type="submit">Activar mi cuenta</button>
+    </form>
+   } else {
+    <h2>Tu token está listo</h2>
+    <p>Solo se muestra esta vez. Guárdalo en tu gestor de contraseñas. No lo compartas ni lo envíes al administrador.</p>
+    <pre><code>{ rawToken }</code></pre>
+    <p>Conecta tu PC con <code>engram nexo connect --server &lt;servidor&gt; --token-stdin</code>.</p>
+    <a href="/dashboard/login">Entrar al panel con mi token</a>
+   }
+  </main></body>
+ </html>
+}
+
+// NX-07: acceso desde el login.
+templ nexoActivationLoginLink() {
+ if NexoBrand() {
+  <p><a href="/dashboard/activate">Activar mi cuenta</a></p>
+ }
+}

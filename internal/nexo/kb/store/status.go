@@ -78,6 +78,7 @@ func (s *Store) CountIndexableSections(ctx context.Context) (int64, error) {
 // varios intentos. Error es el mensaje del proveedor tal como lo guardó el
 // indexador (ya sin la clave); el llamador lo vuelve a limpiar al mostrarlo.
 type DeadLetter struct {
+	Space     string    `json:"space"`
 	Version   int       `json:"index_version"`
 	FailCount int       `json:"fail_count"`
 	FailedAt  time.Time `json:"failed_at"`
@@ -95,7 +96,7 @@ func (s *Store) RecentDeadLetters(ctx context.Context, limit int) ([]DeadLetter,
 	if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM nexo_kb_index_dead x WHERE `+live, IndexKindVector).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT x.index_version, x.fail_count, x.failed_at, x.last_error FROM nexo_kb_index_dead x
+	rows, err := s.DB.QueryContext(ctx, `SELECT COALESCE(sp.slug, ''), x.index_version, x.fail_count, x.failed_at, x.last_error FROM nexo_kb_index_dead x LEFT JOIN nexo_kb_spaces sp ON sp.id = x.space_id
 		WHERE `+live+` ORDER BY x.failed_at DESC, x.id DESC LIMIT $2`, IndexKindVector, limit)
 	if err != nil {
 		return nil, 0, err
@@ -104,7 +105,7 @@ func (s *Store) RecentDeadLetters(ctx context.Context, limit int) ([]DeadLetter,
 	out := []DeadLetter{}
 	for rows.Next() {
 		var d DeadLetter
-		if err := rows.Scan(&d.Version, &d.FailCount, &d.FailedAt, &d.Error); err != nil {
+		if err := rows.Scan(&d.Space, &d.Version, &d.FailCount, &d.FailedAt, &d.Error); err != nil {
 			return nil, 0, err
 		}
 		d.FailedAt = d.FailedAt.UTC()

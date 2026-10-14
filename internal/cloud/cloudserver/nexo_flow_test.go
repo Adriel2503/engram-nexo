@@ -71,6 +71,16 @@ func (f *nexoFlow) panel(method, path string, cookie *http.Cookie, form string) 
 // issued registra un token emitido por HTTP (la respuesta lo contiene).
 func (f *nexoFlow) issued(person string, resp nexoFlowResponse) string {
 	f.env.t.Helper()
+	var activation struct {
+		Code string `json:"activation_code"`
+	}
+	_ = json.Unmarshal(resp.body, &activation)
+	if activation.Code != "" {
+		f.responses[len(f.responses)-1].allow = []string{activation.Code}
+		f.scanner.addToken("activación", activation.Code, nil)
+		b, _ := json.Marshal(map[string]string{"code": activation.Code})
+		resp = f.do(http.MethodPost, "/nexo/authz/v1/activate", "", string(b), 201)
+	}
 	var out struct {
 		Raw   string         `json:"raw_token"`
 		Token map[string]any `json:"token"`
@@ -139,7 +149,14 @@ func runNexoSecurityFlow(t *testing.T, env *nexoSecEnv) *nexoFlow {
 	if created.code != http.StatusOK {
 		t.Fatalf("emisión en el panel: %d %s", created.code, created.body)
 	}
-	// El panel muestra el token recién emitido una sola vez: se permite en esa página.
+	// El panel entrega un código: solo el canje entrega el token.
+	if code := nexoActivationCodeRe.FindString(string(created.body)); code != "" {
+		f.responses[len(f.responses)-1].allow = []string{code}
+		f.scanner.addToken("activación del panel", code, nil)
+		b, _ := json.Marshal(map[string]string{"code": code})
+		f.issued("luis-panel", f.do(http.MethodPost, "/nexo/authz/v1/activate", "", string(b), 201))
+	}
+	// Las excepciones directas siguen permitiendo el token una sola vez.
 	if m := nexoFullTokenRe.Find(created.body); m != nil {
 		f.responses[len(f.responses)-1].allow = []string{string(m)}
 		f.scanner.addToken("luis-panel", string(m), env.hasher.Hash)

@@ -384,7 +384,14 @@ func TestAdminHandlersManageUsersTokensAndGrantsWithRedactedResponses(t *testing
 		t.Fatalf("enable handler should enable the user")
 	}
 
-	createToken := performAdminRequest(srv, http.MethodPost, "/admin/users/p-user-alice/tokens", `{"name":"laptop"}`)
+	// NX-07: sin el motor de roles de Nexo un administrador no recibe ningún token ajeno (falla cerrado).
+	notOpen := performAdminRequest(srv, http.MethodPost, "/admin/users/p-user-alice/tokens", `{"name":"laptop"}`)
+	if notOpen.Code != http.StatusServiceUnavailable || strings.Contains(notOpen.Body.String(), "raw_token") || strings.Contains(notOpen.Body.String(), "egc_live_") || store.createTokenCalls != 0 {
+		t.Fatalf("sin Nexo la emisión para otra persona debe fallar cerrado: %d %q calls=%d", notOpen.Code, notOpen.Body.String(), store.createTokenCalls)
+	}
+	// Solo la autoemisión entrega el token una vez: alice, con rol de administración, crea el suyo.
+	aliceAdmin := cloudauth.Principal{ID: "p-user-alice", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
+	createToken := performAdminRequest(adminHandlerTestServer(t, aliceAdmin, store), http.MethodPost, "/admin/users/p-user-alice/tokens", `{"name":"laptop"}`)
 	if createToken.Code != http.StatusCreated {
 		t.Fatalf("expected create token 201, got %d body=%q", createToken.Code, createToken.Body.String())
 	}
@@ -538,7 +545,8 @@ func TestAdminCreateTokenListUsersFailureFailsClosedBeforeMinting(t *testing.T) 
 }
 
 func TestAdminCreateTokenStoreDisabledRaceReturns409WithoutPersistingOrAuditing(t *testing.T) {
-	admin := cloudauth.Principal{ID: "p-admin", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
+	// NX-07: sin Nexo solo la autoemisión llega al almacén (quien actúa es el propio destino).
+	admin := cloudauth.Principal{ID: "p-race", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
 	store := newAdminTestStore()
 	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-race", Username: "race", DisplayName: "Race", Role: "member", Enabled: true})
 	store.createTokenErr = cloudstore.ErrPrincipalDisabled
@@ -566,7 +574,7 @@ func TestAdminCreateTokenStoreDisabledRaceReturns409WithoutPersistingOrAuditing(
 }
 
 func TestAdminCreateTokenStoreNotFoundRaceReturns404WithoutPersistingOrAuditing(t *testing.T) {
-	admin := cloudauth.Principal{ID: "p-admin", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
+	admin := cloudauth.Principal{ID: "p-race", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
 	store := newAdminTestStore()
 	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-race", Username: "race", DisplayName: "Race", Role: "member", Enabled: true})
 	store.createTokenErr = cloudstore.ErrPrincipalNotFound
@@ -594,7 +602,7 @@ func TestAdminCreateTokenStoreNotFoundRaceReturns404WithoutPersistingOrAuditing(
 }
 
 func TestAdminCreateTokenAuditFailureRollsBackTokenAndDoesNotReturnRawToken(t *testing.T) {
-	admin := cloudauth.Principal{ID: "p-admin", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
+	admin := cloudauth.Principal{ID: "p-target", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}
 	store := newAdminTestStore()
 	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-target", Username: "target", DisplayName: "Target", Role: "member", Enabled: true})
 	store.auditErr = errors.New("audit unavailable")
@@ -641,7 +649,6 @@ func TestAdminMutationsAreSynchronouslyAuditedAndFailClosedOnAuditErrors(t *test
 		{name: "user create", method: http.MethodPost, path: "/admin/users", body: `{"username":"audited","role":"member"}`, action: "user.create"},
 		{name: "user disable", method: http.MethodPost, path: "/admin/users/p-target/disable", action: "user.disable"},
 		{name: "user enable", method: http.MethodPost, path: "/admin/users/p-target/enable", action: "user.enable"},
-		{name: "token create", method: http.MethodPost, path: "/admin/users/p-target/tokens", body: `{"name":"workstation"}`, action: "token.create"},
 		{name: "token revoke", method: http.MethodPost, path: "/admin/tokens/tok-target/revoke", body: `{"reason":"rotation"}`, action: "token.revoke"},
 		{name: "grant create", method: http.MethodPost, path: "/admin/users/p-target/grants", body: `{"project":"alpha"}`, action: "grant.create"},
 		{name: "grant revoke", method: http.MethodPost, path: "/admin/users/p-target/grants/alpha/revoke", action: "grant.revoke"},
@@ -670,6 +677,16 @@ func TestAdminMutationsAreSynchronouslyAuditedAndFailClosedOnAuditErrors(t *test
 				t.Fatalf("audit metadata leaked or used rejected token metadata keys: %s", metadata)
 			}
 		})
+	}
+
+	// NX-07: la emisión de un token es la excepción de autoemisión (sin Nexo no existe otra): se audita con el propio actor.
+	selfSrv := adminHandlerTestServer(t, cloudauth.Principal{ID: "p-target", Kind: cloudauth.PrincipalKindHuman, Role: cloudauth.RoleAdmin, Source: cloudauth.PrincipalSourceManagedToken, Enabled: true}, store)
+	beforeSelf := len(store.auditEvents)
+	if rec := performAdminRequest(selfSrv, http.MethodPost, "/admin/users/p-target/tokens", `{"name":"workstation"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("autoemisión: %d %q", rec.Code, rec.Body.String())
+	}
+	if ev := store.auditEvents[len(store.auditEvents)-1]; len(store.auditEvents) != beforeSelf+1 || ev.ActorPrincipalID != "p-target" || ev.Action != "token.create" || ev.Outcome != "success" {
+		t.Fatalf("auditoría de autoemisión: %+v", ev)
 	}
 
 	failedStore := newAdminTestStore()

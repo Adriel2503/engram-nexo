@@ -452,7 +452,7 @@ func (s *CloudServer) nexoSATokenOp(w http.ResponseWriter, r *http.Request, svc 
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		name = old.Name
+		name = security.NexoRedactExternal(old.Name, security.NexoMaxTokenNameRunes) // NX-07: el nombre heredado puede traer una credencial histórica
 	}
 	raw, token, ok := s.nexoCreateManagedToken(w, r, issueCtx, store, a.PrincipalID, nexoSATokenName(name, a.Slug), "nexo_service_account_rotate", respond)
 	if !ok {

@@ -155,6 +155,7 @@ type nexoIssueTokenBody struct {
 }
 
 func (s *CloudServer) registerNexoTokenRoutes(mux *http.ServeMux) {
+	s.registerNexoActivationRoutes(mux)
 	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/tokens", "self.read|platform.tokens.manage", s.nexoAuthzRoute(s.handleNexoAuthzListTokens))
 	s.nexoRoute(mux, "POST", nexoAuthzPrefix+"/tokens", "platform.tokens.manage", s.nexoAuthzRoute(s.handleNexoAuthzIssueToken))
 }
@@ -239,6 +240,9 @@ func (s *CloudServer) handleNexoAuthzIssueToken(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
+	if s.nexoMaybeActivation(w, r, issueCtx, target.ID, body.Name, false) {
+		return
+	}
 	raw, token, ok := s.nexoCreateManagedToken(w, r, issueCtx, store, target.ID, body.Name, "nexo_authz", nexoRespondJSON)
 	if !ok {
 		return
@@ -256,6 +260,11 @@ func (s *CloudServer) handleNexoAuthzIssueToken(w http.ResponseWriter, r *http.R
 func (s *CloudServer) nexoCreateManagedToken(w http.ResponseWriter, r *http.Request, issueCtx context.Context, store AdminIdentityStore, targetID, name, via string, respond nexoRespond) (string, cloudstore.PrincipalToken, bool) {
 	if s.managedHasher == nil {
 		respond(w, http.StatusInternalServerError, constants.UpgradeErrorCodeInternal, "managed token hasher is not configured")
+		return "", cloudstore.PrincipalToken{}, false
+	}
+	// NX-07: el nombre se valida en el punto común de creación (emisión y rotación de cuentas de servicio incluidas).
+	if _, err := security.NexoCheckTokenName(name); err != nil {
+		respond(w, http.StatusBadRequest, authz.CodeInvalid, "El nombre del token no es válido: usa hasta 256 caracteres y no incluyas credenciales.")
 		return "", cloudstore.PrincipalToken{}, false
 	}
 	actor, _ := PrincipalFromContext(r.Context())

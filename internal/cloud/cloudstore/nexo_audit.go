@@ -12,6 +12,7 @@ package cloudstore
 
 import (
 	"context"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	"strings"
 )
 
@@ -45,8 +46,9 @@ func NexoRequestOriginFrom(ctx context.Context) (NexoRequestOrigin, bool) {
 
 // nexoAuditMetadata devuelve metadata con client_ip y user_agent agregados si
 // hay origen en el contexto. Nunca modifica el mapa recibido ni pisa claves
-// que el evento ya traiga. Sin origen devuelve el mapa original sin cambios.
+// que el evento ya traiga. Sin origen conserva sus campos, retirando formatos de credencial del texto libre.
 func nexoAuditMetadata(ctx context.Context, metadata map[string]any) map[string]any {
+	metadata = security.NexoRedactAuditMetadata(metadata)
 	origin, ok := NexoRequestOriginFrom(ctx)
 	if !ok {
 		return metadata
@@ -66,5 +68,5 @@ func nexoAuditMetadata(ctx context.Context, metadata map[string]any) map[string]
 	if _, exists := out[NexoAuditMetaUserAgent]; !exists && ua != "" {
 		out[NexoAuditMetaUserAgent] = ua
 	}
-	return out
+	return security.NexoRedactAuditMetadata(out)
 }

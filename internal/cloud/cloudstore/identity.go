@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security" // NX-07: validación de nombres de token y redacción de auditoría
 	"github.com/Gentleman-Programming/engram/v3/internal/store"
 )
 
@@ -532,6 +533,9 @@ func (cs *CloudStore) RecoverStrandedAdminTokenWithAudit(ctx context.Context, pa
 	if tokenHash == "" {
 		return PrincipalToken{}, fmt.Errorf("cloudstore: token hash is required")
 	}
+	if _, err := security.NexoCheckTokenName(params.Name); err != nil { // NX-07
+		return PrincipalToken{}, err
+	}
 
 	tx, err := cs.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -690,11 +694,15 @@ func normalizeCreatePrincipalTokenParams(params CreatePrincipalTokenParams) (cre
 	if tokenHash == "" {
 		return createPrincipalTokenValues{}, fmt.Errorf("cloudstore: token hash is required")
 	}
+	name, err := security.NexoCheckTokenName(params.Name) // NX-07: validación común de nombres, antes de cualquier excepción
+	if err != nil {
+		return createPrincipalTokenValues{}, err
+	}
 	return createPrincipalTokenValues{
 		principalID:          principalID,
 		tokenPrefix:          tokenPrefix,
 		tokenHash:            tokenHash,
-		name:                 strings.TrimSpace(params.Name),
+		name:                 name,
 		createdByPrincipalID: nullableID(params.CreatedByPrincipalID),
 	}, nil
 }
@@ -999,6 +1007,8 @@ func insertAuthAuditEvent(ctx context.Context, exec authAuditEventExecutor, even
 	if err != nil || !write {                               // NX-07
 		return err
 	}
+	event.Project = security.NexoRedactExternal(event.Project, 0)         // NX-07: texto externo sin credenciales
+	event.ReasonCode = security.NexoRedactExternal(event.ReasonCode, 0)   // NX-07
 	metadata, err := nullableJSON(nexoAuditMetadata(ctx, event.Metadata)) // NX-04: agrega client_ip y user_agent
 	if err != nil {
 		return err
@@ -1041,6 +1051,8 @@ func (cs *CloudStore) ListAuthAuditEvents(ctx context.Context, query AuthAuditQu
 				return nil, fmt.Errorf("cloudstore: decode auth audit metadata: %w", err)
 			}
 		}
+		event.Metadata = security.NexoRedactAuditMetadata(event.Metadata)                                                             // NX-07: filas históricas
+		event.Project, event.ReasonCode = security.NexoRedactAuditText(event.Project), security.NexoRedactAuditText(event.ReasonCode) // NX-07
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
@@ -1062,6 +1074,7 @@ func scanPrincipalToken(scanner interface{ Scan(dest ...any) error }) (Principal
 	if err := scanner.Scan(&token.ID, &token.PrincipalID, &token.TokenPrefix, &token.TokenHash, &token.Name, &token.CreatedByPrincipalID, &token.CreatedAt, &token.LastUsedAt, &token.RevokedAt, &token.RevokedByPrincipalID, &token.RevocationReason); err != nil {
 		return PrincipalToken{}, err
 	}
+	token.Name = security.NexoRedactAuditText(token.Name) // NX-07: nombres históricos que traían una credencial
 	return token, nil
 }
 

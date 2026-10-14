@@ -309,6 +309,9 @@ func (s *CloudServer) handleDashboardCreateManagedToken(w http.ResponseWriter, r
 		s.renderDashboardManagedTokenDisabled(w, r, user)
 		return
 	}
+	if s.nexoMaybeActivation(w, r, nexoIssueCtx, principalID, name, true) { // NX-07: código para otra persona
+		return
+	}
 	managedToken, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("generate token: %v", err), http.StatusInternalServerError)

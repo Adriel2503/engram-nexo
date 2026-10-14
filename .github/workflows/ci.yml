@@ -29,12 +29,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.13.2
+          version: v2.14.0
           only-new-issues: true
 
   policy-helper-tests:
@@ -69,7 +69,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
 
       - name: Verify generated templ output
         run: |
@@ -103,7 +103,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
 
       - name: Run e2e tests
         run: go test -tags e2e ./internal/server/...
@@ -121,7 +121,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
 
       - name: Run Windows-specific setup test
         run: go test ./internal/setup/ -run 'TestClaudeCodeEngramCommandPreservesWindowsAbsolutePath|TestResolveEngramCommandMiseInstall|TestCanonicalEngramCommand|TestEnsurePiMCPConfigRepairsDeadEngramCommand' -count=1
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
       - run: go test ./tools/ -run '^TestCloudSync(Wrappers|PowerShellMissingEngram)$' -v
 
   obsidian-build:
@@ -215,7 +215,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
 
       - name: Compare store benchmarks with the previous main revision
         shell: bash

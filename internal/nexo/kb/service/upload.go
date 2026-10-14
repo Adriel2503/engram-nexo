@@ -256,7 +256,7 @@ func (s *Service) ListPublishRuns(ctx context.Context, id authz.Identity, slug s
 	if err != nil {
 		return nil, err
 	}
-	return store.ListPublishRuns(ctx, s.db, sp.ID, before, limit)
+	return s.nexoListPublishRuns(ctx, id, sp, before, limit)
 }
 
 // auditSpace: space.audit.read en el espacio o platform.audit.read.

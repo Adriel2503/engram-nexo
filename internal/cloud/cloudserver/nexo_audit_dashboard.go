@@ -329,7 +329,7 @@ func auditSecretKey(key string) bool {
 }
 
 func auditSecretValue(v string) bool {
-	return strings.Contains(v, "hmac-sha256:v1:") || auditFullTokenRe.MatchString(v) || auditAuthzHdrRe.MatchString(v) || auditBearerRe.MatchString(v)
+	return strings.HasPrefix(v, "nxa_") || strings.Contains(v, "hmac-sha256:v1:") || auditFullTokenRe.MatchString(v) || auditAuthzHdrRe.MatchString(v) || auditBearerRe.MatchString(v)
 }
 
 // auditPanelDetails convierte la metadata de un evento en pares legibles. Se
@@ -468,6 +468,9 @@ func (s *CloudServer) auditPanelLog(w http.ResponseWriter, r *http.Request, svc 
 		if !s.auditPanelRecord(w, r, nexoAuditActionAuthzEventsRead, "", map[string]any{"filters": p.filters(), "result_count": len(items)}) {
 			return
 		}
+		if !s.nexoFilterRoleEvents(w, r, items) {
+			return
+		}
 		for _, e := range items {
 			page.Rows = append(page.Rows, auditRolesRow(e))
 		}
@@ -497,6 +500,9 @@ func (s *CloudServer) auditPanelLog(w http.ResponseWriter, r *http.Request, svc 
 		return
 	}
 	if !s.auditPanelRecord(w, r, nexoAuditActionAuditRead, "", map[string]any{"filters": p.filters(), "result_count": len(items)}) {
+		return
+	}
+	if !s.nexoFilterSecurityAudit(w, r, items) {
 		return
 	}
 	for _, e := range items {
@@ -762,6 +768,9 @@ func (s *CloudServer) auditPanelHistory(w http.ResponseWriter, r *http.Request, 
 	})
 	if err != nil {
 		s.auditPanelQueryError(w, r, err)
+		return
+	}
+	if !s.nexoFilterHistory(w, r, items) {
 		return
 	}
 	filters := p.filters()

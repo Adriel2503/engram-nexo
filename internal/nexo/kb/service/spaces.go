@@ -318,12 +318,12 @@ func (s *Service) ListEvents(ctx context.Context, id authz.Identity, slug string
 		if _, found, err := store.GetSpace(ctx, s.db, slug, false); err != nil {
 			return nil, err
 		} else if found {
-			return store.ListEvents(ctx, s.db, slug, beforeID, strings.TrimSpace(action), limit)
+			return s.nexoListEvents(ctx, id, slug, beforeID, action, limit)
 		}
 	}
 	sp, err := s.authorize(ctx, id, slug, authz.CapSpaceAuditRead, map[string]any{"action": "events.read"})
 	if err != nil {
 		return nil, err
 	}
-	return store.ListEvents(ctx, s.db, sp.Slug, beforeID, strings.TrimSpace(action), limit)
+	return s.nexoListEvents(ctx, id, sp.Slug, beforeID, action, limit)
 }

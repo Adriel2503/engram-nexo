@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/charmbracelet/x/term"
 	"io"
 	"os"
 	"strings"
@@ -42,8 +43,30 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 	server := fs.String("server", "", "URL del servidor Nexo (https://...)")
 	token := fs.String("token", "", "token personal (mejor --token-stdin o NEXO_TOKEN: no queda en el historial)")
 	fromStdin := fs.Bool("token-stdin", false, "leer el token de la entrada estándar")
+	activation := fs.String("activate", "", "código de activación (mejor --activate-stdin)")
+	activationStdin := fs.Bool("activate-stdin", false, "leer el código; sin mostrarlo si hay terminal")
 	asJSON := fs.Bool("json", false, "salida JSON")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	code := strings.TrimSpace(*activation)
+	if *activationStdin {
+		if stdin == os.Stdin && term.IsTerminal(os.Stdin.Fd()) {
+			_, _ = fmt.Fprint(stderr, "Código de activación: ")
+			b, err := term.ReadPassword(os.Stdin.Fd())
+			_, _ = fmt.Fprintln(stderr)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, "No se pudo leer el código.")
+				return 1
+			}
+			code = strings.TrimSpace(string(b))
+		} else {
+			line, _ := bufio.NewReader(stdin).ReadString('\n')
+			code = strings.TrimSpace(line)
+		}
+	}
+	if (code != "" || *activationStdin) && (*token != "" || *fromStdin) {
+		_, _ = fmt.Fprintln(stderr, "Elige token o activación.")
 		return 2
 	}
 	tok := strings.TrimSpace(*token)
@@ -51,16 +74,22 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 		line, _ := bufio.NewReader(stdin).ReadString('\n')
 		tok = strings.TrimSpace(line)
 	}
-	if tok == "" {
+	if tok == "" && code == "" && !*activationStdin {
 		tok = strings.TrimSpace(os.Getenv("NEXO_TOKEN"))
 	}
-	if strings.TrimSpace(*server) == "" || tok == "" {
-		fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> (--token-stdin | --token <token> | NEXO_TOKEN)")
+	if strings.TrimSpace(*server) == "" || (tok == "" && code == "") {
+		_, _ = fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> (--activate-stdin | --activate <codigo> | --token-stdin | --token <token> | NEXO_TOKEN)")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	res, err := client.Connect(ctx, dataDir, *server, tok)
+	var res client.ConnectResult
+	var err error
+	if code != "" {
+		res, err = client.ConnectActivated(ctx, dataDir, *server, code)
+	} else {
+		res, err = client.Connect(ctx, dataDir, *server, tok)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "No se conectó: "+err.Error())
 		return 1

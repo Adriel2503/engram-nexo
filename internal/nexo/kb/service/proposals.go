@@ -53,6 +53,10 @@ func (s *Service) CreateProposal(ctx context.Context, id authz.Identity, slug st
 	if found := ingest.DetectSecrets(in.Content + "\n" + in.Title + "\n" + in.Rationale); len(found) > 0 {
 		return store.Proposal{}, domain.Errorf(domain.KindInvalid, domain.CodeSecret, "the proposal contains evident secrets (RN-K4): %s (line %d)", found[0].Kind, found[0].Line)
 	}
+	// NX-07: clave, categoría y etiquetas son texto externo que llega a eventos y alertas.
+	if field := nexoCredentialIn(map[string]string{"doc_key": in.DocKey, "category": in.Category, "tags": strings.Join(in.Tags, " ")}); field != "" {
+		return store.Proposal{}, domain.Errorf(domain.KindInvalid, domain.CodeSecret, "the proposal field %s contains a credential format (RN-K4); remove it", field)
+	}
 	p := store.Proposal{ID: store.NewID(), SpaceID: sp.ID, Space: sp.Slug, Title: in.Title, ContentMD: in.Content, Rationale: in.Rationale,
 		ValidFrom: in.ValidFrom, ValidUntil: in.ValidUntil, Tags: normTags(in.Tags), Status: domain.ProposalOpen}
 	p.Category = strings.ToLower(strings.TrimSpace(in.Category))

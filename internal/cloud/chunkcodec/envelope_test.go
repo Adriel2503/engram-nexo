@@ -8,7 +8,7 @@ import (
 )
 
 func TestCompressedEnvelopeRoundTripDoesNotExposePayloadText(t *testing.T) {
-	payload := []byte(`{"observations":[{"content":"WAF-SENTINEL-738"}]}`)
+	payload := []byte(`{"observations":[{"content":"WAF-SENTINEL-738 ` + strings.Repeat("contenido de la memoria ", 10) + `"}]}`) // NX-OP14: Go 1.27 guarda sin comprimir los bloques muy pequeños (49 bytes) que no se reducen; un paquete real es mayor
 
 	encoded, err := EncodeCompressedEnvelope(payload)
 	if err != nil {

@@ -61,6 +61,7 @@ templ LoginPage(errorMsg string, next string) {
 							</label>
 							<button type="submit" class="shell-button">{ nx("Sign In") }</button>
 						</form>
+						@nexoActivationLoginLink() // NX-07: entrada pública de activación
 					</section>
 				</main>
 			</div>

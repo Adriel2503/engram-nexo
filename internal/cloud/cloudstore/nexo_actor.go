@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // NexoActorUnidentified es el autor que se registra cuando la petición no usa
@@ -58,8 +60,9 @@ func MutationActorFromContext(ctx context.Context) (MutationActor, bool) {
 }
 
 // NexoTruncateClaim recorta lo declarado por el cliente a un largo acotado.
+// NX-07: la declaración viene de afuera; se quitan credenciales antes de recortar.
 func NexoTruncateClaim(claim string) string {
-	return nexoTruncateRunes(strings.TrimSpace(claim), nexoMaxClientClaimRunes)
+	return security.NexoRedactExternal(claim, nexoMaxClientClaimRunes)
 }
 
 func nexoTruncateRunes(value string, max int) string {
@@ -73,7 +76,7 @@ func nexoTruncateRunes(value string, max int) string {
 // normalized garantiza que un actor sin identidad verificada quede como
 // "no-identificado" y sin referencias (RF-04).
 func (a MutationActor) normalized() MutationActor {
-	a.Name = strings.TrimSpace(a.Name)
+	a.Name = security.NexoRedactExternal(a.Name, 0) // NX-07: nombres históricos con credenciales
 	a.PrincipalID = strings.TrimSpace(a.PrincipalID)
 	a.TokenID = strings.TrimSpace(a.TokenID)
 	a.ClientClaim = NexoTruncateClaim(a.ClientClaim)

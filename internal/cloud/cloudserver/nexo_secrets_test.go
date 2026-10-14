@@ -148,7 +148,9 @@ func TestNexoNoSecretsInLogsAndEvents(t *testing.T) {
 	_ = tables.Close()
 	scanned := map[string]int{}
 	for _, table := range names {
-		q := `SELECT (to_jsonb(t) - 'token_hash')::text FROM "` + table + `" t`
+		// token_hash (cloud_principal_tokens) y code_hash (nexo_activation_codes, NX-07) son las únicas
+		// columnas donde el HMAC de una credencial se guarda a propósito; el valor de la credencial no.
+		q := `SELECT (to_jsonb(t) - 'token_hash' - 'code_hash')::text FROM "` + table + `" t`
 		rs, err := env.db.Query(q)
 		if err != nil {
 			t.Fatalf("%s: %v", table, err)

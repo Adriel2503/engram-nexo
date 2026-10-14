@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Límites de página (RF-35).
@@ -171,6 +173,7 @@ type NexoHistoryRecord struct {
 	TokenPrefix      string          `json:"token_prefix,omitempty"`
 	TokenName        string          `json:"token_name,omitempty"`
 	ClientClaim      string          `json:"client_claim,omitempty"`
+	PayloadWithheld  bool            `json:"payload_withheld"`
 	Title            string          `json:"title,omitempty"`
 	Payload          json.RawMessage `json:"payload,omitempty"`
 }
@@ -321,6 +324,10 @@ func (cs *CloudStore) ListAuthAudit(ctx context.Context, q NexoAuditQuery) ([]Ne
 				rec.UserAgent = ua
 			}
 		}
+		// NX-07: filas históricas escritas antes de la redacción en escritura.
+		rec.Metadata = security.NexoRedactAuditMetadata(rec.Metadata)
+		rec.UserAgent, rec.ActorDisplayName, rec.ActorSource = security.NexoRedactAuditText(rec.UserAgent), security.NexoRedactAuditText(rec.ActorDisplayName), security.NexoRedactAuditText(rec.ActorSource)
+		rec.Project, rec.ReasonCode = security.NexoRedactAuditText(rec.Project), security.NexoRedactAuditText(rec.ReasonCode)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -411,6 +418,9 @@ func (cs *CloudStore) ListActivity(ctx context.Context, q NexoActivityQuery) ([]
 			&rec.Operation, &rec.Project, &rec.ItemCount, &rec.ClientIP, &rec.UserAgent, &rec.ClientClaim); err != nil {
 			return nil, "", fmt.Errorf("cloudstore: nexo scan activity: %w", err)
 		}
+		// NX-07: filas históricas escritas antes de la redacción en escritura.
+		rec.Actor, rec.TokenName = security.NexoRedactAuditText(rec.Actor), security.NexoRedactAuditText(rec.TokenName)
+		rec.UserAgent, rec.ClientClaim, rec.Project = security.NexoRedactAuditText(rec.UserAgent), security.NexoRedactAuditText(rec.ClientClaim), security.NexoRedactAuditText(rec.Project)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -495,6 +505,9 @@ func (cs *CloudStore) ListPresence(ctx context.Context, q NexoPresenceQuery) ([]
 			&rec.LastProject, &rec.PushCount, &rec.PullCount); err != nil {
 			return nil, "", fmt.Errorf("cloudstore: nexo scan presence: %w", err)
 		}
+		// NX-07: filas históricas escritas antes de la redacción en escritura.
+		rec.Actor, rec.TokenName = security.NexoRedactAuditText(rec.Actor), security.NexoRedactAuditText(rec.TokenName)
+		rec.LastUserAgent, rec.LastClientClaim, rec.LastProject = security.NexoRedactAuditText(rec.LastUserAgent), security.NexoRedactAuditText(rec.LastClientClaim), security.NexoRedactAuditText(rec.LastProject)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {
@@ -578,6 +591,8 @@ func (cs *CloudStore) MutationHistory(ctx context.Context, q NexoHistoryQuery) (
 		if payload.Valid && payload.String != "" {
 			rec.Payload = json.RawMessage(payload.String)
 		}
+		// NX-07: las columnas de autoría se escribieron con texto externo (nombre, declaración del cliente).
+		rec.Actor, rec.TokenName, rec.ClientClaim = security.NexoRedactAuditText(rec.Actor), security.NexoRedactAuditText(rec.TokenName), security.NexoRedactAuditText(rec.ClientClaim)
 		out = append(out, rec)
 	}
 	if err := rows.Err(); err != nil {

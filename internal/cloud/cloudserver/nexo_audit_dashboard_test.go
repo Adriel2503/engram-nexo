@@ -193,9 +193,11 @@ func (e *auditPanelEnv) insertAudit(action, outcome, project, metadata string) {
 // detalle no muestra secretos y el historial se enlaza.
 func TestNexoAuditPanelLogFilters(t *testing.T) {
 	env := newAuditPanelEnv(t)
-	env.insertAudit("x.uno", "success", "proy-a", `{"nota":"hola"}`)
+	// NX-07 / R-6: el texto libre solo se muestra en campos conocidos (proyección explícita); una clave
+	// desconocida como "nota" se retiene sin lectura del ámbito. Por eso los textos de esta prueba van en campos conocidos.
+	env.insertAudit("x.uno", "success", "proy-a", `{"reason":"hola"}`)
 	env.insertAudit("x.dos", "denied", "proy-b", ``)
-	env.insertAudit("x.secreto", "success", "", `{"authorization":"Bearer abcdef1234567890","nota2":"visible","tok":"egc_live_0123abcd_`+strings.Repeat("Ab-9", 11)+`","token_hash":"hmac-sha256:v1:AAAABBBBCCCCDDDD","hash_x":"zz","client_ip":"10.1.1.1","nested":{"password":"p","ok":"si"}}`)
+	env.insertAudit("x.secreto", "success", "", `{"authorization":"Bearer abcdef1234567890","status":"visible","tok":"egc_live_0123abcd_`+strings.Repeat("Ab-9", 11)+`","token_hash":"hmac-sha256:v1:AAAABBBBCCCCDDDD","hash_x":"zz","client_ip":"10.1.1.1","nested":{"password":"p","outcome":"si"}}`)
 	env.insertAudit("nexo.history.read", "success", "", `{"filters":{"entity_key":"obs-xyz"},"result_count":2}`)
 	base := "/dashboard/admin/audit"
 
@@ -232,7 +234,7 @@ func TestNexoAuditPanelLogFilters(t *testing.T) {
 
 	// Detalle: lo seguro se ve, los secretos no.
 	body = env.mustBody("luis", base+"?action=x.secreto", 200)
-	for _, want := range []string{"nota2", "visible", "nested", "ok=si"} {
+	for _, want := range []string{"status", "visible", "nested", "outcome=si"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detalle sin %q: %.800s", want, body)
 		}
@@ -241,6 +243,11 @@ func TestNexoAuditPanelLogFilters(t *testing.T) {
 		if strings.Contains(body, bad) {
 			t.Errorf("el detalle muestra %q", bad)
 		}
+	}
+	// Una clave de texto libre desconocida se retiene (el auditor no tiene rol en el ámbito).
+	env.insertAudit("x.libre", "success", "", `{"nota":"texto-libre-reservado","reason":"motivo-visible"}`)
+	if body = env.mustBody("luis", base+"?action=x.libre", 200); strings.Contains(body, "texto-libre-reservado") || !strings.Contains(body, "motivo-visible") {
+		t.Errorf("el texto libre desconocido debía retenerse y el campo conocido mostrarse: %.600s", body)
 	}
 	// Enlace al historial desde una consulta de historial.
 	if body = env.mustBody("luis", base+"?action=nexo.history.read", 200); !strings.Contains(body, `href="/dashboard/admin/audit/history?key=obs-xyz"`) {
@@ -349,7 +356,7 @@ func TestNexoAuditPanelActivityAndHistory(t *testing.T) {
 		t.Errorf("búsqueda sin clave: %.300s", body)
 	}
 	body = env.mustBody("luis", hist+"?key=obs-hist", 200)
-	for _, want := range []string{"Versiones de obs-hist", "Primera decisión", "Segunda decisión", "Creación o cambio", "Eliminación", "ana", "luis", "ANA-PC", "LUIS-PC", "identidad no verificada"} {
+	for _, want := range []string{"Versiones de obs-hist", "Creación o cambio", "Eliminación", "ana", "luis", "ANA-PC", "LUIS-PC", "identidad no verificada"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("historial sin %q", want)
 		}
@@ -463,7 +470,7 @@ func TestNexoAuditPanelAlerts(t *testing.T) {
 	}
 	path := "/dashboard/admin/audit/alerts"
 	body := env.mustBody("luis", path, 200)
-	for _, want := range []string{"Cuenta de servicio sin uso", "service_account_stale", "ci-wiki lleva 200 días", "Ráfaga de acciones denegadas", "Pendiente", "Reconocer alerta", "Advertencia", "Alta"} {
+	for _, want := range []string{"Cuenta de servicio sin uso", "service_account_stale", "Evento de auditoría: service_account_stale", "Ráfaga de acciones denegadas", "Pendiente", "Reconocer alerta", "Advertencia", "Alta"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("alertas sin %q", want)
 		}
@@ -522,8 +529,8 @@ func TestNexoAuditPanelAlerts(t *testing.T) {
 	if body = env.mustBody("luis", rec.Header().Get("Location"), 200); !strings.Contains(body, "Alerta reconocida") || strings.Contains(body, `<code class="nxa-code">service_account_stale</code>`) {
 		t.Errorf("tras reconocer, la alerta sale de pendientes: %.500s", body)
 	}
-	if body = env.mustBody("luis", path+"?state=todas", 200); !strings.Contains(body, "Reconocida") || !strings.Contains(body, "revisado con la persona responsable") || !strings.Contains(body, `<code class="nxa-code">service_account_stale</code>`) {
-		t.Errorf("todas muestra la reconocida con su nota")
+	if body = env.mustBody("luis", path+"?state=todas", 200); !strings.Contains(body, "Reconocida") || strings.Contains(body, "revisado con la persona responsable") || !strings.Contains(body, "texto no mostrado: requiere rol de lectura") || !strings.Contains(body, `<code class="nxa-code">service_account_stale</code>`) {
+		t.Errorf("todas muestra la reconocida y retiene la nota libre (R-6: la alerta no tiene un ámbito que el auditor pueda leer)")
 	}
 	if rec = env.post("luis", action, "csrf_token="+csrf); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "ya fue reconocida") {
 		t.Fatalf("segundo ack: %d", rec.Code)
@@ -629,10 +636,13 @@ func TestNexoAuditPanelAccessReview(t *testing.T) {
 	}
 	body = env.mustBody("luis", rec.Header().Get("Location"), 200)
 	today := time.Now().UTC().Format("2006-01-02")
-	for _, want := range []string{"Revisión registrada con tu nombre", "hecha por luis", today, "Q4 2026: 2 tokens rotados", "Lo que se revisó entonces", "hace un momento"} {
+	for _, want := range []string{"Revisión registrada con tu nombre", "hecha por luis", today, "el texto no se muestra aquí", "Lo que se revisó entonces", "hace un momento"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("última revisión sin %q: %.900s", want, body)
 		}
+	}
+	if strings.Contains(body, "Q4 2026: 2 tokens rotados") {
+		t.Errorf("NX-07: la nota libre de una revisión no sale en el panel")
 	}
 	if strings.Contains(body, "Todavía no se registró") {
 		t.Errorf("sigue diciendo que no hay revisión")

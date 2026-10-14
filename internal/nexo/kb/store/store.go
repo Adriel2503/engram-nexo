@@ -15,6 +15,7 @@ import (
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/domain"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/ingest"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Querier es *sql.DB o *sql.Tx.
@@ -645,13 +646,16 @@ type EventWrite struct {
 func InsertEvent(ctx context.Context, q Querier, e EventWrite) error {
 	var details any
 	if len(e.Details) > 0 {
-		raw, err := json.Marshal(e.Details)
+		raw, err := json.Marshal(security.NexoRedactAuditMetadata(e.Details)) // NX-07: sin formatos de credencial
 		if err != nil {
 			return err
 		}
 		details = string(raw)
 	}
-	label := strings.TrimSpace(e.Actor.Label)
+	e.TargetID = security.NexoRedactExternal(e.TargetID, 0)
+	e.Actor.UserAgent = security.NexoRedactExternal(e.Actor.UserAgent, 0)
+	e.Actor.Claim = security.NexoRedactExternal(e.Actor.Claim, 0)
+	label := security.NexoRedactExternal(e.Actor.Label, 0)
 	if label == "" {
 		label = "desconocido"
 	}
@@ -695,6 +699,10 @@ func ListEvents(ctx context.Context, q Querier, slug string, beforeID int64, act
 		if details != "" {
 			_ = json.Unmarshal([]byte(details), &e.Details)
 		}
+		// NX-07: filas históricas escritas antes de la redacción en escritura.
+		e.TargetID, e.ActorLabel = security.NexoRedactAuditText(e.TargetID), security.NexoRedactAuditText(e.ActorLabel)
+		e.UserAgent, e.ClientClaim = security.NexoRedactAuditText(e.UserAgent), security.NexoRedactAuditText(e.ClientClaim)
+		e.Details = security.NexoRedactAuditMetadata(e.Details)
 		out = append(out, e)
 	}
 	return out, rows.Err()

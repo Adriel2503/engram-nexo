@@ -24,9 +24,10 @@ import (
 )
 
 var (
-	nexoFullTokenRe = regexp.MustCompile(`egc_[a-z0-9-]+_[0-9a-f]{8}_[A-Za-z0-9-]{20,}`)
-	nexoAuthzHdrRe  = regexp.MustCompile(`(?i)authorization["']?\s*[:=]\s*["']?(bearer|basic)\s+\S+`)
-	nexoBearerRe    = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
+	nexoActivationCodeRe = regexp.MustCompile(`nxa_[A-Za-z0-9_-]{43}`)
+	nexoFullTokenRe      = regexp.MustCompile(`egc_[a-z0-9-]+_[0-9a-f]{8}_[A-Za-z0-9-]{20,}`)
+	nexoAuthzHdrRe       = regexp.MustCompile(`(?i)authorization["']?\s*[:=]\s*["']?(bearer|basic)\s+\S+`)
+	nexoBearerRe         = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
 )
 
 const nexoManagedHashPrefix = "hmac-sha256:v1:"
@@ -80,6 +81,9 @@ func (s *nexoLeakScanner) find(text string, allow ...string) []string {
 		if strings.Contains(text, v) {
 			out = append(out, label)
 		}
+	}
+	if nexoActivationCodeRe.MatchString(text) {
+		out = append(out, "código de activación oculto")
 	}
 	if m := nexoFullTokenRe.FindString(text); m != "" {
 		out = append(out, "full managed token "+nexoRedact(m))

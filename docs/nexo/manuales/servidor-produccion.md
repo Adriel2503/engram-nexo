@@ -249,7 +249,7 @@ significa sin límite).
 | `NEXO_AUTH_LOCKOUT` | vacía: 20 tokens inválidos distintos desde una IP en 300 s bloquean la IP 900 s; sin bloqueo por persona | JSON `{"max_failures":20,"user_max_failures":0,"window_seconds":300,"lockout_seconds":900}` u `off`. No se recomienda activar `user_max_failures` (un token viejo podría dejar a la persona sin acceso) |
 
 Grupos de rutas: `sync` = `/sync/*`; `admin` = `/admin/*`, `/nexo/admin/*`, `/nexo/authz/*`;
-`login` = `POST /dashboard/login` y `/dashboard/bootstrap`; `nexo` = resto de `/nexo/*`; `other` =
+`login` = `POST /dashboard/login`, `/dashboard/bootstrap`, `/dashboard/activate` y `/nexo/authz/v1/activate`; `nexo` = resto de `/nexo/*`; `other` =
 panel, archivos estáticos y `/health`. Los límites son por réplica. Con muchas PCs detrás de un mismo
 NAT, suba `sync.ip` (600 por minuto alcanza para unas 100 PCs con sincronización automática).
 
@@ -257,6 +257,7 @@ NAT, suba `sync.ip` (600 por minuto alcanza para unas 100 PCs con sincronizació
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
+| `NEXO_ACTIVATION_TTL` | `24h` | Plazo de los códigos de activación: duración de Go entre `1h` y `168h`; un valor inválido impide arrancar el servidor (el error nombra la variable, sin mostrar el valor). Agréguela a `environment` de cloud en Compose si desea cambiarla |
 | `NEXO_TOKEN_MAX_DAYS` | `365` (válido de 1 a 36500) | Caducidad máxima al emitir un token. Los tokens se emiten por defecto con 90 días (o con el máximo, si es menor) |
 
 ### 4.6 Conocimiento (`NEXO_KB_*`, servidor)
@@ -661,8 +662,9 @@ primer arranque, desde una red incluida en `NEXO_SUPERADMIN_ALLOWED_CIDRS`.
 
 1. **Administración > Usuarios**, formulario "Crear usuario": usuario, correo, nombre y rol de plataforma
    **Superadmin** (solo un superadmin puede elegirlo).
-2. En el detalle de la persona, "Crear token": nombre `laptop-<usuario2>`, alcance `write` y días de vida
-   (ver la nota de abajo). El token aparece **una sola vez**: entréguelo por un canal seguro.
+2. En el detalle, "Crear código de activación": nombre `laptop-<usuario2>`, alcance `write` y días
+   (ver la nota de abajo). Entregue el código por un canal seguro. La persona lo canjea en
+   `/dashboard/activate` o con `engram nexo connect --server <url> --activate-stdin` y recibe su token.
 
 **Por API**, equivalente en dos pasos:
 
@@ -671,14 +673,24 @@ primer arranque, desde una red incluida en `NEXO_SUPERADMIN_ALLOWED_CIDRS`.
 curl -fsS -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"username":"<usuario2>","email":"<correo2>","display_name":"<Nombre Apellido>","role":"superadmin"}' \
   "$NEXO_URL/admin/users"
-# 2. Emitirle su token (escritura). Use una caducidad distinta de la del primero: ver la nota
+# 2. Emitirle un código para obtener su token (escritura). Use una caducidad distinta de la del primero: ver la nota
 curl -fsS -X POST -H "Authorization: Bearer $NEXO_ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"principal":"<usuario2>","name":"laptop-<usuario2>","expires_in_days":75,"scope":"write"}' \
   "$NEXO_URL/nexo/authz/v1/tokens"
 ```
 
-La respuesta del paso 2 trae `raw_token` una sola vez. Para promover a alguien que ya existe: `PUT
+La respuesta del paso 2 trae `credential_type: "activation_code"`, `activation_code` y sus metadatos,
+sin `raw_token`. El código vence en 24 horas por defecto y es de un solo uso. Solo el canje emite
+el token; sus días empiezan en ese momento. Para promover a alguien que ya existe: `PUT
 $NEXO_URL/nexo/authz/v1/platform/members/<usuario2>` con `{"role":"superadmin"}`.
+
+**Requisito antes de producción (problema conocido, SG-17):** quien emite el código lo conoce y
+podría canjearlo antes que la persona. Las mitigaciones actuales (rechazo del canje por el emisor
+autenticado, alerta `activation_same_ip`, vencimiento de 24 h, revocación y auditoría con IP y
+agente) no lo eliminan. Los estándares (OWASP Forgot Password, ASVS V2.5, NIST SP 800-63B, ISO/IEC
+27002:2022 5.17) piden que el secreto de entrega llegue a la persona sin que lo conozca quien lo
+emite: SSO corporativo (OIDC) o, sin SSO, envío del código por el servidor al correo corporativo
+de la persona. Ver manual de administración §3.3.
 
 **Nota: escalone los vencimientos.** Los tokens nacen con 90 días. Si los dos superadmins reciben su token
 el mismo día, vencen el mismo día y, si nadie renovó, se pierde el acceso de los dos a la vez. Emita el del
@@ -714,6 +726,10 @@ curl -fsS -X POST -H "Authorization: Bearer $NEXO_NEW_TOKEN" -H "Content-Type: a
   -d '{"reason":"renovación"}' "$NEXO_URL/admin/tokens/<id-del-viejo>/revoke"
 # 4. Comprobar: el viejo responde 401 y el nuevo 200
 ```
+
+Si el token se emite para otra persona, entregue el código y espere que lo canjee; para sí mismo
+y para cuentas de servicio se conserva `raw_token`. Bootstrap y emergencia siguen siendo directos.
+Los pendientes se revocan desde Usuarios o `/nexo/authz/v1/activations/<id>/revoke` (administración §3.3).
 
 Después, actualice el token en las PCs o servicios que lo usaban (`engram nexo connect --token-stdin`). La
 alerta del token viejo deja de repetirse al revocarlo (un token revocado no avisa).

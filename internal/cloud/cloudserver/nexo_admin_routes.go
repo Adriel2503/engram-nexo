@@ -110,6 +110,9 @@ func (s *CloudServer) handleNexoAdminAudit(w http.ResponseWriter, r *http.Reques
 	if nexoWriteQueryError(w, err) {
 		return
 	}
+	if !s.nexoFilterSecurityAudit(w, r, items) {
+		return
+	}
 	limit := cloudstore.NexoNormalizeLimit(q.Limit)
 	if !s.nexoAuditRead(w, r, audit, actor, nexoAuditActionAuditRead, "", p.filters(), len(items)) {
 		return
@@ -197,6 +200,9 @@ func (s *CloudServer) handleNexoAdminHistory(w http.ResponseWriter, r *http.Requ
 	}
 	items, next, err := store.MutationHistory(r.Context(), q)
 	if nexoWriteQueryError(w, err) {
+		return
+	}
+	if !s.nexoFilterHistory(w, r, items) {
 		return
 	}
 	filters := p.filters()

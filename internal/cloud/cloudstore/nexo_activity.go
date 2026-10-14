@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Operaciones registradas en nexo_activity_log.operation.
@@ -60,9 +62,10 @@ func (cs *CloudStore) RecordActivity(ctx context.Context, event ActivityEvent) e
 	if operation == "" {
 		return fmt.Errorf("cloudstore: nexo activity operation is required")
 	}
-	project := strings.TrimSpace(event.Project)
+	// NX-07: todo texto que viene de afuera se limpia de credenciales antes de guardarse.
+	project := security.NexoRedactExternal(event.Project, 0)
 	clientIP := nexoTruncateRunes(strings.TrimSpace(event.ClientIP), 64)
-	userAgent := nexoTruncateRunes(strings.TrimSpace(event.UserAgent), nexoMaxUserAgentRunes)
+	userAgent := security.NexoRedactExternal(event.UserAgent, nexoMaxUserAgentRunes)
 	itemCount := event.ItemCount
 	if itemCount < 0 {
 		itemCount = 0
