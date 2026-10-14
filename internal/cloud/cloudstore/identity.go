@@ -70,6 +70,8 @@ type HumanUser struct {
 	Role        string    `json:"role"`
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
+	// NX-05: rol de plataforma de Nexo (miembro, auditor, admin, superadmin); Role es el derivado de Engram.
+	PlatformRole string `json:"platform_role,omitempty"`
 }
 
 type CreateHumanUserParams struct {
@@ -163,11 +165,7 @@ func (cs *CloudStore) CreatePrincipal(ctx context.Context, params CreatePrincipa
 		enabled = *params.Enabled
 	}
 
-	const q = `
-		INSERT INTO cloud_principals (kind, display_name, role, enabled)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id::text, kind, display_name, role, enabled, created_at, updated_at`
-	return scanPrincipal(cs.db.QueryRowContext(ctx, q, kind, displayName, role, enabled))
+	return cs.nexoCreatePrincipal(ctx, kind, displayName, role, enabled) // NX-05: el rol de Nexo y la columna derivada, en la misma transacción
 }
 
 func (cs *CloudStore) GetPrincipal(ctx context.Context, id string) (Principal, error) {
@@ -221,11 +219,14 @@ func (cs *CloudStore) UpdatePrincipal(ctx context.Context, id string, params Upd
 	if err := guardLastActiveAdminTx(ctx, tx, strings.TrimSpace(id), role, params.Enabled); err != nil {
 		return err
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE cloud_principals SET role = $2, enabled = $3, updated_at = NOW() WHERE id = $1`, strings.TrimSpace(id), role, params.Enabled)
+	res, err := tx.ExecContext(ctx, `UPDATE cloud_principals SET enabled = $2, updated_at = NOW() WHERE id = $1`, strings.TrimSpace(id), params.Enabled) // NX-05: sin role; la columna se deriva del rol de Nexo
 	if err != nil {
 		return fmt.Errorf("cloudstore: update principal: %w", err)
 	}
 	if err := requireAffected(res, "principal"); err != nil {
+		return err
+	}
+	if err := nexoSyncEngramRole(ctx, tx, strings.TrimSpace(id), role); err != nil { // NX-05
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -283,6 +284,9 @@ func (cs *CloudStore) CreateHumanUser(ctx context.Context, params CreateHumanUse
 	var human HumanUser
 	if err := tx.QueryRowContext(ctx, humanQ, principal.ID, username, nullableText(params.Email)).Scan(&human.PrincipalID, &human.Username, &human.Email, &human.CreatedAt); err != nil {
 		return HumanUser{}, fmt.Errorf("cloudstore: create human user: %w", err)
+	}
+	if err := nexoAssignRoleOnCreate(ctx, tx, &principal, &human, role, ""); err != nil { // NX-05: rol de Nexo en la misma transacción; la columna se deriva
+		return HumanUser{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return HumanUser{}, fmt.Errorf("cloudstore: commit human user: %w", err)
@@ -358,6 +362,9 @@ func (cs *CloudStore) CreateFirstAdminHumanUser(ctx context.Context, params Crea
 	var human HumanUser
 	if err := tx.QueryRowContext(ctx, humanQ, principal.ID, username, nullableText(params.Email)).Scan(&human.PrincipalID, &human.Username, &human.Email, &human.CreatedAt); err != nil {
 		return HumanUser{}, fmt.Errorf("cloudstore: create first admin human user: %w", err)
+	}
+	if err := nexoAssignRoleOnCreate(ctx, tx, &principal, &human, PrincipalRoleAdmin, "bootstrap"); err != nil { // NX-05: el primer admin queda superadmin
+		return HumanUser{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return HumanUser{}, fmt.Errorf("cloudstore: commit first admin: %w", err)

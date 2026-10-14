@@ -93,6 +93,7 @@ func (s *CloudServer) handleAdminListUsers(w http.ResponseWriter, r *http.Reques
 		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("list users: %v", err))
 		return
 	}
+	s.nexoFillPlatformRoles(r.Context(), users) // NX-05: platform_role (rol de Nexo) en cada persona
 	jsonResponse(w, http.StatusOK, users)
 }
 
@@ -114,15 +115,16 @@ func (s *CloudServer) handleAdminCreateUser(w http.ResponseWriter, r *http.Reque
 	if role == "" {
 		role = string(cloudauth.RoleMember)
 	}
-	if !s.nexoAllowCreateUserRole(w, r, role, nexoRespondJSON) { // NX-05: solo un superadmin crea admins (R-7)
+	nexoCtx, role, ok := s.nexoCreateUserRole(w, r, role, nexoRespondJSON, "api") // NX-05: el rol es el de Nexo; auditor, admin y superadmin solo por un superadmin (R-7)
+	if !ok {
 		return
 	}
-	user, err := store.CreateHumanUser(r.Context(), cloudstore.CreateHumanUserParams{Username: req.Username, Email: req.Email, DisplayName: req.DisplayName, Role: role})
+	user, err := store.CreateHumanUser(nexoCtx, cloudstore.CreateHumanUserParams{Username: req.Username, Email: req.Email, DisplayName: req.DisplayName, Role: role})
 	if err != nil {
 		writeActionableError(w, http.StatusBadRequest, constants.UpgradeErrorClassRepairable, constants.UpgradeErrorCodePayloadInvalid, fmt.Sprintf("create user: %v", err))
 		return
 	}
-	if err := s.recordAdminAudit(r.Context(), store, actor, authAuditActionUserCreate, user.PrincipalID, "", map[string]any{"kind": string(cloudauth.PrincipalKindHuman), "role": role, "username": strings.TrimSpace(req.Username)}); err != nil {
+	if err := s.recordAdminAudit(r.Context(), store, actor, authAuditActionUserCreate, user.PrincipalID, "", map[string]any{"kind": string(cloudauth.PrincipalKindHuman), "role": role, "platform_role": user.PlatformRole, "username": strings.TrimSpace(req.Username)}); err != nil {
 		writeAuditFailure(w, err)
 		return
 	}

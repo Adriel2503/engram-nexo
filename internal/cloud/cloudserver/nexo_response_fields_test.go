@@ -184,7 +184,7 @@ func TestNexoResponseTypeCheckerCatchesLeaks(t *testing.T) {
 // de Engram (contrato revisado). Si Engram agrega un campo, la prueba falla y
 // hay que revisarlo antes de aceptarlo (RS-40).
 var nexoAdminResponseKeys = map[string][]string{
-	"user":  {"principal_id", "username", "email", "display_name", "role", "enabled", "created_at"},
+	"user":  {"principal_id", "username", "email", "display_name", "role", "platform_role", "enabled", "created_at"},
 	"token": {"id", "principal_id", "token_prefix", "name", "created_by_principal_id", "created_at", "last_used_at", "revoked_at", "revoked_by_principal_id", "revocation_reason", "expires_at", "scope"},
 	"grant": {"principal_id", "project", "granted_by_principal_id", "created_at"},
 }

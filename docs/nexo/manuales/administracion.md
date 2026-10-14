@@ -99,6 +99,34 @@ Reglas que conviene recordar:
   (`409 last_superadmin`).
 - Nadie se asigna a sí mismo un rol mayor al que tiene (`403 self_promotion`).
 
+### 2.1.1 Un solo rol de plataforma: el de Nexo
+
+Cada persona tiene **un solo rol de plataforma**, el de Nexo (miembro, auditor, admin o superadmin).
+Es el único que se elige, se muestra y se audita. Engram guarda además una columna `role`
+(`admin` o `member`) que usan sus pantallas y consultas, pero **se deriva** del rol de Nexo y nadie la
+edita aparte: cualquier cambio de rol (el formulario del panel, la API `/admin/users`, el comando de
+arranque o la API de roles) pasa por Nexo, que actualiza las dos cosas en la misma transacción y deja el
+evento de auditoría.
+
+| Rol de plataforma (Nexo) | Lo que Engram ve (columna `role`) | Quién lo asigna |
+|---|---|---|
+| Miembro | `member` | Cualquier admin, al crear la persona |
+| Auditor | `member` | Solo un superadmin |
+| Administrador (`admin`) | `admin` | Solo un superadmin |
+| Superadmin | `admin` | Solo un superadmin; el primero lo crea `engram cloud bootstrap admin` |
+
+- **Desde el panel:** Administración > Usuarios. Al crear, se elige uno de los cuatro roles (un admin solo
+  puede elegir Miembro: los otros salen desactivados y el servidor los rechaza con 403). En el detalle de
+  una persona, el superadmin cambia su rol con confirmación; la lista y el detalle muestran el rol de Nexo
+  en español y la cabecera lo muestra junto a tu nombre.
+- **Reglas que siguen valiendo:** nadie se asigna un rol mayor al que tiene (403); el último superadmin
+  habilitado no se degrada ni se deshabilita (409); una cuenta de servicio solo puede ser miembro.
+- **Token heredado `ENGRAM_CLOUD_ADMIN`:** no tiene rol de Nexo. Como hasta ahora, puede ver las
+  pantallas de administración del panel, pero no crea personas, ni emite tokens, ni cambia roles.
+- **Si la columna de Engram y el rol de Nexo difieren** (alguien desactivó los triggers de la base o se
+  restauró una copia vieja): la columna no concede nada, la alerta `platform_role_drift` avisa, la
+  revisión de accesos marca `role_drift` y `engram nexo authz reconcile-roles` lo corrige (ver 2.4).
+
 ### 2.2 Roles en proyectos y espacios
 
 | Rol | En un espacio de conocimiento | En un proyecto de memoria |
@@ -140,6 +168,20 @@ La respuesta trae `role_before`, `role_after` y `changed`. Cada cambio queda en 
 (`binding.granted`, `binding.changed`, `binding.revoked`) y dispara la alerta
 `platform_role_changed`.
 
+Desde el panel (superadmin): **Administración > Usuarios**, abrir a la persona, elegir el rol en
+"Cambiar a", **Cambiar rol** y **Confirmar cambio**. Se registra igual que por la API.
+
+La columna de rol de Engram se actualiza sola (superadmin y admin = `admin`; auditor y miembro =
+`member`). Para comprobar que ambas coinciden, o corregirlas si no (en seco por defecto):
+
+```sh
+# Desde el contenedor o el servidor, con ENGRAM_DATABASE_URL definida
+engram nexo authz reconcile-roles            # lista las diferencias; sale con 1 si hay alguna
+engram nexo authz reconcile-roles --apply    # recalcula la columna desde el rol de Nexo (nunca al revés)
+```
+
+Cada corrección deja un evento `engram_role.synced`. El comando es idempotente.
+
 ## 3. Personas y tokens
 
 La única identidad en Nexo es el **token asignado** por un administrador. Lo que declara la PC
@@ -148,7 +190,8 @@ La única identidad en Nexo es el **token asignado** por un administrador. Lo qu
 ### 3.1 Crear una persona
 
 En el panel: **Administración > Usuarios** (`/dashboard/admin/users`), formulario "Crear
-usuario": usuario, correo (opcional), nombre para mostrar (opcional) y rol (Miembro o Administrador). Por API:
+usuario": usuario, correo (opcional), nombre para mostrar (opcional) y rol de plataforma (Miembro, Auditor,
+Administrador o Superadmin; solo un superadmin puede elegir uno distinto de Miembro). Por API:
 
 ```sh
 curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
@@ -156,8 +199,11 @@ curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
   "$NEXO_URL/admin/users"
 ```
 
-La respuesta trae `principal_id` (el id numérico). Crear con `"role":"admin"` solo lo puede hacer un
-superadmin. Para dar el rol de auditor, cree la persona como `member` y asígnele `auditor` (2.4).
+La respuesta trae `principal_id` (el id numérico) y `platform_role` (el rol de Nexo). `role` acepta
+`member` o `miembro`, `auditor`, `admin` y `superadmin`; crear con cualquiera que no sea miembro solo lo
+puede hacer un superadmin (un admin recibe 403 y no se crea nada). Un valor distinto responde 400. La
+columna `role` de la respuesta es la que ve Engram y se deriva del rol de Nexo (2.1.1). Para cambiar el rol
+después, use el detalle de la persona en el panel o la API de roles (2.4).
 
 Una persona nueva no sincroniza ningún proyecto hasta que se le da permiso (sección 8), y ve los
 espacios abiertos con el rol implícito.
@@ -1117,6 +1163,7 @@ Qué hacer con lo que aparece:
 |---|---|
 | `inactive` | Confirme con el área si la persona sigue; si no, deshabilítela (3.7) |
 | `stale` | Cuenta de servicio sin uso en `NEXO_SA_STALE_DAYS` días (aparece con su nombre corto como usuario): confirme con su responsable; si sobra, revoque sus tokens o deshabilítela (3.8). Nunca se deshabilita sola |
+| `role_drift` | La columna de rol de Engram no coincide con el rol de plataforma de Nexo (alguien evitó los triggers de la base o se restauró una copia vieja). La columna no concede nada: corrija con `engram nexo authz reconcile-roles --apply` (2.4). También deja la alerta `platform_role_drift` |
 | `token_no_expiry` | Token anterior a esta versión: emita uno con caducidad y revoque el viejo |
 | `token_never_used` | Token entregado que nunca se usó: confirme y revoque si sobra |
 | Rol de plataforma o responsable que ya no corresponde | Ajuste el rol (2.4, 4.3) |
@@ -1214,7 +1261,7 @@ proyecto o espacio, por cada permiso de proyecto de Engram y por cada token. La 
 (`tipo`) dice cuál: `rol`, `permiso_engram` o `token`; las demás repiten los datos de la persona para
 poder filtrar y ordenar. Columnas: `tipo`, `persona_id`, `usuario`, `nombre`, `correo`, `clase`,
 `habilitada`, `rol_engram`, `rol_plataforma`, `ultima_actividad`, `dias_sin_uso`, `marcas` (códigos
-separados por espacio: `inactive`, `stale`, `disabled`, `token_no_expiry`, `token_never_used`),
+separados por espacio: `inactive`, `stale`, `disabled`, `role_drift`, `token_no_expiry`, `token_never_used`),
 `ambito_tipo`, `ambito`, `rol`, `desde`, `otorgado_por` (filas `rol` y `permiso_engram`),
 `token_id`, `token_nombre`, `token_alcance`, `token_creado`, `token_creado_por`, `token_vence`,
 `token_sin_vencimiento`, `token_vencido`, `token_ultimo_uso` (filas `token`) y, al final, los datos de

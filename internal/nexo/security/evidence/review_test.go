@@ -26,7 +26,7 @@ func person(rep evidence.AccessReview, id string) *evidence.ReviewPerson {
 func TestAccessReviewReportAndCompletion(t *testing.T) {
 	env := kbtest.New(t)
 	ctx := context.Background()
-	jefe := env.Principal("jefe", "human", "admin")
+	jefe := env.Principal("jefe", "human", "member") // el superadmin se asigna con la fila de abajo (la columna de Engram se deriva)
 	ana := env.Principal("ana", "human", "member")
 	viejo := env.Principal("viejo", "human", "member")
 	ci := env.Principal("ci-bot", "service_account", "member")
@@ -84,7 +84,7 @@ func TestAccessReviewReportAndCompletion(t *testing.T) {
 func TestDisableInactive(t *testing.T) {
 	env := kbtest.New(t)
 	ctx := context.Background()
-	jefe := env.Principal("jefe", "human", "admin")
+	jefe := env.Principal("jefe", "human", "member") // el superadmin se asigna con la fila de abajo (la columna de Engram se deriva)
 	viejo := env.Principal("viejo", "human", "member")
 	nuevo := env.Principal("nuevo", "human", "member")
 	env.Exec(`INSERT INTO nexo_role_bindings (principal_id, scope_type, scope_key, role) VALUES ($1::bigint, 'platform', '*', 'superadmin')`, jefe)

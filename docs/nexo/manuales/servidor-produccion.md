@@ -501,8 +501,11 @@ docker compose -f compose.yaml exec cloud \
 - `--issue-token <nombre>` emite un token con 90 días de vigencia. Se muestra **una sola vez**:
   cópielo directo al gestor de secretos.
 - Opcional: `--grant-project <proyecto>` (repetible) le da permiso de sincronizar ese proyecto.
-- Ese primer administrador pasa a ser **superadmin** de Nexo automáticamente (es el administrador
-  habilitado de menor id cuando todavía no hay superadmin).
+- Ese primer administrador queda como **superadmin** de Nexo en la misma transacción que lo crea (el rol
+  único de plataforma; Engram lo ve como `admin`) y el comando lo dice al terminar. Si actualiza un
+  servidor existente, la migración materializa una sola vez los administradores de Engram como roles de
+  Nexo (el primero habilitado sin superadmin, como superadmin; los demás, como admin) y deja un evento por
+  cada uno; luego revise la desalineación con `engram nexo authz reconcile-roles` (en seco).
 
 Si el token se perdió antes de usarlo y ese administrador no tiene ningún token:
 
@@ -912,6 +915,7 @@ devuelve `409`. El servidor evalúa las reglas cada minuto en una sola réplica.
 | `authz_denied_burst` | Ráfaga de denegaciones de permisos | 5 en 1 min | high |
 | `auth_failures_burst` | Ráfaga de fallos de autenticación | 10 en 5 min | high |
 | `platform_role_changed` | Cambia un rol de plataforma | 1 | high |
+| `platform_role_drift` | La columna de rol de Engram no coincide con el rol de Nexo (corregir con `engram nexo authz reconcile-roles --apply`) | 1 | high |
 | `shared_token_used` | Se usa el token compartido `ENGRAM_CLOUD_TOKEN` | 1 | warning |
 | `expired_token_used` | Se usa un token vencido | 1 | info |
 | `revoked_token_used` | Se usa un token revocado o de una persona deshabilitada | 1 | warning |

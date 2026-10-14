@@ -303,6 +303,7 @@ func (s *CloudServer) routes() {
 		NexoValidateLoginTokenRequest: func(r *http.Request, token string) error { // NX-04
 			return s.nexoValidateDashboardLogin(r, token) // NX-07: bloqueo por fallos (S2-02)
 		},
+		NexoUsersView: s.nexoUsersView, // NX-05: Administración > Usuarios con el rol de Nexo
 	})
 	s.mux.HandleFunc("GET /dashboard/bootstrap", s.handleDashboardBootstrapPage)
 	s.mux.HandleFunc("POST /dashboard/bootstrap", s.handleDashboardBootstrapSubmit)
@@ -595,6 +596,9 @@ func (s *CloudServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *CloudServer) isDashboardAdmin(r *http.Request) bool {
 	if principal, ok := s.dashboardPrincipalFromRequest(r); ok {
+		if allowed, handled := s.nexoDashboardAdmin(r, principal); handled { // NX-05: decide el motor de Nexo (platform.users.manage), no la columna
+			return allowed
+		}
 		return principal.Role == cloudauth.RoleAdmin && (principal.Source == cloudauth.PrincipalSourceManagedToken || principal.Source == cloudauth.PrincipalSourceLegacyEnvAdmin)
 	}
 	return s.verifyLegacyDashboardAdminCookie(r)
@@ -605,6 +609,9 @@ func (s *CloudServer) isDashboardAdmin(r *http.Request) bool {
 // authorize mutations; their handlers remain responsible for that enforcement.
 func (s *CloudServer) canManageManagedUsers(r *http.Request) bool {
 	principal, ok := s.dashboardActorPrincipal(r)
+	if allowed, handled := s.nexoDashboardAdmin(r, principal); ok && handled { // NX-05: decide el motor de Nexo
+		return allowed
+	}
 	return ok && isManagedAdminPrincipal(principal)
 }
 

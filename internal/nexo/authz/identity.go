@@ -18,7 +18,7 @@ type Identity struct {
 	Verified    bool   // token administrado (NX-01); false para token compartido y modo inseguro
 	Enabled     bool   // la persona está habilitada (el resolvedor de Engram ya rechaza deshabilitados)
 	TokenScope  string // "" = write (hasta NX-06), "read", "write"
-	EngramRole  string // admin | member (compatibilidad, requisitos §9)
+	EngramRole  string // admin | member: columna derivada del rol de Nexo; solo informativa, no decide permisos
 	ClientIP    string
 	UserAgent   string
 	ClientClaim string
@@ -92,8 +92,6 @@ const (
 	SourceBinding     = "binding"
 	SourceEngramGrant = "engram_grant"
 	SourceDefaultRole = "default_role"
-	SourceEngramAdmin = "engram_admin"
-	SourceBootstrap   = "bootstrap"
 	SourceNone        = "none"
 )
 

@@ -166,6 +166,7 @@ Errores y paginación como NX-03. Cada escritura genera un evento; cada denegaci
 2. Insertar `('platform', '*')` en `nexo_scopes`.
 3. Si no hay ningún superadmin: asignar `superadmin` al principal humano habilitado con rol Engram
    `admin` de menor id (el de bootstrap) y registrar el evento `binding.granted` con actor "sistema".
+   *Reemplazado en la unificación de roles: ver §11.4 (corrección única al migrar, con marca).*
 4. No se crean filas para proyectos existentes: rige la compatibilidad hasta que un responsable los
    configure.
 
@@ -218,7 +219,7 @@ anteriores o las precisa:
 4. **Ámbito archivado.** `Can` solo admite `*.audit.read`; el resto responde `archived` (403) a
    quien tiene rol explícito, y el rol implícito deja de aplicar (oculto, 404). `VisibleScopes`
    excluye archivados. Se agregó la acción de evento `scope.restored`.
-5. **Arranque del superadmin.** Además de la migración (design §6.3), se resuelve en caliente: si no
+5. **Arranque del superadmin.** *(Reemplazado por §11: el primer admin queda superadmin al crearse y la migración corrige una sola vez; se quitó la resolución en caliente.)* Además de la migración (design §6.3), se resuelve en caliente: si no
    hay ningún superadmin habilitado, el admin humano habilitado de Engram de menor id sin fila de
    plataforma (función SQL `nexo_authz_bootstrap_candidate()`) recibe `superadmin` en su primera
    petición y queda persistido con evento `binding.granted` de actor `sistema`. Así
@@ -227,7 +228,7 @@ anteriores o las precisa:
    menor id pasa a superadmin (recuperación).
 6. **Cuentas de servicio en plataforma.** Una cuenta de servicio es siempre miembro de plataforma
    aunque su rol de Engram sea `admin` (R-10, fallar cerrado).
-7. **Rol de Engram en sintonía.** `PUT/DELETE /platform/members` actualiza también
+7. **Rol de Engram en sintonía.** *(Ampliado por §11: la columna la deriva la base con triggers.)* `PUT/DELETE /platform/members` actualiza también
    `cloud_principals.role` (superadmin y admin = `admin`; auditor y miembro = `member`). Sin esto,
    quitar el rol a un admin de Engram lo devolvería a admin por compatibilidad (requisitos §9).
 8. **R-8 en la base.** Además de la regla en el servicio, dos triggers rechazan dejar a la plataforma
@@ -280,3 +281,123 @@ anteriores o las precisa:
     Un admin todavía puede darse a sí mismo un permiso de proyecto de Engram (`/admin/.../grants`),
     que equivale a publicador por compatibilidad: se cierra en R2 junto con las rutas de proyectos.
     El panel no muestra pantallas para el auditor (solo la API).
+
+## 11. Roles de plataforma unificados (feat/roles-unificados)
+
+Decisión del usuario (2026-10-13, opción A, alineada con OWASP: "hay que centralizar el rol"): una
+persona tiene **un solo rol de plataforma**, el de Nexo. Reemplaza la compatibilidad de las secciones
+6.3 y 10 (puntos 5 y 7) y de `requirements.md` §9. Alcance: solo plataforma y su relación con los
+espacios. Los **proyectos** de memoria quedan fuera: no cambia la autorización de sincronización ni
+los permisos de proyecto de Engram (`cloud_project_grants`).
+
+### 11.1 Fuente única y equivalencia
+
+El rol que se elige, se muestra y se audita es el de Nexo (`nexo_role_bindings`, alcance plataforma).
+La columna `cloud_principals.role` (`admin` | `member`) sigue existiendo, porque Engram la lee en sus
+consultas y pantallas, pero **se deriva**; nadie la escribe por su cuenta:
+
+| Rol de plataforma (Nexo) | Columna `role` (Engram) | Quién lo asigna |
+|---|---|---|
+| miembro (sin fila) | `member` | cualquier admin al crear; por defecto |
+| auditor | `member` | solo un superadmin (`platform.admins.manage`) |
+| admin | `admin` | solo un superadmin |
+| superadmin | `admin` | solo un superadmin (el primero: `engram cloud bootstrap admin`) |
+
+Una cuenta de servicio es siempre miembro (R-10) y su columna es siempre `member`. El valor histórico
+`member` que aceptan los formularios y la API de Engram vale "miembro".
+
+### 11.2 Quién escribe la columna: nadie, la deriva la base
+
+- Función `nexo_platform_engram_role(id)`: `admin` si la persona humana tiene `admin` o `superadmin`
+  en plataforma; si no, `member`.
+- Trigger `nexo_role_bindings_sync_engram` (`AFTER INSERT OR UPDATE OF role OR DELETE` en
+  `nexo_role_bindings`): recalcula la columna **en la misma transacción** que cambia la asignación.
+- Trigger `nexo_principal_role_derive` (`BEFORE INSERT OR UPDATE OF role` en `cloud_principals`): fuerza
+  el valor derivado en cualquier escritura de la columna. Un formulario viejo, la API `/admin` de
+  Engram, el bootstrap, la recuperación o SQL directo no pueden dejarla distinta del rol de Nexo.
+- Los caminos de Engram que antes escribían la columna ahora piden un rol a Nexo en su transacción
+  (`// NX-05`): `CreateHumanUser`, `CreateFirstAdminHumanUser` y `CreatePrincipal` (alta con
+  `authz.AssignOnCreateTx`) y `UpdatePrincipal` (`authz.SyncEngramRoleTx`, que traduce `admin` o
+  `member` al rol de Nexo y deja el evento). Sin `CreateRequest` en el contexto, `role = admin` significa
+  "pide ser administrador": el primero sin superadmin habilitado queda superadmin (diseño §6.3, ahora
+  explícito al crear y no al arrancar) y los demás, admin.
+- Cada cambio deja un evento en `nexo_authz_events` (`binding.granted|changed|revoked` con actor,
+  antes, después, token, IP y cliente, más `engram_role_before/after` en el detalle) y dispara la
+  alerta `platform_role_changed`. Cambiar la columna sola no genera evento propio porque no ocurre.
+- La columna sigue sirviendo de guarda de integridad de Engram ("al menos un admin": `HasActiveAdmin`,
+  `guardLastActiveAdminTx`, elegibilidad de `recover-token`). Como se deriva, cuenta admins y
+  superadmins habilitados. No decide ningún permiso.
+
+### 11.3 Un solo punto de decisión
+
+OWASP ASVS 4.0.3 V1.4.4 exige un único mecanismo de control de acceso por el que pasen todas las
+peticiones (en ASVS 5.0.0, el requisito más cercano es V8.3.1: las reglas de autorización se aplican en
+una capa de servicio de confianza; V8.2.1 pide permisos explícitos por función). Toda decisión de
+plataforma pasa por `authz.Engine.Can` (`Require` si debe auditarse la denegación). Rutas de Engram que
+decidían con la columna y cómo quedan:
+
+| Ruta o pantalla (archivo) | Antes (columna `role`) | Ahora |
+|---|---|---|
+| `requireManagedAdmin`: toda `/admin/*` y los POST del panel (`admin_handlers.go`) | `Role == admin` y token asignado | `Require(capacidad de la ruta)` con `nexoRouteCapability`: `platform.directory.read`, `platform.users.manage`, `platform.tokens.manage`; sin almacén Nexo (dobles de prueba) sigue la regla de Engram |
+| `isDashboardAdmin` (`cloudserver.go`): menú, `GET /dashboard/admin`, `/projects`, `/users`, `/users/{id}`, `/health`, `/audit-log`, y los POST de sincronización de proyecto del panel | `Role == admin` con token asignado o admin heredado | `Can(platform.users.manage)` para sesiones con token asignado (`nexoDashboardAdmin`); el token heredado sigue como hoy |
+| `canManageManagedUsers` (formularios de Usuarios) | idem | idem (`nexoDashboardAdmin`) |
+| `POST /dashboard/admin/users` y `POST /admin/users` (rol al crear) | cualquier admin podía crear otro admin (corregido en R1) | `platform.admins.manage` para auditor, admin y superadmin; solo miembros con `platform.users.manage` |
+| `POST /dashboard/admin/users/{id}/role` (nueva) | no existía | `platform.admins.manage` (`usersPanelSetRole`); 403 auto-promoción, 409 último superadmin |
+| `isManagedAdminPrincipal` | columna + token asignado | solo respaldo sin almacén Nexo |
+| `dashboard_session.go` (reclamos de la sesión) y `cloud_runtime_auth.go` (`principal.Role`) | informativos | informativos: ninguna decisión los lee |
+| `HasActiveAdmin`, `WouldRemoveLastActiveAdmin`, `guardLastActiveAdminTx`, `recover-token`, `/dashboard/bootstrap` (`cloudstore/identity.go`) | cuentan admins por la columna | igual: guardas de integridad sobre un valor derivado; R-8 (último superadmin) sigue en los triggers de la base |
+
+**Token heredado `ENGRAM_CLOUD_ADMIN`** (identidad no administrada, R-15): sin roles de Nexo. Conserva el
+comportamiento documentado de hoy: puede **ver** las pantallas de administración del panel; no
+administra usuarios, tokens ni roles (`requireManagedAdmin` exige un token asignado) y la API de Nexo
+le responde 403. **Cliente oficial de Engram:** las rutas `/sync/*` no cambian; las respuestas siguen
+siendo las mismas.
+
+### 11.4 Migración y corrección única
+
+`Migrate` (idempotente) crea las funciones, la tabla de marca `nexo_platform_role_unification` y, solo
+la primera vez, corrige las instalaciones existentes **antes** de crear los triggers:
+
+1. Cada persona con `role = admin` y sin asignación de plataforma recibe una (evento `binding.granted`,
+   actor `sistema`, `reason = unificacion_roles`): la primera habilitada sin superadmin habilitado, como
+   `superadmin`; las demás, `admin`. Es lo que hacía el diseño §6.3 y la compatibilidad, ahora explícito.
+2. La columna de todos se recalcula desde el rol de Nexo (una cuenta de servicio con `role = admin` pasa
+   a `member`); un evento `engram_role.synced` por cada fila que cambió.
+3. Se guarda la marca (versión, cuántas asignaciones y cuántas columnas). Después, el arranque no
+   corrige nada: una desalineación nueva solo se informa (§11.5). Se quita la función
+   `nexo_authz_bootstrap_candidate()` del arranque (queda en las bases existentes sin uso).
+
+### 11.5 Desalineación: detectar, avisar, corregir
+
+Con los triggers no debería existir; puede aparecer si alguien los desactiva o restaura una copia vieja.
+
+- `engram nexo authz reconcile-roles [--apply] [--json]` (ENGRAM_DATABASE_URL): en seco por defecto, lista
+  las diferencias y sale con 1 si hay; con `--apply` recalcula la columna desde el rol de Nexo (nunca al
+  revés), un evento `engram_role.synced` por corrección, idempotente.
+- Alerta `platform_role_drift` (severidad alta, una por persona y estado; se apaga con
+  `NEXO_ALERT_RULES`), evaluada cada minuto.
+- La revisión de accesos marca `role_drift` y totaliza `role_drift` en el resumen.
+- El motor no concede nada por una columna `admin` sin asignación: es una desalineación que se informa.
+
+### 11.6 Panel (Administración > Usuarios)
+
+Ver `docs/nexo/panel/design.md` §13: alta con miembro, auditor, admin o superadmin (la interfaz desactiva
+lo que quien mira no puede asignar; decide el servidor), lista y detalle con el rol en español, cambio de
+rol del superadmin con confirmación y CSRF, rol junto al nombre en la cabecera.
+
+### 11.7 Referencias
+
+- OWASP ASVS 4.0.3 V1.4.4 (mecanismo único de control de acceso) y ASVS 5.0.0 V8.3.1 / V8.2.1 / V8.1.1
+  (no hay equivalencia uno a uno: ASVS 5 reorganizó el capítulo).
+- OWASP Top 10 2021 A01 Broken Access Control.
+- ISO/IEC 27001:2022 Anexo A 5.18 (derechos de acceso) y 8.2 (derechos de acceso privilegiados).
+
+### 11.8 Riesgos y límites
+
+- Si se vuelve a la imagen oficial de Engram, el trigger `nexo_principal_role_derive` sigue en la base y
+  reescribe la columna con el valor derivado (Engram oficial no lo sabe). Para abandonar el fork:
+  `DROP TRIGGER nexo_principal_role_derive ON cloud_principals; DROP TRIGGER nexo_role_bindings_sync_engram ON nexo_role_bindings;`
+  y fijar a mano la columna.
+- Restaurar una copia anterior a la unificación sobre un servidor nuevo: la marca viaja en la copia
+  (si la copia la trae, no se corrige de nuevo; use `reconcile-roles`).
+- Los roles `auditor` y `superadmin` no tienen equivalente en Engram: para Engram el auditor es `member`.

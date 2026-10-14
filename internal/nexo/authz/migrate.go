@@ -179,20 +179,6 @@ var migrationQueries = []string{
 		END IF;
 	END $$`,
 
-	// ─── Arranque del superadmin (design §6.3) ───────────────────────────────
-	// Candidato: si no hay ningún superadmin habilitado, el principal humano
-	// habilitado con rol de Engram admin y sin fila de plataforma de menor id
-	// (el de `engram cloud bootstrap admin`).
-	`CREATE OR REPLACE FUNCTION nexo_authz_bootstrap_candidate() RETURNS BIGINT AS $$
-		SELECT p.id FROM cloud_principals p
-		WHERE p.kind = 'human' AND p.role = 'admin' AND p.enabled
-		  AND NOT EXISTS (
-			SELECT 1 FROM nexo_role_bindings b JOIN cloud_principals q ON q.id = b.principal_id
-			WHERE b.scope_type = 'platform' AND b.scope_key = '*' AND b.role = 'superadmin' AND q.enabled)
-		  AND NOT EXISTS (SELECT 1 FROM nexo_role_bindings x WHERE x.principal_id = p.id AND x.scope_type = 'platform')
-		ORDER BY p.id
-		LIMIT 1
-	$$ LANGUAGE sql STABLE`,
 }
 
 // Migrate crea las tablas, triggers y la fila de plataforma, y asigna el
@@ -209,37 +195,12 @@ func Migrate(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("authz migrate service accounts: %w", err)
 		}
 	}
-	if err := bootstrapSuperadminTx(ctx, tx); err != nil {
-		return fmt.Errorf("authz migrate bootstrap: %w", err)
+	// Unificación de roles de plataforma (migrate_roles.go): triggers que derivan
+	// la columna de Engram y corrección única de instalaciones existentes. Reemplaza
+	// al arranque del superadmin por candidato (diseño §6.3), que ahora ocurre una
+	// sola vez dentro de la corrección.
+	if err := migratePlatformRoles(ctx, tx); err != nil {
+		return err
 	}
 	return nil
-}
-
-// bootstrapSuperadminTx asigna superadmin al candidato (si lo hay) y registra
-// binding.granted con actor "sistema".
-func bootstrapSuperadminTx(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, guardLockSQL); err != nil {
-		return err
-	}
-	var granted sql.NullString
-	err := tx.QueryRowContext(ctx, `
-		INSERT INTO nexo_role_bindings (principal_id, scope_type, scope_key, role)
-		SELECT c.id, 'platform', '*', 'superadmin' FROM (SELECT nexo_authz_bootstrap_candidate() AS id) c
-		WHERE c.id IS NOT NULL
-		ON CONFLICT DO NOTHING
-		RETURNING principal_id::text`).Scan(&granted)
-	if err == sql.ErrNoRows || (err == nil && !granted.Valid) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return insertEvent(ctx, tx, Event{
-		Action:            ActionBindingGranted,
-		Scope:             PlatformScope(),
-		TargetPrincipalID: granted.String,
-		RoleBefore:        RoleAdmin,
-		RoleAfter:         RoleSuperadmin,
-		Details:           map[string]any{"reason": "bootstrap", "rule": "design §6.3: primer admin de Engram"},
-	})
 }

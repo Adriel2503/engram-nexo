@@ -32,6 +32,7 @@ templ Layout(title string, username string, activeTab string, isAdmin bool, cont
 						</div>
 						<div class="user-info">
 							<span class="user-name">{ username }</span>
+							@nexoHeaderRole()
 							<form method="post" action="/dashboard/logout" style="margin:0">
 								<button type="submit" class="user-link logout-link">
 									{ nx("Logout") }

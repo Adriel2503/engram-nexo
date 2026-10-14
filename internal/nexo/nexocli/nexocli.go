@@ -25,6 +25,7 @@ Conexión de esta PC:
   kb      espacios de conocimiento (spaces, search, get, sync, upload, publish, changes, eval, reindex, import-transversal)
   audit   evidencia de seguridad (verify, export, verify-export, verify-review)
   sa      cuentas de servicio para CI y bots (list, show, create, update, disable, enable, grant, ungrant, token)
+  authz   roles de plataforma (reconcile-roles: detecta y corrige la columna de Engram desalineada del rol de Nexo)
 
 Instalación para un dev: engram nexo connect --server <url> --token-stdin  y luego  engram setup <agente>.
 El token también se puede pasar en NEXO_TOKEN (evita dejarlo en el historial de la terminal).
@@ -41,6 +42,8 @@ func Run(args []string, dataDir string, stdout, stderr io.Writer) int {
 		return nexokbcli.Run(args, dataDir, stdout, stderr)
 	case "audit":
 		return auditcli.Run(args[1:], stdout, stderr)
+	case "authz": // NX-05: roles de plataforma (reconcile-roles)
+		return runAuthz(args[1:], stdout, stderr)
 	case "sa", "service-accounts": // SG-10
 		return runServiceAccounts(args[1:], dataDir, stdout, stderr)
 	case "connect", "status", "disconnect", "setup":

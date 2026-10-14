@@ -55,8 +55,9 @@ func (s *CloudServer) registerNexoAuthzRoutes(mux *http.ServeMux) {
 	s.nexoRoute(mux, "PUT", nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", "project.members.manage|space.members.manage", s.nexoAuthzRoute(s.handleNexoAuthzSetScopeMember))
 	s.nexoRoute(mux, "DELETE", nexoAuthzPrefix+"/scopes/{type}/{key}/members/{principal}", "project.members.manage|space.members.manage", s.nexoAuthzRoute(s.handleNexoAuthzDeleteScopeMember))
 	s.nexoRoute(mux, "GET", nexoAuthzPrefix+"/events", "platform.audit.read", s.withAuth(s.handleNexoAuthzEvents))
-	s.registerNexoTokenRoutes(mux) // NX-07 (S3-03): emisión y listado de tokens con caducidad y alcance
+	s.registerNexoTokenRoutes(mux)          // NX-07 (S3-03): emisión y listado de tokens con caducidad y alcance
 	s.registerNexoServiceAccountRoutes(mux) // SG-10: cuentas de servicio (nexo_service_accounts.go)
+	s.registerNexoUsersDashboard(mux)       // NX-05: cambiar el rol de plataforma desde Administración > Usuarios
 }
 
 type nexoAuthzHandler func(w http.ResponseWriter, r *http.Request, svc *authz.Service, id authz.Identity)
@@ -163,6 +164,7 @@ func (s *CloudServer) handleNexoAuthzSetPlatformMember(w http.ResponseWriter, r 
 		nexoAuthzWriteError(w, err)
 		return
 	}
+	s.nexo.auditNav.forget(change.PrincipalID) // NX-05: la cabecera del panel no muestra el rol anterior
 	jsonResponse(w, http.StatusOK, change)
 }
 
@@ -172,6 +174,7 @@ func (s *CloudServer) handleNexoAuthzDeletePlatformMember(w http.ResponseWriter,
 		nexoAuthzWriteError(w, err)
 		return
 	}
+	s.nexo.auditNav.forget(change.PrincipalID)
 	jsonResponse(w, http.StatusOK, change)
 }
 

@@ -257,6 +257,7 @@ Columnas nuevas en `cloud_principal_tokens` (migración Nexo, aditiva):
 | `authz_denied_burst` | 5 denegaciones de una misma persona o IP en 1 minuto |
 | `auth_failures_burst` | 10 fallos de autenticación de una IP en 5 minutos |
 | `platform_role_changed` | Cualquier cambio de rol de plataforma |
+| `platform_role_drift` | La columna de rol de Engram difiere de la que corresponde al rol de Nexo (unificación de roles, `docs/nexo/roles/design.md` §11.5). Una alerta por persona y estado, severidad alta |
 | `shared_token_used` | Uso del token compartido (`no-identificado`) |
 | `expired_token_used` | Intentos con token vencido |
 | `audit_chain_broken` | Verificación periódica de la cadena falla |
@@ -586,3 +587,22 @@ Riesgos y límites:
 - **Reflexión sobre `net/http`.** Una versión futura de Go puede requerir ajustar `nexoMuxPatterns`.
 - **Cobertura de la corrida.** Las rutas que la corrida no ejerce solo tienen la revisión estática de
   su tipo; al agregar una ruta, sumarla a `runNexoSecurityFlow` si escribe datos o registros nuevos.
+
+### 8.6 Roles de plataforma unificados (feat/roles-unificados)
+
+Complementa §3.3 y D-S3-9. Detalle en `docs/nexo/roles/design.md` §11.
+
+- **Un solo punto de decisión.** Las rutas de Engram que decidían con la columna `role` pasan por
+  `authz.Engine.Can` (tabla en `roles/design.md` §11.3). Referencias: OWASP ASVS 4.0.3 V1.4.4 (un
+  único mecanismo de control de acceso; en ASVS 5.0.0 el requisito más cercano es V8.3.1, con V8.2.1 y
+  V8.1.1, sin equivalencia uno a uno); OWASP Top 10 2021 A01 Broken Access Control; ISO/IEC 27001:2022
+  Anexo A 5.18 (derechos de acceso) y 8.2 (derechos de acceso privilegiados).
+- **Deny por defecto.** Una columna `admin` sin asignación de Nexo no concede nada; sin almacén Nexo o
+  ante un error, la decisión falla cerrada.
+- **Auditoría.** Todo cambio de rol (creación con rol, cambio desde el panel o la API, corrección) deja
+  `binding.*` o `engram_role.synced` en `nexo_authz_events` con actor, antes y después; las denegaciones,
+  `authz.denied`.
+- **Detección.** Alerta `platform_role_drift` y marca `role_drift` en la revisión de accesos (ISO 27001
+  5.18: revisión periódica de derechos de acceso).
+- **Superficie.** El cambio de rol del panel exige CSRF y confirmación; un token `read` no cambia nada
+  (guardia de alcance de la sesión, D-S3-9).

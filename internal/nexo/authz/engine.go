@@ -30,9 +30,8 @@ type PlatformFacts struct {
 	Found              bool   // existe el principal
 	Enabled            bool   // habilitado
 	Kind               string // human | service_account
-	EngramRole         string // admin | member
+	EngramRole         string // admin | member: columna DERIVADA del rol de Nexo; no decide nada (solo sirve para detectar desalineaciones)
 	Binding            Role   // fila en nexo_role_bindings (RoleNone si no hay)
-	BootstrapCandidate bool   // no hay superadmin habilitado y este es el admin humano de menor id
 }
 
 // ScopeFacts son los datos crudos para resolver el rol en un proyecto o espacio.
@@ -60,7 +59,6 @@ type Store interface {
 	PlatformFacts(ctx context.Context, principalID int64) (PlatformFacts, error)
 	ScopeFacts(ctx context.Context, principalID int64, s Scope) (ScopeFacts, error)
 	VisibleScopeFacts(ctx context.Context, principalID int64, t ScopeType) ([]ScopeFactsRow, error)
-	EnsureBootstrapSuperadmin(ctx context.Context) error
 	RecordEvent(ctx context.Context, ev Event) error
 }
 
@@ -134,7 +132,11 @@ type resolved struct {
 	facts   ScopeFacts
 }
 
-// resolvePlatform aplica design §3 (plataforma).
+// resolvePlatform aplica design §3 (plataforma). Desde la unificación de
+// roles (docs/nexo/roles/design.md §11) la única fuente es la asignación de
+// Nexo: sin fila el rol es miembro. La columna role de Engram es un valor
+// derivado (EngramRoleFor) y ya no concede nada: una columna "admin" sin
+// asignación es una desalineación que se informa, no un permiso.
 func resolvePlatform(f PlatformFacts) (Role, string) {
 	if !f.Found || !f.Enabled {
 		return RoleNone, SourceNone
@@ -144,12 +146,6 @@ func resolvePlatform(f PlatformFacts) (Role, string) {
 	}
 	if f.Binding != RoleNone && StorableRole(ScopePlatform, f.Binding) {
 		return f.Binding, SourceBinding
-	}
-	if f.BootstrapCandidate {
-		return RoleSuperadmin, SourceBootstrap
-	}
-	if f.EngramRole == "admin" {
-		return RoleAdmin, SourceEngramAdmin // compatibilidad (requisitos §9)
 	}
 	return RoleMiembro, SourceNone
 }
@@ -195,11 +191,6 @@ func (e *Engine) resolve(ctx context.Context, id Identity, s Scope) (resolved, e
 		if err != nil {
 			return resolved{}, fmt.Errorf("authz: platform role: %w", err)
 		}
-		if f.BootstrapCandidate {
-			if err := e.store.EnsureBootstrapSuperadmin(ctx); err != nil {
-				return resolved{}, fmt.Errorf("authz: bootstrap superadmin: %w", err)
-			}
-		}
 		r.role, r.source = resolvePlatform(f)
 		r.enabled = f.Found && f.Enabled
 		r.facts = ScopeFacts{Found: f.Found, Enabled: f.Enabled, Kind: f.Kind, Exists: true, Status: StatusActive, Visibility: VisibilityRestricted}
@@ -223,7 +214,7 @@ func (e *Engine) EffectiveRole(ctx context.Context, id Identity, s Scope) (Role,
 }
 
 // EffectiveRoleSource es EffectiveRole con la fuente del rol (binding,
-// engram_grant, default_role, engram_admin, bootstrap, none).
+// engram_grant, default_role, none).
 func (e *Engine) EffectiveRoleSource(ctx context.Context, id Identity, s Scope) (Role, string, error) {
 	ns, err := e.NormalizeScope(s)
 	if err != nil {

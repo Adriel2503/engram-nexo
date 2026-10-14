@@ -100,8 +100,14 @@ func TestCloudstorePrincipalHumanTokenGrantAndAuditLifecycle(t *testing.T) {
 	// to demote/disable the only active admin, so a second active admin must
 	// exist before this test can legally exercise UpdatePrincipal's
 	// role/enabled mutation on `principal` below.
-	if _, err := cs.CreatePrincipal(ctx, CreatePrincipalParams{Kind: PrincipalKindHuman, DisplayName: "Backup Admin", Role: PrincipalRoleAdmin}); err != nil {
+	backup, err := cs.CreatePrincipal(ctx, CreatePrincipalParams{Kind: PrincipalKindHuman, DisplayName: "Backup Admin", Role: PrincipalRoleAdmin})
+	if err != nil {
 		t.Fatalf("CreatePrincipal backup admin: %v", err)
+	}
+	// NX-05: el primer admin es superadmin y el último superadmin no se degrada
+	// (R-8); el respaldo pasa a superadmin para que la prueba pueda degradar al primero.
+	if _, err := cs.db.ExecContext(ctx, `UPDATE nexo_role_bindings SET role = 'superadmin' WHERE principal_id = $1`, backup.ID); err != nil {
+		t.Fatalf("promote backup admin: %v", err)
 	}
 	if err := cs.UpdatePrincipal(ctx, principal.ID, UpdatePrincipalParams{Role: PrincipalRoleMember, Enabled: false}); err != nil {
 		t.Fatalf("UpdatePrincipal: %v", err)
@@ -526,11 +532,20 @@ func TestRecoverStrandedAdminTokenWithAuditRejectsUnsafeOrRepeatedState(t *testi
 			name: "zero enabled human admins",
 			setup: func(t *testing.T, cs *CloudStore, admin HumanUser) {
 				t.Helper()
-				if _, err := cs.CreatePrincipal(context.Background(), CreatePrincipalParams{Kind: PrincipalKindServiceAccount, DisplayName: "Recovery Backup", Role: PrincipalRoleAdmin}); err != nil {
-					t.Fatalf("CreatePrincipal backup admin: %v", err)
-				}
-				if err := cs.SetHumanUserEnabled(context.Background(), admin.PrincipalID, false); err != nil {
-					t.Fatalf("SetHumanUserEnabled stranded admin false: %v", err)
+				// NX-05: una cuenta de servicio nunca es administradora (R-10), así que ya
+				// no sirve de respaldo para la guarda del último admin. Se deshabilita al
+				// único admin humano directo en la base para llegar al estado sin admins
+				// humanos habilitados.
+				// La guarda del último superadmin (trigger de Nexo, R-8) lo impediría,
+				// así que se apaga solo en este esquema de prueba.
+				for _, q := range []string{
+					`ALTER TABLE cloud_principals DISABLE TRIGGER nexo_authz_guard_principal`,
+					`UPDATE cloud_principals SET enabled = FALSE WHERE id = ` + admin.PrincipalID,
+					`ALTER TABLE cloud_principals ENABLE TRIGGER nexo_authz_guard_principal`,
+				} {
+					if _, err := cs.db.ExecContext(context.Background(), q); err != nil {
+						t.Fatalf("disable stranded admin (%s): %v", q, err)
+					}
 				}
 			},
 			wantErr: ErrStrandedAdminRecoveryIneligible.Error(),

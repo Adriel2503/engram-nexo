@@ -120,15 +120,15 @@ func TestNexoAuditNavAuthzErrorHides(t *testing.T) {
 func TestNexoAuditNavCacheExpires(t *testing.T) {
 	var c nexoAuditNavCache
 	now := time.Now()
-	c.put("1|2", true, now)
-	if v, ok := c.get("1|2", now.Add(nexoAuditNavTTL-time.Second)); !ok || !v {
+	c.put("1|2", true, "admin", now)
+	if v, role, ok := c.get("1|2", now.Add(nexoAuditNavTTL-time.Second)); !ok || !v || role != "admin" {
 		t.Errorf("la respuesta guardada debe valer dentro del plazo")
 	}
-	if _, ok := c.get("1|2", now.Add(nexoAuditNavTTL)); ok {
+	if _, _, ok := c.get("1|2", now.Add(nexoAuditNavTTL)); ok {
 		t.Errorf("la respuesta guardada debe vencer")
 	}
 	for i := 0; i < nexoAuditNavMaxEntries+10; i++ {
-		c.put(time.Duration(i).String(), false, now)
+		c.put(time.Duration(i).String(), false, "", now)
 	}
 	if len(c.entries) > nexoAuditNavMaxEntries {
 		t.Errorf("la caché pasó el tope: %d", len(c.entries))

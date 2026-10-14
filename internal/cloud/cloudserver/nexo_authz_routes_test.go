@@ -79,6 +79,7 @@ func newNexoAuthzEnv(t *testing.T) *nexoAuthzEnv {
 			if _, err := env.db.Exec(`INSERT INTO cloud_human_users (principal_id, username, email) VALUES ($1::bigint, $2, $3)`, id, p.name, p.name+"@rp.pe"); err != nil {
 				t.Fatal(err)
 			}
+			nexoSeedPlatformRole(t, env.db, id, p.kind, p.role) // NX-05: el rol de Nexo; la columna se deriva
 		}
 		if err := env.db.QueryRow(`INSERT INTO cloud_principal_tokens (principal_id, token_prefix, token_hash, name) VALUES ($1::bigint, $2, $3, $4) RETURNING id::text`,
 			id, fmt.Sprintf("egc_test_%d", i), "hash-"+p.name, "laptop-"+p.name).Scan(&tok); err != nil {

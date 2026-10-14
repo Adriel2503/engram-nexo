@@ -145,10 +145,11 @@ func (s *CloudServer) handleDashboardCreateManagedUser(w http.ResponseWriter, r 
 	if role == "" {
 		role = string(cloudauth.RoleMember)
 	}
-	if !s.nexoAllowCreateUserRole(w, r, role, nexoRespondText) { // NX-05: solo un superadmin crea admins (R-7)
+	nexoCtx, role, ok := s.nexoCreateUserRole(w, r, role, nexoRespondText, "panel") // NX-05: el rol es el de Nexo; auditor, admin y superadmin solo por un superadmin (R-7)
+	if !ok {
 		return
 	}
-	user, err := store.CreateHumanUser(r.Context(), cloudstore.CreateHumanUserParams{
+	user, err := store.CreateHumanUser(nexoCtx, cloudstore.CreateHumanUserParams{
 		Username:    username,
 		Email:       r.FormValue("email"),
 		DisplayName: r.FormValue("display_name"),
@@ -158,7 +159,7 @@ func (s *CloudServer) handleDashboardCreateManagedUser(w http.ResponseWriter, r 
 		http.Error(w, fmt.Sprintf("create user: %v", err), http.StatusBadRequest)
 		return
 	}
-	if err := s.recordAdminAudit(r.Context(), store, actor, authAuditActionUserCreate, user.PrincipalID, "", map[string]any{"kind": string(cloudauth.PrincipalKindHuman), "role": role, "username": username}); err != nil {
+	if err := s.recordAdminAudit(r.Context(), store, actor, authAuditActionUserCreate, user.PrincipalID, "", map[string]any{"kind": string(cloudauth.PrincipalKindHuman), "role": role, "platform_role": user.PlatformRole, "username": username}); err != nil {
 		http.Error(w, fmt.Sprintf("record audit: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -248,6 +249,9 @@ func (s *CloudServer) handleDashboardManagedUserDetail(w http.ResponseWriter, r 
 	grants, err := store.ListProjectGrants(r.Context(), principalID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("list grants: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if s.nexoRenderManagedUserDetail(w, r, user, tokens, grants, "", "", http.StatusOK) { // NX-05: detalle con el rol de Nexo
 		return
 	}
 	renderDashboardAdminComponent(w, r, s.dashboardAdminLayout(r, "Managed User", dashboard.ManagedUserDetailPage(user, tokens, grants, s.canManageManagedUsers(r))))

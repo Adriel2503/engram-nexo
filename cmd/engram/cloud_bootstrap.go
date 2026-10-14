@@ -94,7 +94,7 @@ func cmdCloudBootstrap() {
 func printCloudBootstrapUsage() {
 	fmt.Println("usage: engram cloud bootstrap admin --username <name> [--email <email>] [--grant-project <project>]... [--issue-token [name]]")
 	fmt.Println("       engram cloud bootstrap recover-token [--name <name>] [--revoke-existing]")
-	fmt.Println("admin creates the first managed admin for a self-hosted cloud deployment")
+	fmt.Println("admin creates the first managed admin for a self-hosted cloud deployment (in Nexo it becomes superadmin)") // NX-05
 	fmt.Println("recover-token issues one token for the eligible stranded managed admin")
 	fmt.Println("--revoke-existing replaces exactly one unused active bootstrap token")
 }
@@ -172,6 +172,9 @@ func cmdCloudBootstrapAdmin() {
 	// internal/cloud/cloudserver/admin_handlers.go): a lost audit event for a
 	// brand-new admin must never happen silently.
 	adminAuditMetadata := map[string]any{"created_admin": true, "username": args.username}
+	if user.PlatformRole != "" { // NX-05
+		adminAuditMetadata["platform_role"] = user.PlatformRole
+	}
 	if err := recordCloudBootstrapAudit(ctx, cs, user.PrincipalID, cloudBootstrapAuditOutcomeSuccess, "", adminAuditMetadata); err != nil {
 		fatal(fmt.Errorf("cloud bootstrap admin: created admin %s (principal_id=%s) but failed to record the required bootstrap audit event: %w", args.username, user.PrincipalID, err))
 		return
@@ -243,6 +246,9 @@ func cmdCloudBootstrapAdmin() {
 	}
 
 	fmt.Printf("✓ Managed admin created: username=%s principal_id=%s\n", user.Username, user.PrincipalID)
+	if user.PlatformRole != "" { // NX-05: el primer admin es superadmin de Nexo; Engram lo ve como admin (derivado)
+		fmt.Printf("  Rol de plataforma de Nexo: %s (Engram lo ve como %s; se cambia desde Administracion > Usuarios o con la API de roles)\n", user.PlatformRole, user.Role)
+	}
 	for _, grant := range grants {
 		fmt.Printf("✓ Project grant created: project=%s\n", grant.Project)
 	}

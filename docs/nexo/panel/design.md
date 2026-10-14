@@ -526,3 +526,81 @@ visible). Desde 721 px las pestañas se reparten en dos filas; en móvil sigue e
   se escribieron en español en su propio código.
 - Pruebas: `TestNexoGoTextsAreTranslated` y `TestNexoErrorTextCoversEngramMessages` recorren los archivos de
   Engram y fallan si una cadena fija no tiene traducción.
+
+## 13. Administración > Usuarios con el rol de Nexo (rama `feat/roles-unificados`)
+
+Antes, la pantalla de Engram ("Managed Users") ofrecía solo `member` y `admin` y mostraba la columna
+de Engram. Con la unificación de roles (`docs/nexo/roles/design.md` §11) la persona tiene un solo rol, el
+de Nexo, y es el único que se elige y se muestra.
+
+### 13.1 Audiencia y trabajo principal
+
+- **Superadmin:** crea personas con cualquiera de los cuatro roles y cambia el rol de quien ya existe,
+  con confirmación. Es la única persona que ve habilitado todo el selector.
+- **Admin:** crea miembros. La interfaz le muestra auditor, admin y superadmin desactivados con la razón
+  ("Solo un superadmin puede asignarlo"); el servidor decide igual (403 sin cambios y evento
+  `authz.denied`).
+- **Auditor y miembro:** no ven la administración (como antes).
+
+### 13.2 Estructura
+
+```
+Usuarios
+[Resumen] [Proyectos] [Usuarios] [Salud del servidor] [Auditoría]
+
+Crear usuario
+ Usuario [______]  Correo opcional [______]  Nombre opcional [______]
+ Rol de plataforma
+ ( ) Miembro        Usa la memoria ... No administra.      En Engram figura como member
+ ( ) Auditor        Lee la auditoría ...                    En Engram figura como member
+ ( ) Administrador  Crea miembros, emite sus tokens ...     En Engram figura como admin
+ ( ) Superadmin     Todo lo del administrador, y además...  En Engram figura como admin
+ [Crear usuario]
+
+Usuarios  (tabla: Usuario | Nombre | Rol de plataforma | Estado | Creado | Acción)
+
+Detalle de una persona
+ Rol de plataforma:  [Auditor] Lee la auditoría y el directorio de personas. No cambia nada.
+                     Engram lo ve como miembro. Se deriva de este rol; no se edita aparte.
+ Cambiar a  (cuatro filas, la actual marcada)         [Cambiar rol]  Te pediremos confirmar antes de aplicarlo.
+
+Confirmar cambio de rol
+ Vas a cambiar el rol de plataforma de Ana Torres (ana):  [Miembro] pasa a [Auditor]
+ Descripción del rol nuevo y cómo lo ve Engram       [Confirmar cambio] [Cancelar]
+```
+
+- **Una sola información de rol.** El chip del rol de Nexo es lo único que dice "quién es" en la lista,
+  el detalle y la cabecera (junto al nombre, con una explicación al pasar el cursor). La columna de
+  Engram solo aparece como equivalencia en una línea ("En Engram figura como ..."), nunca como segundo rol.
+- **Chip por privilegio:** miembro gris, auditor azul, admin verde claro, superadmin verde pleno
+  (`nx-chip-ret`, `-sched`, `-ok`, `-top`), los tonos del tema (`nexo_theme.css`).
+- **Selector:** cuatro filas de elección única en dos columnas (una en pantallas angostas), con nombre,
+  qué permite y su equivalencia con Engram. La fila elegida lleva fondo verde claro y borde verde; la
+  desactivada, fondo neutro y la razón en el color de aviso. Sin iconos ni adornos: la estructura es el
+  borde y el espacio.
+- **Confirmación:** pantalla propia (no un diálogo del navegador) con "de -> a" en chips, lo que permite el
+  rol nuevo y, si es la propia persona, el aviso de que bajarse de rol quita la administración. El POST
+  lleva token CSRF del panel; el segundo POST (`confirm=1`) aplica. Tras aplicar, redirige al detalle con
+  "Rol actualizado. El cambio quedó en la auditoría."; si la persona se bajó a sí misma, al inicio.
+- **Errores en el detalle** (misma estructura, texto accionable): 403 "Solo un superadmin puede cambiar el
+  rol de plataforma", 403 auto-promoción, 409 "No se puede cambiar: es el último superadmin habilitado.
+  Asigna primero el rol de superadmin a otra persona.", 400 rol no válido, 404.
+
+### 13.3 Decisiones
+
+| Id | Decisión | Motivo |
+|---|---|---|
+| D-U1 | La interfaz refleja, el servidor decide | Las opciones desactivadas son ayuda; `nexoCreateUserRole` y `usersPanelSetRole` comprueban `platform.admins.manage` |
+| D-U2 | La capacidad se comprueba antes de la confirmación | Una denegación queda en la auditoría y no se confirma algo imposible |
+| D-U3 | Confirmación en página propia con CSRF | Cambiar un rol de plataforma es sensible; un diálogo del navegador no deja explicar el efecto |
+| D-U4 | El rol de la cabecera sale del mismo cálculo y caché de 30 s de la pestaña Auditoría (`nexo_audit_nav.go`); al cambiar un rol se descarta la caché de esa persona | Una sola consulta por petición; sin mostrar el rol anterior tras un cambio |
+| D-U5 | Los POST de `/dashboard/admin/*` que responden una página completa también dibujan el menú y el rol | La confirmación y los errores no pierden la cabecera |
+| D-U6 | Rol nuevo al crear sin CSRF: 403 | Elevar privilegios es un cambio de estado; un miembro no lo necesita (compatibilidad con el formulario de Engram) |
+
+### 13.4 Revisión contra clichés y accesibilidad
+
+Sin iconos, sin tarjetas idénticas para decorar (las filas del selector son controles, no contenido), sin
+etiquetas en mayúsculas, sin numeración. Un solo énfasis: el chip de rol y su gradación. El selector es un
+`fieldset` con `legend` y botones de opción nativos (teclado y lector de pantalla), foco visible con
+contorno verde, el estado "desactivado" se comunica con el atributo y con texto, no solo con color. Texto
+de 14 a 16 px, contraste del tema. En 500 px los campos y las opciones pasan a una columna.

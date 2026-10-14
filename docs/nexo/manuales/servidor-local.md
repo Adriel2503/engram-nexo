@@ -367,8 +367,9 @@ Token issued — SHOWN ONCE, copy and store it now, it cannot be retrieved again
   administrador no tiene ningún token; con `--revoke-existing` reemplaza un token de arranque sin
   usar).
 - Ese token vence a los 90 días.
-- Este primer administrador queda como **superadmin** de Nexo automáticamente al migrar o en la primera
-  petición. Si ya existe un administrador, el comando se niega: `error: a managed admin already exists`.
+- Este primer administrador queda como **superadmin** de Nexo (el rol único de plataforma; Engram lo ve
+  como `admin`) en la misma transacción que lo crea, y el comando lo dice al terminar. Después, los roles
+  se cambian desde Administración > Usuarios o con la API de roles. Si ya existe un administrador, el comando se niega: `error: a managed admin already exists`.
 
 Para los comandos siguientes, deja el token en una variable de la terminal (no en un archivo):
 

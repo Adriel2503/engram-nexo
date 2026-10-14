@@ -13,6 +13,9 @@ const (
 	ActionScopeRestored  = "scope.restored"
 	ActionScopeRecovered = "scope.recovered"
 	ActionDenied         = "authz.denied"
+	// Unificación de roles: la columna role de Engram se recalculó desde el rol
+	// de Nexo (corrección única al migrar o `engram nexo authz reconcile-roles`).
+	ActionEngramRoleSynced = "engram_role.synced"
 	// NX-07: depuración de nexo_activity_log por la función segura
 	// nexo_purge_activity (internal/nexo/security).
 	ActionRetentionPurged = "retention.purged"
@@ -25,7 +28,7 @@ const (
 var EventActions = []string{
 	ActionBindingGranted, ActionBindingChanged, ActionBindingRevoked,
 	ActionScopeCreated, ActionScopeUpdated, ActionScopeArchived, ActionScopeRestored, ActionScopeRecovered,
-	ActionDenied, ActionRetentionPurged, ActionPrincipalDisabledInactive,
+	ActionDenied, ActionEngramRoleSynced, ActionRetentionPurged, ActionPrincipalDisabledInactive,
 	// SG-10: cuentas de servicio (serviceaccounts.go).
 	ActionServiceAccountCreated, ActionServiceAccountUpdated, ActionServiceAccountDisabled, ActionServiceAccountEnabled,
 	ActionServiceAccountTokenIssued, ActionServiceAccountTokenRotated, ActionServiceAccountTokenRevoked,
