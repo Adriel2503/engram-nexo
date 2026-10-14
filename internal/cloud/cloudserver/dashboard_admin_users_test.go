@@ -229,9 +229,16 @@ func TestDashboardManagedUserDetailPageDisabledUserHidesTokenCreateForm(t *testi
 // rendered afterward.
 func TestDashboardCreateManagedTokenShowsRawTokenOnceAndSanitizesFutureViews(t *testing.T) {
 	srv, store, cookie := dashboardAdminUsersTestServer(t)
-	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-target", Username: "target-user", Role: "member", Enabled: true})
+	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-admin", Username: "target-user", Role: "member", Enabled: true},
+		cloudstore.HumanUser{PrincipalID: "p-other", Username: "other-user", Role: "member", Enabled: true})
 
-	createRec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-target/tokens", "name=laptop", cookie, false)
+	// NX-07: sin el motor de roles de Nexo, un token para otra persona falla cerrado y no se entrega nada.
+	otherRec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-other/tokens", "name=laptop", cookie, false)
+	if otherRec.Code != http.StatusServiceUnavailable || strings.Contains(otherRec.Body.String(), "egc_live_") || store.createTokenCalls != 0 || len(store.tokens) != 0 {
+		t.Fatalf("sin Nexo la emisión para otra persona debe fallar cerrado: %d %q", otherRec.Code, otherRec.Body.String())
+	}
+	// Solo la autoemisión muestra el token una vez (el administrador de la sesión es p-admin).
+	createRec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-admin/tokens", "name=laptop", cookie, false)
 	if createRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 direct render (not a redirect) for token creation, got %d body=%q", createRec.Code, createRec.Body.String())
 	}
@@ -286,7 +293,7 @@ func TestDashboardCreateManagedTokenShowsRawTokenOnceAndSanitizesFutureViews(t *
 		t.Fatalf("expected a non-empty raw token secret, raw token=%q", rawToken)
 	}
 
-	detailRec := performDashboardRequest(srv, http.MethodGet, "/dashboard/admin/users/p-target", cookie)
+	detailRec := performDashboardRequest(srv, http.MethodGet, "/dashboard/admin/users/p-admin", cookie)
 	detailBody := detailRec.Body.String()
 	if strings.Contains(detailBody, secret) {
 		t.Fatalf("detail page must never render the raw token secret again (show-once contract), body=%q", detailBody)
@@ -486,10 +493,10 @@ func TestDashboardCreateManagedTokenListUsersFailureFailsClosedBeforeMinting(t *
 
 func TestDashboardCreateManagedTokenStoreDisabledRaceReturns409WithoutPersistingOrAuditing(t *testing.T) {
 	srv, store, cookie := dashboardAdminUsersTestServer(t)
-	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-race", Username: "race", Role: "member", Enabled: true})
+	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-admin", Username: "race", Role: "member", Enabled: true})
 	store.createTokenErr = cloudstore.ErrPrincipalDisabled
 
-	rec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-race/tokens", "name=laptop", cookie, false)
+	rec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-admin/tokens", "name=laptop", cookie, false)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 when store rejects disabled principal after pre-check, got %d body=%q", rec.Code, rec.Body.String())
 	}
@@ -520,10 +527,10 @@ func TestDashboardCreateManagedTokenStoreDisabledRaceReturns409WithoutPersisting
 
 func TestDashboardCreateManagedTokenStoreNotFoundRaceReturns404WithoutPersistingOrAuditing(t *testing.T) {
 	srv, store, cookie := dashboardAdminUsersTestServer(t)
-	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-race", Username: "race", Role: "member", Enabled: true})
+	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-admin", Username: "race", Role: "member", Enabled: true})
 	store.createTokenErr = cloudstore.ErrPrincipalNotFound
 
-	rec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-race/tokens", "name=laptop", cookie, false)
+	rec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-admin/tokens", "name=laptop", cookie, false)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 when store cannot find principal after pre-check, got %d body=%q", rec.Code, rec.Body.String())
 	}
@@ -546,10 +553,10 @@ func TestDashboardCreateManagedTokenStoreNotFoundRaceReturns404WithoutPersisting
 
 func TestDashboardCreateManagedTokenAuditFailureRollsBackTokenAndDoesNotRenderRawToken(t *testing.T) {
 	srv, store, cookie := dashboardAdminUsersTestServer(t)
-	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-target", Username: "target", Role: "member", Enabled: true})
+	store.users = append(store.users, cloudstore.HumanUser{PrincipalID: "p-admin", Username: "target", Role: "member", Enabled: true})
 	store.auditErr = errors.New("audit unavailable")
 
-	rec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-target/tokens", "name=laptop", cookie, false)
+	rec := performDashboardForm(srv, http.MethodPost, "/dashboard/admin/users/p-admin/tokens", "name=laptop", cookie, false)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected audit failure to fail token creation, got %d body=%q", rec.Code, rec.Body.String())
 	}

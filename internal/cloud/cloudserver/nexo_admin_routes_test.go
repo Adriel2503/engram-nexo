@@ -379,7 +379,7 @@ func TestNexoAdminAPIEndToEnd(t *testing.T) {
 		t.Fatalf("historial = %d %v", rec.Code, items)
 	}
 	if items[0]["actor"] != "luis" || items[0]["actor_email"] != "luis@rp.pe" || items[0]["version"].(float64) != 2 ||
-		items[1]["actor"] != "ana" || items[1]["actor_email"] != "ana@rp.pe" || items[1]["version"].(float64) != 1 || items[1]["title"] != "T" {
+		items[1]["actor"] != "ana" || items[1]["actor_email"] != "ana@rp.pe" || items[1]["version"].(float64) != 1 || items[1]["title"] != nil || items[1]["payload_withheld"] != true {
 		t.Fatalf("versiones = %v", items)
 	}
 	if _, has := items[0]["payload"]; has {
@@ -388,7 +388,7 @@ func TestNexoAdminAPIEndToEnd(t *testing.T) {
 	rec = nexoDo(t, h, http.MethodGet, "/nexo/admin/history/obs-1?include_payload=true&limit=1", "admin-token", "")
 	items, next, limit := nexoDecodePage(t, rec)
 	payload, _ := items[0]["payload"].(map[string]any)
-	if len(items) != 1 || payload["title"] != "T2" || next == nil || limit != 1 {
+	if len(items) != 1 || len(payload) != 0 || items[0]["payload_withheld"] != true || next == nil || limit != 1 {
 		t.Fatalf("include_payload = %v next=%v", items, next)
 	}
 	rec = nexoDo(t, h, http.MethodGet, "/nexo/admin/history/obs-1?include_payload=true&limit=1&cursor="+url.QueryEscape(*next), "admin-token", "")

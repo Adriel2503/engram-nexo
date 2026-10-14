@@ -227,42 +227,128 @@ del token). Así la auditoría muestra desde qué equipo se conectó cada uno.
 | Agente o servicio | `agente-<nombre>` | `agente-revisor` |
 
 Solo minúsculas, números y guiones; sin datos sensibles. Un token por máquina o uso. Si se pierde o
-se reasigna un equipo, revoque su token y emita uno nuevo con el mismo nombre.
+se reasigna un equipo, revoque su token y emita uno nuevo con el mismo nombre. El servidor rechaza
+(`400`) un nombre de más de 256 caracteres, con caracteres de control o que contenga una
+credencial (token, código de activación, cabecera `Bearer`); vale para todas las rutas de creación,
+también la autoemisión y las cuentas de servicio.
 
-### 3.3 Emitir un token
+### 3.3 Emitir una credencial para una persona
 
 | Opción | Valor | Por defecto |
 |---|---|---|
-| Caducidad (`expires_in_days`) | De 1 al máximo del servidor (`NEXO_TOKEN_MAX_DAYS`, 365 por defecto) | 90 días |
-| Alcance (`scope`) | `write` (lee y escribe) o `read` (solo descarga y consulta) | `write` |
-| Sin caducidad (`expires_in_days: 0`) | Solo cuentas de servicio y solo un superadmin (desde las redes permitidas) | No |
+| Vida del token (`expires_in_days`) | De 1 al máximo del servidor (`NEXO_TOKEN_MAX_DAYS`, 365 por defecto) | 90 días desde el canje |
+| Alcance (`scope`) | `write` (lee y escribe) o `read` (solo consulta) | `write` |
+| Plazo del código (`NEXO_ACTIVATION_TTL`) | Duración de Go entre `1h` y `168h`. Un valor inválido **impide arrancar el servidor**: el error nombra la variable y no muestra el valor | 24 horas |
 
-En el panel: detalle de la persona (`/dashboard/admin/users/<id>`), campos "Nombre del token (opcional)", "Días de vida (por defecto 90)" y "Alcance",
-botón "Crear token". El token aparece **una sola vez**.
+Para **otra persona**, el administrador recibe un **código de activación**, nunca su token.
+En el detalle de usuario del panel, complete nombre, días y alcance y pulse **Crear código de
+activación**. El código se muestra una sola vez, con su fecha de vencimiento e instrucciones.
+Entréguelo a esa persona por un canal seguro; no lo guarde en tickets, chats ni repositorios.
 
-Por API (cualquiera de las dos rutas):
+Las dos API de emisión conservan URL, cuerpo y estado `201`, pero cambian la respuesta para
+personas ajenas. Es una incompatibilidad deliberada: clientes que esperaban `raw_token` deben
+comprobar `credential_type: "activation_code"` y entregar `activation_code`. La respuesta incluye
+`activation` (id, persona, nombre, alcance, vida del token, emisor y fechas); **no incluye
+`raw_token` ni crea un token hasta el canje**.
 
 ```sh
-# API de Nexo: acepta el nombre de usuario
+# Nexo: usuario o id
 curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
   -d '{"principal":"<usuario>","name":"laptop-<usuario>","expires_in_days":90,"scope":"write"}' \
   "$NEXO_URL/nexo/authz/v1/tokens"
-# API de administración de Engram: usa el id numérico
+# Administración de Engram: id numérico
 curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
   -d '{"name":"laptop-<usuario>","expires_in_days":90,"scope":"read"}' \
   "$NEXO_URL/admin/users/<id>/tokens"
 ```
 
-La respuesta trae `raw_token` (el token, solo esta vez) y `token` (id, nombre, `expires_at`, `scope`).
-Entréguelo por un canal seguro; la persona lo instala con `engram nexo connect` (ver
-`instalacion-dev.md`).
+**Canje por la persona:** sin sesión previa, abra `/dashboard/activate` (**Activar mi cuenta**,
+también enlazada desde el login). Recibe su token una vez y lo guarda en su gestor de contraseñas.
+Para conectar la PC directamente, use:
 
-Cuándo usar `read`: personas que solo consultan el conocimiento y la memoria, sesiones de panel
-para mirar, auditores. Con un token `read` no se puede subir memoria, publicar, administrar ni
-pausar la sincronización (403 "read-only").
+```sh
+engram nexo connect --server https://<dominio> --activate-stdin
+```
 
-Los tokens de admins, superadmins y auditores solo los emite o revoca un superadmin. No puede
-emitir tokens para una persona deshabilitada (`409 principal_disabled`).
+En una terminal el código se pide sin mostrarlo; también puede pasarlo por una tubería. Existe
+`--activate <codigo>`, pero deja la credencial en el historial y en los argumentos del proceso.
+La CLI canjea, valida y guarda el token en `cloud.json`, como el token pegado; nunca imprime ni
+guarda el código. La API pública de canje es `POST /nexo/authz/v1/activate`, cuerpo JSON
+`{"code":"<codigo>"}`, respuesta `201` con `raw_token` y `token`. No envíe el código en la URL.
+
+Un código solo sirve una vez y está ligado a la persona, nombre, alcance y vida solicitados.
+Usado, vencido, revocado o de una persona deshabilitada responde `400` con
+`activation_used|activation_expired|activation_revoked|activation_disabled`; desconocido,
+`activation_invalid`. No nace ningún token en esos casos. Dos canjes simultáneos se serializan:
+solo uno puede obtenerlo. Canje y emisión del token se confirman en una transacción.
+
+Antes de consumir el código, el canje **revalida la política vigente**: el alcance y los días
+pedidos al emitir deben seguir permitidos hoy (por ejemplo, si `NEXO_TOKEN_MAX_DAYS` bajó entre
+la emisión y el canje). Si ya no lo son, responde `409 activation_policy_changed`, deja el evento
+`nexo.activation.failed` y **no consume el código**: el administrador lo revoca y emite uno nuevo.
+Si la petición llega autenticada como la persona que emitió el código (su token o su sesión del
+panel), responde `403 activation_self_redeem`, audita el intento con su identidad y tampoco lo
+consume. Ninguno de los dos casos suma al bloqueo por intentos fallidos.
+
+El canje comparte el grupo de límite `login` (20 por minuto por IP por defecto) y el bloqueo de
+`NEXO_AUTH_LOCKOUT`. En activación **cada fallo suma**, incluso con el mismo código; una IP
+bloqueada recibe `429 auth_locked` con `Retry-After`. Los límites y bloqueos son por réplica,
+como los controles existentes; detrás de un balanceador se necesita además un límite compartido.
+
+**Pendientes y revocación:** en el detalle de usuario se muestran solo los metadatos de los
+códigos vigentes pendientes y el botón **Revocar código**. Por API:
+
+```sh
+curl -fsS -H "$H" "$NEXO_URL/nexo/authz/v1/activations?principal=<usuario>"
+curl -fsS -X POST -H "$H" -H "Content-Type: application/json" \
+  -d '{"principal":"<usuario>"}' "$NEXO_URL/nexo/authz/v1/activations/<id>/revoke"
+```
+
+Requieren `platform.tokens.manage`; para gestionar códigos de otro auditor, admin o superadmin
+también `platform.admins.manage`. Una persona deshabilitada no recibe códigos nuevos.
+Rehabilitarla permite canjear códigos pendientes aún vigentes: revoque también sus códigos si
+la baja debe ser definitiva.
+
+**Excepciones:** un administrador que emite para sí mismo conserva `raw_token`; las cuentas de
+servicio conservan la entrega directa de una sola vez al responsable o administrador, porque un
+bot no canjea códigos. Solo estas cuentas y solo un superadmin pueden pedir `expires_in_days: 0`.
+El bootstrap del primer administrador, `recover-token` y `emergency-token` entregan directamente
+el token a quien opera el servidor para sí mismo.
+
+#### Problema conocido (riesgo aceptado): el administrador que emite el código lo conoce
+
+**Qué pasa.** El administrador ve el código de activación al emitirlo y, mientras esté vigente,
+podría canjearlo él mismo antes que la persona (o darlo a un tercero) y obtener un token a nombre
+de ella. El cambio evita entregarle el token definitivo en la emisión, pero no que conozca el
+secreto de entrega. Nexo no verifica por un segundo canal la identidad de quien canjea.
+
+**Qué piden los estándares.** OWASP Forgot Password Cheat Sheet y ASVS 4.0.3 V2.5 (V6 en ASVS 5.0):
+el secreto de recuperación o activación se entrega a la persona por un canal que ella controla.
+NIST SP 800-63B: el secreto de activación se envía a la dirección registrada de la persona y quien
+lo emite no lo conoce. ISO/IEC 27002:2022 5.17: entrega segura de la autenticación temporal y
+confirmación de recepción.
+
+**Qué se cumple y qué no.** Sí: código aleatorio de 256 bits, un solo uso, vencimiento, solo se
+guarda su hash, intentos limitados y auditoría completa (IP y agente). No: que quien emite no
+conozca el secreto.
+
+**Mitigaciones actuales** (reducen el riesgo, no lo eliminan):
+
+- Si la petición de canje llega autenticada como quien emitió el código (mismo token o misma
+  sesión del panel), se rechaza (`403 activation_self_redeem`) y se audita. No detecta a un
+  emisor que canje sin autenticarse o desde otra máquina.
+- Alerta alta `activation_same_ip`: el código se canjeó desde la misma IP que lo emitió en menos
+  de 1 minuto. Es solo un indicio (una oficina detrás de una misma IP, un proxy o una persona que
+  comparte el equipo también la disparan); no es una prueba ni se debe usar como tal.
+- Vencimiento de 24 horas por defecto (`NEXO_ACTIVATION_TTL`), código revocable y auditoría del
+  canje con IP y agente (`nexo.activation.redeemed`), que permite comprobar a posteriori quién y
+  desde dónde lo canjeó.
+
+**Solución requerida antes de producción.** SSO corporativo (OIDC con el proveedor de identidad de
+la empresa) para el alta y el acceso de las personas o, si no hay SSO, que el servidor envíe el
+código al correo corporativo registrado de la persona sin que el administrador lo vea. Está en el
+backlog como [SG-17](../mejoras-y-referencias.md) (prioridad A, requisito antes de producción);
+comparte proveedor con SG-02.
 
 ### 3.4 Ver los tokens
 
@@ -298,8 +384,8 @@ Un token vencido recibe `401 unauthorized: token_expired: ...` y genera la alert
 ### 3.6 Renovar antes del vencimiento
 
 1. Revise los tokens por vencer en la revisión de accesos (`tokens_expiring_30d`, sección 9.3).
-2. Emita un token nuevo con el mismo nombre de máquina.
-3. La persona lo instala (`engram nexo connect --server https://<dominio> --token-stdin`).
+2. Emita un código nuevo con el mismo nombre de máquina para la persona (3.3).
+3. La persona lo canjea e instala (`engram nexo connect --server https://<dominio> --activate-stdin`).
 4. Revoque el token anterior cuando el nuevo aparezca con `last_used_at`.
 
 **Tokens de superadmin, admin y auditor.** Son los que no pueden perderse: si vencen todos los de los
@@ -1141,6 +1227,66 @@ curl -fsS -H "$H" "$NEXO_URL/nexo/admin/alerts?unacked=true"
 La auditoría, los eventos de roles y los de conocimiento están encadenados con hashes: cualquier
 alteración se detecta (`GET /nexo/admin/audit/verify`).
 
+### 9.1.1 Auditoría de metadatos y regla R-6
+
+`platform.audit.read` permite conocer quién, acción, entidad, identificador, proyecto, fecha
+y referencia del token. **No concede acceso al contenido ni al título de una memoria o un
+documento**, tampoco a admins o superadmins. El historial decide `project.read` con el motor
+de Nexo **para cada fila**, incluso cuando la misma clave tiene versiones en varios proyectos.
+Un rol de proyecto heredado por el motor (permiso de Engram o rol implícito de un proyecto abierto)
+también cuenta; un rol de plataforma por sí solo nunca cuenta.
+
+`GET /nexo/admin/history/<clave>?include_payload=true` no falla por falta de lectura:
+omite `payload` y `title` de esa fila y marca `payload_withheld: true`. Con lectura devuelve
+el título y, si se pidió, el payload. Sin `include_payload`, no devuelve payload. El panel de
+Historial siempre omite el payload y solo muestra títulos de proyectos autorizados.
+
+Los detalles de eventos de seguridad y roles, las alertas y la evidencia de conocimiento aplican
+la misma separación: `space.read` para contenido del espacio; los campos libres desconocidos se
+retienen sin lectura. Las corridas de publicación ocultan rechazos y textos libres sin lectura.
+Una evaluación de varios espacios oculta resultados, nombre del conjunto, configuración libre,
+clases y notas si falta lectura en cualquiera. Estado de la búsqueda aplica la misma proyección
+a evaluaciones y exige lectura del espacio de cada error libre del proveedor. La verificación de integridad y la revisión/exportación de accesos contienen
+metadatos, sin memorias ni documentos.
+
+Las exportaciones diarias y manuales por CLI pasan a `nexo-audit-export/v2`: contienen una
+proyección de metadatos de la fila, con `payload_withheld`, y conservan posiciones, digest y
+hashes originales de la cadena. La firma HMAC protege el archivo proyectado; `verify-export`
+sigue leyendo archivos v1 y v2. Los archivos v1 ya emitidos no se modifican: proteja su acceso
+y conservación, porque podrían contener títulos o textos. El webhook transmite regla, severidad,
+capa e identificador del sujeto, sin el resumen libre ni los detalles.
+
+**Texto que viene de afuera (credenciales).** El User-Agent, la declaración del cliente
+(`client_claim`), los nombres de token y de actor, las notas, el proyecto y las claves de documento
+pueden traer, por error o a propósito, un token (`egc_...`), un código de activación (`nxa_...`),
+una cabecera `Bearer`/`Authorization: ...` o una cadena de conexión. Nexo quita esos formatos
+**antes de guardar** en `cloud_auth_audit_log`, `nexo_authz_events`, `nexo_kb_events`,
+`nexo_activity_log`, `nexo_actor_presence`, `nexo_alerts`, `nexo_alert_acks` y
+`nexo_access_reviews` (se conserva el resto del texto) y **otra vez al leer, renderizar o
+exportar**, para las filas históricas: API de auditoría, actividad, presencia, historial, eventos,
+alertas y revisión de accesos (JSON y CSV), panel, exportación diaria y por CLI (v2) y webhook.
+Los nombres de token con credenciales o de más de 256 caracteres se rechazan en todas las rutas de
+creación (`400`), incluidas la emisión y la rotación de cuentas de servicio. Una clave de documento
+(`doc_key`), ruta, origen, nota de cambio, responsable o etiqueta con ese formato se rechaza al
+publicar (`secret`) y el rechazo no repite el valor.
+
+**Notas libres.** La nota con que se reconoce una alerta se entrega solo a quien lee el espacio o
+proyecto de la alerta (como su resumen); sin lectura la respuesta lleva `note_withheld: true`. Las
+notas de la revisión de accesos no tienen un ámbito contra el cual verificar quién puede leerlas:
+`last_review`, `recent_reviews`, la respuesta de `access-review:complete`, el panel y las
+exportaciones no las incluyen y marcan `note_withheld: true`. La nota se guarda (sin credenciales)
+para quien tenga acceso a la base.
+
+La activación registra `nexo.activation.issued|redeemed|failed|revoked`, con el identificador del
+código, persona, IP y agente del canje. Nunca registra código ni token. La alerta alta
+`activation_repeated` se crea en la misma transacción de un fallo cuando se reutiliza un código
+usado, o se acumulan dos fallos de un código conocido; admite configuración mediante
+`NEXO_ALERT_RULES`. Los códigos desconocidos dejan fallos y bloqueo por IP. La alerta alta
+`activation_same_ip` (heurística, solo un indicio) se crea cuando un código se canjea desde la
+misma IP que lo emitió en menos de un minuto; ver el problema conocido de 3.3. Los rechazos
+`activation_self_redeem` (canje por el emisor) y `activation_policy_changed` (la política cambió
+tras emitir) quedan en `nexo.activation.failed` con su motivo y no consumen el código.
+
 ### 9.2 Alertas
 
 ```sh
@@ -1209,7 +1355,7 @@ defecto, `0` = sin aviso) solo dejan la alerta `service_account_stale` y la marc
 
 ### 9.5 Panel del auditor
 
-Todo lo de 9.1 a 9.3 también se hace desde el panel, sin terminal. Entre con el token que le dio el
+Todo lo de 9.1 a 9.3 también se hace desde el panel, sin terminal. Entre con el token que obtuvo al canjear el código que le dio el
 superadmin (el auditor puede entrar con un token `read` para mirar; reconocer alertas y registrar la
 revisión piden un token `write`). El menú muestra la pestaña **Auditoría** a quien tiene
 `platform.audit.read` (auditor, admin y superadmin), en todas las páginas del panel, y solo a esas

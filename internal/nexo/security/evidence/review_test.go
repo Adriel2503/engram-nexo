@@ -67,11 +67,17 @@ func TestAccessReviewReportAndCompletion(t *testing.T) {
 		t.Fatalf("el reporte no lleva hashes ni prefijos de token: %s", raw)
 	}
 	rec, err := evidence.CompleteReview(ctx, env.DB, rep, evidence.Reviewer{PrincipalID: jefe, Label: "jefe", ClientIP: "10.0.0.1"}, "revisión trimestral")
-	if err != nil || rec.ID == 0 || rec.ReportSHA256 != evidence.ReportDigest(rep) || rec.Notes != "revisión trimestral" {
+	// NX-07: una revisión de accesos no tiene un ámbito contra el cual verificar quién puede leer su
+	// nota libre; la respuesta y el reporte la retienen (note_withheld) y la base la conserva.
+	if err != nil || rec.ID == 0 || rec.ReportSHA256 != evidence.ReportDigest(rep) || rec.Notes != "" || !rec.NoteWithheld {
 		t.Fatalf("revisión: %+v %v", rec, err)
 	}
+	var stored string
+	if err := env.DB.QueryRow(`SELECT notes FROM nexo_access_reviews WHERE id = $1`, rec.ID).Scan(&stored); err != nil || stored != "revisión trimestral" {
+		t.Fatalf("la nota debía guardarse: %q %v", stored, err)
+	}
 	rep2, _ := evidence.BuildAccessReview(ctx, env.DB, 90, time.Now())
-	if rep2.LastReview == nil || rep2.LastReview.ID != rec.ID || rep2.LastReview.Reviewer != "jefe" {
+	if rep2.LastReview == nil || rep2.LastReview.ID != rec.ID || rep2.LastReview.Reviewer != "jefe" || rep2.LastReview.Notes != "" || !rep2.LastReview.NoteWithheld {
 		t.Fatalf("última revisión: %+v", rep2.LastReview)
 	}
 	if evidence.ReportDigest(rep2) != rec.ReportSHA256 {

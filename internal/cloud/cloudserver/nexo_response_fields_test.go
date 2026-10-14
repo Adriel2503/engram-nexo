@@ -40,29 +40,35 @@ func nexoResponseTypes() map[string]any {
 	return map[string]any{
 		// Engram /admin/* (tipos de Engram; sin cambios de código: si Engram
 		// agrega un campo sin etiqueta o con nombre sensible, esta prueba lo ve).
-		"GET /admin/users":                        []cloudstore.HumanUser{},
-		"POST /admin/users":                       cloudstore.HumanUser{},
-		"GET /admin/users/{id}/tokens":            []adminTokenMetadata{},
-		"POST /admin/users/{id}/tokens":           adminTokenMetadata{},
-		"GET|POST /admin/users/{id}/grants":       cloudstore.ProjectGrant{},
-		"GET /nexo/admin/audit":                   nexoPage[cloudstore.NexoAuditRecord]{},
-		"GET /nexo/admin/activity":                nexoPage[cloudstore.NexoActivityRecord]{},
-		"GET /nexo/admin/presence":                nexoPage[cloudstore.NexoPresenceRecord]{},
-		"GET /nexo/admin/history/{entityKey}":     nexoPage[cloudstore.NexoHistoryRecord]{},
-		"GET /nexo/admin/authz-events":            nexoPage[authz.EventRecord]{},
-		"GET /nexo/admin/database":                cloudstore.NexoDBStatus{}, // SG-05
-		"GET /nexo/admin/audit/verify":            evidence.Report{},
-		"GET /nexo/admin/alerts":                  nexoPage[evidence.Alert]{},
-		"POST /nexo/admin/alerts/{id}:ack":        evidence.AlertAck{},
-		"GET /nexo/admin/access-review":           evidence.AccessReview{},
-		"POST /nexo/admin/access-review:complete": evidence.ReviewRecord{},
-		"GET /nexo/admin/access-review?format=json": evidence.ReviewExport{}, // SG-07
-		"GET /nexo/authz/v1/me":                   nexoMeResponse{},
-		"GET /nexo/authz/v1/platform/members":     nexoPage[authz.Member]{},
-		"PUT|DELETE /nexo/authz/v1/*/members":     authz.BindingChange{},
-		"POST|PATCH /nexo/authz/v1/scopes":        authz.ScopeInfo{},
-		"GET /nexo/authz/v1/scopes/*/members":     nexoScopeMembersPage{},
-		"GET|POST /nexo/authz/v1/tokens":          nexoTokenView{},
+		"GET /admin/users":                            []cloudstore.HumanUser{},
+		"POST /admin/users":                           cloudstore.HumanUser{},
+		"GET /admin/users/{id}/tokens":                []adminTokenMetadata{},
+		"POST /admin/users/{id}/tokens":               adminTokenMetadata{},
+		"GET|POST /admin/users/{id}/grants":           cloudstore.ProjectGrant{},
+		"POST /nexo/authz/v1/activate":                nexoActivationRedeemed{},
+		"POST /nexo/authz/v1/tokens (activación)":     nexoActivationIssued{},
+		"POST /admin/users/{id}/tokens (activación)":  nexoActivationIssued{},
+		"GET /nexo/authz/v1/activations":              nexoPage[cloudstore.NexoActivation]{},
+		"POST /nexo/authz/v1/activations/{id}/revoke": nexoActivationRevoked{},
+		"GET /nexo/admin/audit":                       nexoPage[cloudstore.NexoAuditRecord]{},
+		"GET /nexo/admin/activity":                    nexoPage[cloudstore.NexoActivityRecord]{},
+		"GET /nexo/admin/presence":                    nexoPage[cloudstore.NexoPresenceRecord]{},
+		"GET /nexo/admin/history/{entityKey}":         nexoPage[cloudstore.NexoHistoryRecord]{},
+		"GET /nexo/admin/authz-events":                nexoPage[authz.EventRecord]{},
+		"GET /nexo/admin/database":                    cloudstore.NexoDBStatus{}, // SG-05
+		"GET /nexo/admin/audit/verify":                evidence.Report{},
+		"GET /nexo/admin/alerts":                      nexoPage[evidence.Alert]{},
+		"POST /nexo/admin/alerts/{id}:ack":            evidence.AlertAck{},
+		"GET /nexo/admin/access-review":               evidence.AccessReview{},
+		"POST /nexo/admin/access-review:complete":     evidence.ReviewRecord{},
+		"GET /nexo/admin/access-review?format=json":   evidence.ReviewExport{}, // SG-07
+		"GET /nexo/authz/v1/me":                       nexoMeResponse{},
+		"GET /nexo/authz/v1/platform/members":         nexoPage[authz.Member]{},
+		"PUT|DELETE /nexo/authz/v1/*/members":         authz.BindingChange{},
+		"POST|PATCH /nexo/authz/v1/scopes":            authz.ScopeInfo{},
+		"GET /nexo/authz/v1/scopes/*/members":         nexoScopeMembersPage{},
+		"GET|POST /nexo/authz/v1/tokens":              nexoTokenView{},
+		"Estado de búsqueda (cartas muertas)":         kbstore.DeadLetter{},
 		// SG-10 (las respuestas de emisión y rotación llevan raw_token una
 		// sola vez, como POST /nexo/authz/v1/tokens, y no entran aquí).
 		"GET /nexo/authz/v1/service-accounts":                          nexoPage[authz.ServiceAccount]{},
@@ -96,7 +102,7 @@ func nexoResponseTypes() map[string]any {
 // de respuesta. Los hashes de la cadena de auditoría (prev_hash, last_hash) y
 // las sumas de contenido (content_sha256) no son secretos y no coinciden.
 var nexoForbiddenJSONNames = []string{
-	"token_hash", "tokenhash", "password", "passwd", "secret", "pepper", "verifier",
+	"activation_code", "code_hash", "token_hash", "tokenhash", "password", "passwd", "secret", "pepper", "verifier",
 	"cookie", "authorization", "api_key", "apikey", "private_key", "raw_token", "session_token",
 }
 
@@ -157,7 +163,9 @@ func nexoCheckResponseType(t reflect.Type, path string, seen map[reflect.Type]bo
 			*problems = append(*problems, path+"."+f.Name+": exported field without explicit json name")
 			name = f.Name
 		}
-		if bad, ok := nexoForbiddenJSONName(name); ok {
+		// Solo estos tipos de entrega pueden incluir la credencial de una sola vez.
+		showOnce := (t == reflect.TypeOf(nexoActivationIssued{}) && name == "activation_code") || (t == reflect.TypeOf(nexoActivationRedeemed{}) && name == "raw_token")
+		if bad, ok := nexoForbiddenJSONName(name); ok && !showOnce {
 			*problems = append(*problems, path+"."+f.Name+": json name "+name+" looks like a secret ("+bad+")")
 		}
 		if ft := f.Type; ft.PkgPath() == "database/sql" {
@@ -234,7 +242,7 @@ func TestNexoResponsesHaveNoSecrets(t *testing.T) {
 		if strings.HasPrefix(r.ctype, "application/json") {
 			checked++
 			for _, k := range nexoForbiddenKeys(r.body) {
-				if len(r.allow) > 0 && k == "$.raw_token (raw_token)" {
+				if len(r.allow) > 0 && (k == "$.raw_token (raw_token)" || k == "$.activation_code (activation_code)") {
 					continue // emisión: el token se entrega una sola vez
 				}
 				t.Errorf("%s: forbidden key %s", r.label, k)
@@ -267,10 +275,9 @@ func TestNexoResponsesHaveNoSecrets(t *testing.T) {
 	}
 	var created map[string]any
 	nexoUnmarshal(t, env.req(http.MethodPost, "/admin/users/"+ana+"/tokens", "carla", `{"name":"contrato"}`, "10.95.0.1"), &created)
-	if len(created) != 2 || created["raw_token"] == nil || created["token"] == nil {
-		t.Fatalf("POST /admin/users/{id}/tokens: keys %v", created)
+	if len(created) != 3 || created["raw_token"] != nil || created["activation_code"] == nil || created["credential_type"] != "activation_code" {
+		t.Fatal("POST /admin/users/{id}/tokens: contrato incorrecto (valores ocultos)")
 	}
-	nexoCheckKeys(t, "POST /admin/users/{id}/tokens", "token", created["token"].(map[string]any))
 }
 
 func nexoUnmarshal(t *testing.T, rec *httptest.ResponseRecorder, v any) {

@@ -195,10 +195,17 @@ templ NexoManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.P
 		<div class="data-frame">
 			if canManageManagedUsers && user.Enabled {
 				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/tokens") } class="managed-user-form">
-					<input type="text" name="name" placeholder={ nx("Token label (optional)") } autocomplete="off"/> <input type="number" name="expires_in_days" min="0" placeholder={ nx("Expires in days (default 90)") } autocomplete="off"/> <select name="scope"><option value="write" selected>{ nx("Scope: write") }</option><option value="read">{ nx("Scope: read") }</option></select>
-					<button type="submit">{ nx("Create Token") }</button>
+					<input type="hidden" name="csrf_token" value={ v.CSRF }/>
+					<input type="text" name="name" placeholder={ nx("Token label (optional)") } autocomplete="off"/> <input type="number" name="expires_in_days" min="1" placeholder={ nx("Expires in days (default 90)") } autocomplete="off"/> <select name="scope"><option value="write" selected>{ nx("Scope: write") }</option><option value="read">{ nx("Scope: read") }</option></select>
+					<button type="submit">
+						if v.Self {
+							Crear mi token
+						} else {
+							Crear código de activación
+						}
+					</button>
 				</form>
-				<p class="muted">{ nx("Tokens are shown only once, immediately after creation. Engram Cloud cannot redisplay a raw token afterward — revoke it and create a new one if it is lost.") }</p>
+				<p class="muted">Para otra persona se entrega un código de un solo uso; al canjearlo, solo ella recibe su token. Si es para ti, el token se muestra una vez.</p>
 			} else if canManageManagedUsers {
 				<div class="policy-note danger-note">
 					<p><strong>{ nx("Token creation unavailable.") }</strong>{ nx(" Enable this managed user before creating a managed token.") }</p>
@@ -257,6 +264,9 @@ templ NexoManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.P
 				</table>
 			}
 		</div>
+		if canManageManagedUsers {
+			@NexoPendingActivationList(v.Activations, user.PrincipalID, v.CSRF)
+		}
 		<h3 class="section-block-title">{ nx("Project Grants") }</h3>
 		<div class="data-frame">
 			if canManageManagedUsers {

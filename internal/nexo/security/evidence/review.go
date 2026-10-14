@@ -27,6 +27,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Variables de la revisión de accesos.
@@ -161,8 +163,19 @@ type ReviewRecord struct {
 	ReviewerID   string         `json:"reviewer_principal_id,omitempty"`
 	Reviewer     string         `json:"reviewer"`
 	Notes        string         `json:"notes,omitempty"`
+	NoteWithheld bool           `json:"note_withheld,omitempty"` // NX-07: la nota libre no tiene ámbito verificable
 	Summary      map[string]any `json:"summary"`
 	ReportSHA256 string         `json:"report_sha256"`
+}
+
+// withholdNote retira el texto libre de la nota: una revisión de accesos no
+// tiene un ámbito (proyecto o espacio) contra el cual verificar quién puede
+// leerlo, y quien solo tiene platform.audit.read no recibe texto libre (R-6).
+// Las credenciales ya se quitaron al guardar y al leer.
+func (r *ReviewRecord) withholdNote() {
+	if strings.TrimSpace(r.Notes) != "" {
+		r.Notes, r.NoteWithheld = "", true
+	}
 }
 
 // AccessReview es el reporte completo.
@@ -220,6 +233,7 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 			_ = rows.Close()
 			return rep, fmt.Errorf("evidence: revisión: personas: %w", err)
 		}
+		p.DisplayName = security.NexoRedactAuditText(p.DisplayName) // NX-07
 		p.Scopes, p.ProjectGrants, p.Tokens, p.Flags = []ReviewBinding{}, []ReviewBinding{}, []ReviewToken{}, []string{}
 		if last.Valid {
 			v := last.Time
@@ -305,6 +319,7 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 			_ = rows.Close()
 			return rep, fmt.Errorf("evidence: revisión: tokens: %w", err)
 		}
+		t.Name = security.NexoRedactAuditText(t.Name) // NX-07: nombres históricos con credenciales
 		if exp.Valid {
 			v := exp.Time
 			t.ExpiresAt = &v
@@ -404,6 +419,9 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 	if err != nil {
 		return rep, err
 	}
+	for i := range recent { // NX-07: las notas libres no salen en el reporte (last_review, recent_reviews, panel, exportaciones)
+		recent[i].withholdNote()
+	}
 	rep.RecentReviews = recent
 	if len(recent) > 0 {
 		r := recent[0]
@@ -448,6 +466,7 @@ func ListReviews(ctx context.Context, db *sql.DB, limit int) ([]ReviewRecord, er
 		if err := rows.Scan(&r.ID, &r.OccurredAt, &r.ReviewerID, &r.Reviewer, &r.Notes, &sum, &r.ReportSHA256); err != nil {
 			return nil, err
 		}
+		r.Reviewer, r.Notes = security.NexoRedactAuditText(r.Reviewer), security.NexoRedactAuditText(r.Notes) // NX-07: filas históricas
 		_ = json.Unmarshal(sum, &r.Summary)
 		out = append(out, r)
 	}
@@ -461,10 +480,9 @@ type Reviewer struct {
 
 // CompleteReview registra la revisión con el reporte vigente.
 func CompleteReview(ctx context.Context, db *sql.DB, rep AccessReview, who Reviewer, notes string) (ReviewRecord, error) {
-	notes = strings.TrimSpace(notes)
-	if len([]rune(notes)) > 4000 {
-		notes = string([]rune(notes)[:4000])
-	}
+	notes = security.NexoRedactExternal(notes, 4000) // NX-07: credenciales fuera antes de recortar y guardar
+	who.Label = security.NexoRedactExternal(who.Label, 0)
+	who.UserAgent = security.NexoRedactExternal(who.UserAgent, 0)
 	summary, _ := json.Marshal(map[string]any{
 		"people": rep.Summary.People, "enabled": rep.Summary.Enabled, "inactive": rep.Summary.Inactive,
 		"active_tokens": rep.Summary.ActiveTokens, "tokens_no_expiry": rep.Summary.TokensNoExpiry,
@@ -488,6 +506,7 @@ func CompleteReview(ctx context.Context, db *sql.DB, rep AccessReview, who Revie
 		return r, fmt.Errorf("evidence: registrar revisión: %w", err)
 	}
 	_ = json.Unmarshal(sum, &r.Summary)
+	r.withholdNote() // NX-07: la respuesta no repite el texto libre
 	return r, nil
 }
 

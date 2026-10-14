@@ -363,6 +363,9 @@ func (s *CloudServer) handleNexoAuthzEvents(w http.ResponseWriter, r *http.Reque
 		nexoAuthzWriteError(w, err)
 		return
 	}
+	if !s.nexoFilterRoleEvents(w, r, items) {
+		return
+	}
 	if store, ok := s.adminStore(w); ok {
 		principal, _ := PrincipalFromContext(r.Context())
 		if !s.nexoAuditRead(w, r, store, principal, nexoAuditActionAuthzEventsRead, "", p.filters(), len(items)) {

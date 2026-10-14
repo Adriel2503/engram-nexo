@@ -272,7 +272,7 @@ binario en la configuración de cada asistente; si lo mueves, tendrás que repet
 Pide al administrador de Nexo:
 
 - la **URL del servidor** (por ejemplo `https://<servidor-nexo>`);
-- un **token personal** para tu equipo. Por convención se nombra por equipo, por ejemplo
+- un **código de activación** para obtener tu token personal en tu equipo. Por convención se nombra por equipo, por ejemplo
   `laptop-<tu-usuario>` o `pc-<tu-usuario>`.
 
 Lo que conviene saber del token:
@@ -286,6 +286,37 @@ Lo que conviene saber del token:
   estándares desde el asistente necesitas `write`.
 
 ## 7. Conectar tu PC
+
+### 7.0 Conectar con el código de activación
+
+Cuando el administrador emite para otra persona, entrega un código de un solo uso, válido por
+24 horas por defecto. Tú lo canjeas y recibes el token definitivo; el administrador no lo recibe
+en la emisión. Abre `https://<servidor-nexo>/dashboard/activate` (**Activar mi cuenta**) o conecta
+directamente la PC:
+
+```sh
+engram nexo connect --server https://<servidor-nexo> --activate-stdin
+```
+
+En una terminal el código se solicita sin mostrarlo. También puedes enviarlo desde el portapapeles:
+
+```powershell
+Get-Clipboard | engram nexo connect --server https://<servidor-nexo> --activate-stdin
+```
+
+```sh
+pbpaste | engram nexo connect --server https://<servidor-nexo> --activate-stdin
+```
+
+Existe `--activate <codigo>`, pero expone el código en los argumentos y el historial; prefiere
+`--activate-stdin`. No combines activación con `--token` o `--token-stdin`.
+La CLI nunca imprime ni guarda el código: guarda únicamente el token resultante en `cloud.json`.
+Un código usado, vencido o revocado no vuelve a canjearse; una cuenta deshabilitada tampoco puede
+canjearlo. Pide un código nuevo si corresponde. Ante `429`, espera antes de reintentar.
+
+Si canjeas en el panel, copia tu token una vez y usa las opciones de token que siguen. Si el canje
+se confirma pero pierdes la respuesta o no puedes guardar el token localmente, el código queda
+consumido: solicita uno nuevo y pide revocar el token huérfano.
 
 El comando `engram nexo connect` hace cuatro cosas:
 
@@ -534,7 +565,7 @@ No los necesitas para el uso diario, pero sirven para comprobar o consultar sin 
 | Comando | Qué hace |
 |---|---|
 | `engram nexo status [--json]` | Conexión, identidad, servidor y copia local |
-| `engram nexo connect --server <url> (--token-stdin \| --token <token>)` | Conectar o reconectar (por ejemplo, con un token nuevo) |
+| `engram nexo connect --server <url> (--activate-stdin \| --activate <codigo> \| --token-stdin \| --token <token>)` | Conectar o reconectar (por ejemplo, con un token nuevo) |
 | `engram nexo setup <asistente>` | Instalar o reinstalar solo el protocolo Nexo en un asistente |
 | `engram nexo disconnect [--keep-copy]` | Desconectar ([sección 14](#14-desconectar-y-desinstalar)) |
 | `engram nexo kb spaces [--json]` | Espacios que ves y tu rol en cada uno |
@@ -621,7 +652,7 @@ Engram no tiene un comando de desinstalación; estos pasos son manuales.
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `No se conectó: el token no es válido o venció` | Token mal copiado, vencido o revocado | Pide un token nuevo y repite `engram nexo connect`. Copia el token completo, sin espacios |
-| El asistente o `engram nexo status` dice que el token venció, después de semanas funcionando | Los tokens vencen (por defecto a los 90 días) | Pide un token nuevo y vuelve a ejecutar `engram nexo connect`. No hace falta repetir `engram setup` |
+| El asistente o `engram nexo status` dice que el token venció, después de semanas funcionando | Los tokens vencen (por defecto a los 90 días) | Pide un código nuevo y vuelve a ejecutar `engram nexo connect`. No hace falta repetir `engram setup` |
 | `No se conectó: el token no es de un usuario administrado` | Usaste un token que no es personal | Pide un token personal al administrador |
 | `the Claude Code plugin requires jq in PATH ...` (o `curl`) | Falta `jq` o `curl` | Windows: `winget install jqlang.jq` y abre una terminal nueva. macOS: `brew install jq`. Linux: `sudo apt install jq curl`. Luego repite `engram setup claude-code` |
 | `claude CLI not found in PATH` | Claude Code no está instalado o no está en el PATH | Instala Claude Code y abre una terminal nueva |

@@ -209,6 +209,9 @@ func (cs *CloudStore) nexoMigrate(ctx context.Context) error {
 	if err := evidence.Migrate(ctx, tx); err != nil {
 		return fmt.Errorf("cloudstore: nexo migrate: %w", err)
 	}
+	if err := nexoMigrateActivations(ctx, tx); err != nil {
+		return fmt.Errorf("cloudstore: nexo activación: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("cloudstore: nexo migrate commit: %w", err)
 	}

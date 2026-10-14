@@ -228,6 +228,9 @@ func (s *CloudServer) handleAdminCreateToken(w http.ResponseWriter, r *http.Requ
 		writeActionableError(w, http.StatusConflict, constants.UpgradeErrorClassPolicy, constants.ReasonPolicyForbidden, disabledManagedUserTokenMessage(principalID))
 		return
 	}
+	if s.nexoMaybeActivation(w, r, nexoIssueCtx, principalID, req.Name, false) { // NX-07: para otra persona se emite activación
+		return
+	}
 	managedToken, err := cloudauth.GenerateManagedToken("live")
 	if err != nil {
 		writeActionableError(w, http.StatusInternalServerError, constants.UpgradeErrorClassBlocked, constants.UpgradeErrorCodeInternal, fmt.Sprintf("generate token: %v", err))

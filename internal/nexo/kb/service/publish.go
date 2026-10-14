@@ -218,6 +218,14 @@ func (s *Service) prepare(ctx context.Context, sp domain.Space, d PublishDoc) (*
 	if key == "" {
 		key = DocKeyFromPath(d.Path)
 	}
+	// NX-07: la clave, la ruta y el origen son texto externo que llega a eventos, alertas y webhooks;
+	// se revisan antes de cualquier otra cosa y la respuesta no repite el valor.
+	fields := nexoOriginFields(d.Origin)
+	fields["doc_key"], fields["path"], fields["change_note"], fields["owner"], fields["title"], fields["category"] = key, d.Path, d.ChangeNote, d.Owner, d.Title, d.Category
+	fields["tags"] = strings.Join(d.Tags, " ")
+	if field := nexoCredentialIn(fields); field != "" {
+		return nil, nexoRejectCredential(key, d.Path, field)
+	}
 	var raw []byte
 	switch {
 	case d.raw != nil:
@@ -249,6 +257,9 @@ func (s *Service) prepare(ctx context.Context, sp domain.Space, d PublishDoc) (*
 	m := conv.Meta
 	if m.ID != "" {
 		key = strings.TrimSpace(m.ID)
+		if field := nexoCredentialIn(map[string]string{"doc_key": key}); field != "" { // NX-07: id del front matter
+			return nil, nexoRejectCredential(key, d.Path, field)
+		}
 	}
 	if !domain.ValidDocKey(key) {
 		return nil, reject(key, d.Path, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "doc_key %q is invalid (letters, digits, . _ - /; up to 200)", key))
@@ -284,6 +295,10 @@ func (s *Service) prepare(ctx context.Context, sp domain.Space, d PublishDoc) (*
 	}
 	if strings.TrimSpace(conv.Markdown) == "" {
 		return nil, reject(key, d.Path, domain.Errorf(domain.KindInvalid, domain.CodeInvalid, "document has no content"))
+	}
+	// NX-07: título, responsable y etiquetas (también los del front matter) terminan en eventos, alertas y webhooks.
+	if field := nexoCredentialIn(map[string]string{"doc_key": key, "title": p.title, "owner": p.owner, "tags": strings.Join(p.tags, " "), "category": p.category}); field != "" {
+		return nil, nexoRejectCredential(key, d.Path, field)
 	}
 	if found := ingest.DetectSecrets(conv.Markdown + "\n" + p.title); len(found) > 0 {
 		kinds := make([]string, 0, len(found))

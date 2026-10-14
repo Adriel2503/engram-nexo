@@ -266,7 +266,15 @@ func LoginPage(errorMsg string, next string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</button></form></section></main></div></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</button></form>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = nexoActivationLoginLink().Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</section></main></div></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -296,7 +304,7 @@ func nexoLoginPanel() templ.Component {
 			templ_7745c5c3_Var16 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<section class=\"login-sidepanel\"><h1>Nexo IA</h1><p class=\"login-lead\">Memoria y estándares del equipo de ingeniería de Real Plaza, en un solo lugar.</p><dl class=\"nexo-login-facts\"><dt>Busca la regla vigente</dt><dd>Cada respuesta trae el documento, la sección, la versión y desde cuándo rige.</dd><dt>Publica documentos</dt><dd>Los responsables suben Markdown, Word, una carpeta o un zip.</dd><dt>Conecta tu asistente</dt><dd>Con <code>engram nexo connect</code> y <code>engram setup</code>, tu asistente consulta lo mismo que ves aquí.</dd></dl><p class=\"nexo-credit\">Basado en Engram Cloud (código abierto).</p></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<section class=\"login-sidepanel\"><h1>Nexo IA</h1><p class=\"login-lead\">Memoria y estándares del equipo de ingeniería de Real Plaza, en un solo lugar.</p><dl class=\"nexo-login-facts\"><dt>Busca la regla vigente</dt><dd>Cada respuesta trae el documento, la sección, la versión y desde cuándo rige.</dd><dt>Publica documentos</dt><dd>Los responsables suben Markdown, Word, una carpeta o un zip.</dd><dt>Conecta tu asistente</dt><dd>Con <code>engram nexo connect</code> y <code>engram setup</code>, tu asistente consulta lo mismo que ves aquí.</dd></dl><p class=\"nexo-credit\">Basado en Engram Cloud (código abierto).</p></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

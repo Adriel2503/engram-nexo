@@ -145,6 +145,8 @@ func ParseRateLimits(raw string) (RateLimits, error) {
 // ClassifyPath asigna el grupo de una petición.
 func ClassifyPath(method, path string) RateGroup {
 	switch {
+	case method == "POST" && (path == "/nexo/authz/v1/activate" || path == "/dashboard/activate"):
+		return GroupLogin
 	case strings.HasPrefix(path, "/sync/"):
 		return GroupSync
 	case strings.HasPrefix(path, "/admin/"), path == "/admin",

@@ -194,5 +194,5 @@ func (s *Service) ListEvalRuns(ctx context.Context, id authz.Identity, setSHA st
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	return store.ListEvalRuns(ctx, s.db, strings.TrimSpace(setSHA), acceptedOnly, limit)
+	return s.nexoListEvalRuns(ctx, id, strings.TrimSpace(setSHA), acceptedOnly, limit)
 }

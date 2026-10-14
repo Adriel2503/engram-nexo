@@ -19,7 +19,6 @@ internal/mcp/activity.go	SessionActivity.NudgeIfNeeded
 internal/mcp/activity.go	SessionActivity.RecordSave
 internal/mcp/mcp.go	DoctorToolHandler
 internal/nexo/authz/roles.go	AllCapabilities
-internal/nexo/authz/roles.go	ProjectScope
 internal/nexo/authz/roles.go	Roles
 internal/nexo/kb/domain/domain.go	IsKind
 internal/nexo/kb/eval/eval.go	Regressions

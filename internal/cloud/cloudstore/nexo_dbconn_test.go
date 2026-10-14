@@ -309,3 +309,21 @@ func TestNexoPoolConcurrentSameChunkDoesNotDeadlock(t *testing.T) {
 		t.Fatalf("el pool debe seguir respondiendo: %v", err)
 	}
 }
+
+// NX-07: un NEXO_ACTIVATION_TTL inválido impide el arranque, el error nombra la
+// variable y nunca repite el valor recibido (antes se usaba 48 h en silencio).
+func TestNexoActivationTTLInvalidFailsToStart(t *testing.T) {
+	nexoDBClearEnv(t)
+	for _, val := range []string{"valor-ttl-secreto", "30m", "169h", "0s", "-1h"} {
+		t.Run(val, func(t *testing.T) {
+			t.Setenv(security.ActivationTTLEnv, val)
+			_, err := New(cloud.Config{DSN: "postgres://u:p@127.0.0.1:1/x?sslmode=disable"})
+			if err == nil || !strings.Contains(err.Error(), security.ActivationTTLEnv) {
+				t.Fatalf("%s=%s: %v", security.ActivationTTLEnv, val, err)
+			}
+			if len(val) > 3 && strings.Contains(err.Error(), val) {
+				t.Fatalf("el error repite el valor recibido: %v", err)
+			}
+		})
+	}
+}

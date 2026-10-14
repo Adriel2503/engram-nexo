@@ -39,9 +39,11 @@ func TestNexoPanelPagesAreInSpanish(t *testing.T) {
 		{"/dashboard/admin/audit-log/list", []string{"Filtrar", "Todos los resultados", `placeholder="Desde (RFC3339)"`, "Sin registros de auditoría"}, []string{"All Outcomes", ">Filter<", "From (RFC3339)", "No Audit Entries"}},
 		{"/dashboard/admin/users", []string{"Crear usuario", "Rol de plataforma", "Un usuario nuevo no sincroniza ningún proyecto"}, // NX-05: la pantalla de Usuarios es la de Nexo (rol de plataforma), ya en español
 			[]string{"Create User", "Display name (optional)", "deny-by-default"}},
-		{"/dashboard/admin/users/" + env.ids["ana"], []string{"Crear token", "Días de vida (por defecto 90)", "Alcance: escritura", "Permisos de proyecto", "Dar permiso", "Nombre del proyecto",
-			"El token se muestra una sola vez", "Deshabilitar usuario"},
+		{"/dashboard/admin/users/" + env.ids["ana"], []string{"Crear código de activación", "Días de vida (por defecto 90)", "Alcance: escritura", "Permisos de proyecto", "Dar permiso", "Nombre del proyecto",
+			"Para otra persona se entrega un código de un solo uso", "Deshabilitar usuario"},
 			[]string{"Create Token", "Expires in days", "Scope: write", "Project Grants", "Grant Project", "Tokens are shown only once", "Disable User"}},
+		// NX-07: para uno mismo el formulario crea el token y lo muestra una vez.
+		{"/dashboard/admin/users/" + env.ids["carla"], []string{"Crear mi token", "el token se muestra una vez"}, []string{"Create Token", "Tokens are shown only once"}},
 	}
 	for _, p := range pages {
 		rec := carla.get(p.path)
@@ -66,7 +68,7 @@ func TestNexoPanelPagesAreInSpanish(t *testing.T) {
 	}
 	// La emisión de un token muestra la página de token creado en español.
 	rec := carla.post("/dashboard/admin/users/"+env.ids["ana"]+"/tokens", kbForm(carla.csrf(""), "name", "panel", "scope", "read", "expires_in_days", "15"))
-	for _, w := range []string{"Token creado", "Guarda este token ahora", "Este token se muestra una sola vez", "alcance lectura", "Volver a ana"} {
+	for _, w := range []string{"Código de activación", "canal seguro", "una sola vez", "Vida del token", "Volver a la persona"} {
 		if !strings.Contains(rec.Body.String(), w) {
 			t.Errorf("token creado: falta %q", w)
 		}

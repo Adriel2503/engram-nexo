@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Proposal es una propuesta (nexo_kb_proposals).
@@ -49,7 +51,7 @@ func InsertProposal(ctx context.Context, q Querier, p Proposal, act Actor) error
 			$10::bigint, $11::bigint, $12, (SELECT u.email FROM cloud_human_users u WHERE u.principal_id = $10::bigint), NULLIF($13, ''), $14, $15,
 			$16::text[], NULLIF($17, ''))`,
 		p.ID, p.SpaceID, p.TargetDocID, p.BaseVersion, p.DocKey, p.Title, p.Category, p.ContentMD, p.Rationale,
-		nullBigint(act.PrincipalID), nullBigint(act.TokenID), labelOrUnknown(act.Label), act.Claim, nullTime(p.ValidFrom), nullTime(p.ValidUntil),
+		nullBigint(act.PrincipalID), nullBigint(act.TokenID), labelOrUnknown(act.Label), security.NexoRedactExternal(act.Claim, 0), nullTime(p.ValidFrom), nullTime(p.ValidUntil),
 		nonNil(p.Tags), act.ClientIP)
 	return err
 }

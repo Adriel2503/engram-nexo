@@ -26,10 +26,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 )
 
 // Reglas (design §5.3 más las del arreglo A1/A2).
 const (
+	RuleActivationRepeated    = "activation_repeated"
+	RuleActivationSameIP      = "activation_same_ip" // NX-07: canje desde la IP del emisor en menos de 1 minuto (indicio)
 	RuleAuthzDeniedBurst      = "authz_denied_burst"
 	RuleAuthFailuresBurst     = "auth_failures_burst"
 	RulePlatformRoleChanged   = "platform_role_changed"
@@ -52,6 +56,7 @@ const (
 
 // AllRules lista las reglas (filtro de la API).
 var AllRules = []string{
+	RuleActivationRepeated, RuleActivationSameIP,
 	RuleAuthzDeniedBurst, RuleAuthFailuresBurst, RulePlatformRoleChanged, RuleSharedTokenUsed,
 	RuleExpiredTokenUsed, RuleRevokedTokenUsed, RuleInvalidTokenRepeated, RuleAuditChainBroken,
 	RuleLoggingStalled, RuleInactiveDisabled, RuleAuditExportFailed,
@@ -78,6 +83,8 @@ type RuleSet map[string]RuleConfig
 // desactivada (solo sirve donde se espera sincronización continua).
 func DefaultRules() RuleSet {
 	return RuleSet{
+		RuleActivationRepeated:   {Enabled: true, Threshold: 2, Severity: SeverityHigh},
+		RuleActivationSameIP:     {Enabled: true, Threshold: 1, Severity: SeverityHigh},
 		RuleAuthzDeniedBurst:     {Enabled: true, Threshold: 5, Window: time.Minute, Cooldown: 10 * time.Minute, Severity: SeverityHigh},
 		RuleAuthFailuresBurst:    {Enabled: true, Threshold: 10, Window: 5 * time.Minute, Cooldown: 30 * time.Minute, Severity: SeverityHigh},
 		RulePlatformRoleChanged:  {Enabled: true, Threshold: 1, Window: 10 * time.Minute, Severity: SeverityHigh},
@@ -253,6 +260,15 @@ type AlertAck struct {
 	PrincipalID string    `json:"acknowledged_by_principal_id,omitempty"`
 	Label       string    `json:"acknowledged_by"`
 	Note        string    `json:"note,omitempty"`
+	// NoteWithheld: la nota libre existe pero no se entrega sin lectura del ámbito de la alerta (R-6).
+	NoteWithheld bool `json:"note_withheld,omitempty"`
+}
+
+// WithholdNote retira el texto libre de la nota del reconocimiento.
+func (a *AlertAck) WithholdNote() {
+	if strings.TrimSpace(a.Note) != "" {
+		a.Note, a.NoteWithheld = "", true
+	}
 }
 
 // NewAlert es una alerta a insertar directamente (reglas que no salen de una
@@ -274,6 +290,12 @@ type NewAlert struct {
 func InsertAlert(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, a NewAlert) (*Alert, error) {
+	// NX-07: sujeto, clave, resumen y detalles pueden traer texto externo (claves de documento,
+	// responsables, proyectos): se quitan formatos de credencial antes de guardar.
+	a.Subject = security.NexoRedactExternal(a.Subject, 0)
+	a.DedupKey = security.NexoRedactExternal(a.DedupKey, 0)
+	a.Summary = security.NexoRedactExternal(a.Summary, 0)
+	a.Details = security.NexoRedactAuditMetadata(a.Details)
 	if a.DedupKey == "" {
 		a.DedupKey = a.Rule + "|" + string(a.Layer) + "|" + a.Subject + "|" + time.Now().UTC().Format("20060102T150405.000000")
 	}
@@ -729,6 +751,10 @@ func ListAlerts(ctx context.Context, db *sql.DB, q AlertQuery) ([]Alert, string,
 		if len(det) > 0 {
 			_ = json.Unmarshal(det, &a.Details)
 		}
+		// NX-07: alertas históricas escritas antes de la redacción en escritura.
+		a.Subject, a.Summary = security.NexoRedactAuditText(a.Subject), security.NexoRedactAuditText(a.Summary)
+		a.Details = security.NexoRedactAuditMetadata(a.Details)
+		ack.Label, ack.Note = security.NexoRedactAuditText(ack.Label), security.NexoRedactAuditText(ack.Note)
 		if ackAt.Valid {
 			ack.OccurredAt = ackAt.Time
 			a.Ack = &ack
@@ -770,10 +796,9 @@ var (
 
 // AckAlert registra el reconocimiento (una vez por alerta).
 func AckAlert(ctx context.Context, db *sql.DB, alertID int64, actor AckActor, note string) (AlertAck, error) {
-	note = strings.TrimSpace(note)
-	if len([]rune(note)) > 1000 {
-		note = string([]rune(note)[:1000])
-	}
+	note = security.NexoRedactExternal(note, 1000) // NX-07: credenciales fuera antes de recortar y guardar
+	actor.Label = security.NexoRedactExternal(actor.Label, 0)
+	actor.UserAgent = security.NexoRedactExternal(actor.UserAgent, 0)
 	var ack AlertAck
 	err := db.QueryRowContext(ctx, `
 		INSERT INTO nexo_alert_acks (alert_id, acknowledged_by_principal_id, acknowledged_by_token_id, acknowledged_by_label, note, client_ip, user_agent)

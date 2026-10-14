@@ -72,6 +72,10 @@ func nexoOpenDB(name, dsn string, pool bool) (*sql.DB, error) {
 			return nil, fmt.Errorf("configuración del pool de conexiones: %w", err)
 		}
 		conn.pool, conn.poolSet = pc, true
+		// NX-07: el servidor no arranca con un plazo de activación inválido (nunca se cambia en silencio por el de defecto).
+		if _, err := security.ActivationTTLFromEnv(); err != nil {
+			return nil, err
+		}
 	}
 	db := stdlib.OpenDB(*cfg)
 	if conn.poolSet {

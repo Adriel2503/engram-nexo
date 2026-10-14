@@ -44,6 +44,10 @@ func (s *Service) SupersedeDocument(ctx context.Context, id authz.Identity, slug
 
 func (s *Service) retire(ctx context.Context, id authz.Identity, sp domain.Space, docKey, byKey, note string, extra map[string]any) (domain.Document, error) {
 	docKey = strings.TrimSpace(docKey)
+	// NX-07: la nota y la clave del reemplazo son texto externo que llega a eventos y alertas.
+	if field := nexoCredentialIn(map[string]string{"doc_key": docKey, "by": byKey, "note": note}); field != "" {
+		return domain.Document{}, domain.Errorf(domain.KindInvalid, domain.CodeSecret, "the field %s contains a credential format (RN-K4); remove it", field)
+	}
 	var out domain.Document
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		now, err := store.Now(ctx, tx)

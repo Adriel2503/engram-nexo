@@ -16,7 +16,7 @@ import (
 const usage = `Uso: engram nexo <comando> [opciones]
 
 Conexión de esta PC:
-  connect --server URL [--token-stdin | --token T]   Valida el token, guarda la conexión y sincroniza la copia local
+  connect --server URL [--activate-stdin | --activate C | --token-stdin | --token T]   Canjea el código o valida el token, guarda la conexión y sincroniza la copia local
   status [--json]                                    Conexión, identidad, servidor y copia local
   disconnect [--keep-copy]                           Quita la conexión (y la copia local)
   setup <agente>                                     Instala el protocolo Nexo en un asistente

@@ -10,6 +10,8 @@ package cloudserver
 // TestNexoResponsesHaveNoSecrets.
 
 import (
+	"fmt"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
 	"log"
 	"net/http"
 
@@ -26,5 +28,5 @@ func nexoInternalError(w http.ResponseWriter, what string, err error) {
 // servidor. Lo usan nexoInternalError (API JSON) y las páginas del panel, que
 // responden 500 con un texto genérico en español y nunca muestran el error.
 func nexoLogInternal(what string, err error) {
-	log.Printf("[nexo] %s: %v", what, err)
+	log.Printf("[nexo] %s: %s", what, security.NexoRedactAuditText(fmt.Sprint(err)))
 }
