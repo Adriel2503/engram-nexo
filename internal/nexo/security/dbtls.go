@@ -76,20 +76,19 @@ func ParseRequireDBTLS(raw string) (bool, error) {
 // RequireDBTLSFromEnv lee NEXO_DB_REQUIRE_TLS.
 func RequireDBTLSFromEnv() (bool, error) { return ParseRequireDBTLS(os.Getenv(DBRequireTLSEnv)) }
 
-// InspectDSN decide el TLS a partir de la configuración EFECTIVA de pgx
-// (pgconn.ParseConfig, la misma que usa el driver al abrir con esta cadena),
-// no de una lectura propia de la cadena: así cuentan igual que en el driver
-// un sslmode repetido (gana el último), PGSSLMODE, un archivo de servicio
-// (PGSERVICE, con prioridad sobre las variables) y require con sslrootcert
-// (que pgx trata como verify-ca, igual que libpq). Verificado = todos los
-// intentos de conexión (el host y sus alternativas) usan TLS y comprueban el
-// certificado del servidor. No abre ninguna conexión.
-func InspectDSN(dsn string) (DBTLS, error) {
-	cfg, err := pgconn.ParseConfig(dsn)
-	if err != nil {
-		// pgconn ya oculta la contraseña en este error.
-		return DBTLS{}, fmt.Errorf("la cadena de conexión no es válida: %w", err)
-	}
+// InspectConfig decide el TLS a partir de la configuración EFECTIVA de pgx
+// (pgx.ParseConfig / pgconn.ParseConfig), no de una lectura propia de la
+// cadena: así cuentan igual que en el driver un sslmode repetido (gana el
+// último), PGSSLMODE, un archivo de servicio (PGSERVICE, con prioridad sobre
+// las variables) y require con sslrootcert (que pgx trata como verify-ca, igual
+// que libpq). Verificado = todos los intentos de conexión (el host y sus
+// alternativas) usan TLS y comprueban el certificado del servidor.
+//
+// Quien abre la base debe conectar con esta MISMA configuración (stdlib.OpenDB):
+// si se vuelve a interpretar la cadena en cada conexión, un cambio posterior
+// del archivo de servicio o del entorno podría bajar el TLS de las conexiones
+// nuevas sin pasar por esta política.
+func InspectConfig(cfg *pgconn.Config) DBTLS {
 	tries := []*tls.Config{cfg.TLSConfig}
 	hosts := []string{cfg.Host}
 	for _, fb := range cfg.Fallbacks {
@@ -103,7 +102,7 @@ func InspectDSN(dsn string) (DBTLS, error) {
 		}
 	}
 	mode := effectiveSSLMode(tries)
-	return DBTLS{SSLMode: mode, Local: local, Verified: mode == SSLModeVerifyFull || mode == SSLModeVerifyCA}, nil
+	return DBTLS{SSLMode: mode, Local: local, Verified: mode == SSLModeVerifyFull || mode == SSLModeVerifyCA}
 }
 
 // effectiveSSLMode traduce las configuraciones TLS de cada intento de pgx al

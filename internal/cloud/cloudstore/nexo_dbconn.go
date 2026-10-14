@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // nexoConn es lo que se recuerda de una conexión abierta con nexoOpenDB.
@@ -44,11 +46,18 @@ var nexoConns sync.Map
 // nexoOpenDB abre la base aplicando la política de TLS y, si pool es true, la
 // configuración del pool (la cuenta dueña solo migra al arrancar y no la
 // necesita).
+//
+// La cadena se interpreta UNA vez (pgx.ParseConfig) y el pool se abre con
+// esa misma configuración (stdlib.OpenDB): así las conexiones nuevas que el
+// pool abra más adelante usan el TLS que se validó aquí, aunque cambien el
+// archivo de servicio o el entorno mientras el servidor corre.
 func nexoOpenDB(name, dsn string, pool bool) (*sql.DB, error) {
-	tls, err := security.InspectDSN(dsn)
+	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		// pgconn ya oculta la contraseña en este error.
+		return nil, fmt.Errorf("%s: la cadena de conexión no es válida: %w", name, err)
 	}
+	tls := security.InspectConfig(&cfg.Config)
 	requireTLS, err := security.RequireDBTLSFromEnv()
 	if err != nil {
 		return nil, err
@@ -64,10 +73,7 @@ func nexoOpenDB(name, dsn string, pool bool) (*sql.DB, error) {
 		}
 		conn.pool, conn.poolSet = pc, true
 	}
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		return nil, err
-	}
+	db := stdlib.OpenDB(*cfg)
 	if conn.poolSet {
 		conn.pool.Apply(db)
 	}

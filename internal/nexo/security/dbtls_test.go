@@ -52,7 +52,7 @@ func TestInspectDSN(t *testing.T) {
 		{"dsn roto", "postgres://u:p@%zz/x", "", false, false, true},
 	}
 	for _, c := range cases {
-		got, err := InspectDSN(c.dsn)
+		got, err := inspectDSN(c.dsn)
 		if (err != nil) != c.hasErr {
 			t.Errorf("%s: err = %v", c.name, err)
 			continue
@@ -68,7 +68,7 @@ func TestInspectDSN(t *testing.T) {
 		}
 	}
 	t.Setenv("PGSSLMODE", "verify-full")
-	if got, err := InspectDSN("postgres://u:p@db.interno/x"); err != nil || got.SSLMode != "verify-full" || !got.Verified {
+	if got, err := inspectDSN("postgres://u:p@db.interno/x"); err != nil || got.SSLMode != "verify-full" || !got.Verified {
 		t.Errorf("PGSSLMODE: %+v, %v", got, err)
 	}
 }
@@ -99,7 +99,7 @@ func TestInspectDSNUsesEffectivePgxConfig(t *testing.T) {
 		{"varios hosts verify-full", "postgres://u:p@db1.interno:5432,db2.interno:5432/x?sslmode=verify-full", "verify-full", true},
 	}
 	for _, c := range cases {
-		got, err := InspectDSN(c.dsn)
+		got, err := inspectDSN(c.dsn)
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
@@ -119,7 +119,7 @@ func TestInspectDSNUsesEffectivePgxConfig(t *testing.T) {
 	}
 	t.Setenv("PGSERVICEFILE", svc)
 	t.Setenv("PGSSLMODE", "verify-full")
-	got, err := InspectDSN("service=nexo user=u dbname=x")
+	got, err := inspectDSN("service=nexo user=u dbname=x")
 	if err != nil {
 		t.Fatalf("servicio: %v", err)
 	}
@@ -331,4 +331,14 @@ func TestVerifyFullTLSAgainstTestServer(t *testing.T) {
 	if strings.Contains(err.Error(), "secreto-de-prueba") {
 		t.Fatalf("el error no debe traer la contraseña: %v", err)
 	}
+}
+
+// inspectDSN interpreta la cadena con pgconn (como el servidor) y aplica
+// InspectConfig.
+func inspectDSN(dsn string) (DBTLS, error) {
+	cfg, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return DBTLS{}, fmt.Errorf("la cadena de conexión no es válida: %w", err)
+	}
+	return InspectConfig(cfg), nil
 }

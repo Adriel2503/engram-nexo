@@ -207,3 +207,52 @@ func TestNexoStartupLogHasNoPassword(t *testing.T) {
 		t.Errorf("el log no debe traer cadenas de conexión:\n%s", buf.String())
 	}
 }
+
+// Regresión (revisión adversarial): el pool usa la configuración que se validó
+// al abrir, no vuelve a leer el archivo de servicio en cada conexión nueva. Se
+// abre con un servicio sslmode=disable, se cambia el archivo a verify-full
+// contra un host inexistente y se fuerza una conexión nueva: si el pool
+// releyera el archivo, la consulta fallaría.
+func TestNexoOpenDBBindsValidatedConfig(t *testing.T) {
+	dsn := os.Getenv("CLOUDSTORE_TEST_DSN")
+	if dsn == "" {
+		t.Skip("CLOUDSTORE_TEST_DSN not set — skipping integration test (requires Postgres)")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		t.Skip("test requires URL-style CLOUDSTORE_TEST_DSN")
+	}
+	nexoDBClearEnv(t)
+	pass, _ := u.User.Password()
+	dir := t.TempDir()
+	svc := dir + "/pg_service.conf"
+	write := func(mode, host string) {
+		t.Helper()
+		body := fmt.Sprintf("[nexo]\nhost=%s\nport=%s\nuser=%s\npassword=%s\ndbname=%s\nsslmode=%s\n",
+			host, u.Port(), u.User.Username(), pass, strings.TrimPrefix(u.Path, "/"), mode)
+		if err := os.WriteFile(svc, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("disable", u.Hostname())
+	t.Setenv("PGSERVICEFILE", svc)
+	t.Setenv("PGSERVICE", "")
+
+	db, err := nexoOpenDB("ENGRAM_DATABASE_URL", "service=nexo", false)
+	if err != nil {
+		t.Fatalf("abrir: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	db.SetMaxIdleConns(0) // cada consulta abre una conexión nueva
+	var one int
+	if err := db.QueryRow(`SELECT 1`).Scan(&one); err != nil {
+		t.Fatalf("primera consulta: %v", err)
+	}
+
+	write("verify-full", "db.invalido.test")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.QueryRowContext(ctx, `SELECT 1`).Scan(&one); err != nil {
+		t.Fatalf("la conexión nueva debe usar la configuración validada al abrir, no la del archivo cambiado: %v", err)
+	}
+}
