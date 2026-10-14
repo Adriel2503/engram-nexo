@@ -174,7 +174,7 @@ se crea el volumen): `POSTGRES_PASSWORD`, `NEXO_OWNER_PASSWORD`, `NEXO_APP_PASSW
 | Variable | Por defecto | Qué hace |
 |---|---|---|
 | `NEXO_DB_REQUIRE_TLS` | `false` | `true`: el servidor no arranca si `ENGRAM_DATABASE_URL` o `NEXO_MIGRATION_DATABASE_URL` no usan `sslmode=verify-full` o `verify-ca` (cualquier host), y el error dice cuál conexión y por qué. Recomendada en producción. Un valor distinto de `true` o `false` es un error al arrancar. Sin ella, una base que no es local (que no es `localhost`, una IP de loopback ni un socket) sin TLS verificado deja una advertencia en el log |
-| `NEXO_DB_MAX_OPEN_CONNS` | `25` | Conexiones abiertas como máximo por réplica. Las peticiones que no encuentran una libre esperan su turno (no fallan) |
+| `NEXO_DB_MAX_OPEN_CONNS` | `25` | Conexiones abiertas como máximo por réplica. Las peticiones que no encuentran una libre esperan su turno (no fallan). Mínimo 4: con menos, una migración que anida consultas puede bloquear el arranque |
 | `NEXO_DB_MAX_IDLE_CONNS` | `10` | Conexiones en reposo que se conservan. No puede ser mayor que el máximo; si solo se baja el máximo, este valor se ajusta solo |
 | `NEXO_DB_CONN_MAX_LIFETIME` | `30m` | Vida máxima de una conexión; pasada, se cierra y se abre otra (recupera conexiones cortadas por un firewall o un balanceador) |
 | `NEXO_DB_CONN_MAX_IDLE_TIME` | `5m` | Tiempo máximo que una conexión puede estar sin uso |

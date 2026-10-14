@@ -47,6 +47,11 @@ const (
 	// LowDBMaxOpen: por debajo de esto el log avisa de que las peticiones
 	// pueden esperar una conexión libre.
 	LowDBMaxOpen = 5
+	// MinDBMaxOpen: mínimo aceptado. Hay código (por ejemplo el relleno de
+	// sesiones de Engram al migrar, cloudstore.go) que mantiene un cursor
+	// abierto y pide otra conexión del mismo pool: con 1 el arranque se
+	// bloquea para siempre. 4 deja margen para esos anidamientos.
+	MinDBMaxOpen = 4
 )
 
 // PoolConfig son los valores efectivos del pool.
@@ -107,6 +112,9 @@ func ParsePoolConfig(get func(string) string) (PoolConfig, error) {
 	// Si solo se bajó el máximo, el valor de reposo por defecto no puede
 	// superarlo: se ajusta sin error. Si el reposo se fijó a mano y supera el
 	// máximo, es un error.
+	if openSet && cfg.MaxOpen < MinDBMaxOpen {
+		errs = append(errs, fmt.Errorf("%s=%d no es válido: el mínimo es %d (con menos, una migración que anida consultas puede bloquear el arranque)", DBMaxOpenEnv, cfg.MaxOpen, MinDBMaxOpen))
+	}
 	if openSet && !idleSet && cfg.MaxIdle > cfg.MaxOpen {
 		cfg.MaxIdle = cfg.MaxOpen
 	}

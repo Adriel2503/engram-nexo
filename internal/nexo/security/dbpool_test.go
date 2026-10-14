@@ -47,6 +47,10 @@ func TestParsePoolConfigInvalid(t *testing.T) {
 		{"duración cero", map[string]string{DBMaxIdleTimeEnv: "0s"}, DBMaxIdleTimeEnv},
 		{"duración negativa", map[string]string{DBMaxLifetimeEnv: "-5m"}, DBMaxLifetimeEnv},
 		{"reposo mayor que el máximo", map[string]string{DBMaxOpenEnv: "5", DBMaxIdleEnv: "8"}, DBMaxIdleEnv},
+		// Regresión (revisión adversarial): con 1 conexión el relleno de
+		// sesiones al migrar espera una conexión que él mismo retiene.
+		{"una conexión bloquea el arranque", map[string]string{DBMaxOpenEnv: "1"}, DBMaxOpenEnv},
+		{"debajo del mínimo", map[string]string{DBMaxOpenEnv: "3"}, DBMaxOpenEnv},
 	}
 	for _, c := range cases {
 		_, err := ParsePoolConfig(poolEnv(c.env))

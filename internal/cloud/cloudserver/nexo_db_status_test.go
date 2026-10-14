@@ -83,7 +83,7 @@ func TestNexoDBStatusRoute(t *testing.T) {
 // Con un máximo bajo, muchas peticiones concurrentes nunca superan el límite
 // de conexiones abiertas y ninguna falla: esperan su turno.
 func TestNexoPoolLimitUnderConcurrency(t *testing.T) {
-	const limit = 3
+	const limit = 4 // security.MinDBMaxOpen
 	env := nexoDBStatusEnv(t, map[string]string{security.DBMaxOpenEnv: fmt.Sprint(limit), security.DBMaxIdleEnv: "2"})
 
 	var maxOpen, maxInUse int64
@@ -186,7 +186,7 @@ func TestNexoPoolLimitUnderConcurrency(t *testing.T) {
 
 // El monitor deja una línea en el log cuando hubo esperas nuevas.
 func TestNexoMonitorPoolWaitsLog(t *testing.T) {
-	env := nexoDBStatusEnv(t, map[string]string{security.DBMaxOpenEnv: "2", security.DBMaxIdleEnv: "2"})
+	env := nexoDBStatusEnv(t, map[string]string{security.DBMaxOpenEnv: "4", security.DBMaxIdleEnv: "2"})
 	logs := nexoCaptureLogs(t)
 	m := env.srv.nexoMonitorState()
 	env.srv.nexoMonitorPool(m) // línea base
