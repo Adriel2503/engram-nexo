@@ -859,6 +859,10 @@ Cambios propios en `internal/nexo/stack/{search,search_config,search_test}.go` y
 
 **Verificación.** Pruebas dirigidas de stack y nexocli en Windows; stack completo y nexocli en Linux con `golang:1.25` y toolchain Go 1.27.2; `GOOS=linux go vet` de esos paquetes: verdes. `golangci-lint` v2.14.0 contra `c604aae`: 0 issues. `deadcode-ratchet.sh`: sin funciones nuevas inaccesibles, ejecutado sobre una copia temporal de los archivos versionados más los cambios Go, con saltos normalizados (el CRLF de `go.mod` detiene el parser del script en la carpeta de Windows). `TestStackDockerSmoke` real pasó en 18492/55492 y limpió sus recursos propios. Las pruebas Postgres de seed exigen la base preexistente `nexoseed`; no se ejecutaron contra ella ni se alteró su fixture, ya que este cambio no toca la semilla.
 
+### NX-10 · Inicio de sesión simplificado (feat/login-simplificado)
+
+El acceso de Nexo usa una sola columna centrada con la marca y Real Plaza, seguida del formulario. Se retiran la descripción extensa, los tres beneficios, los comandos de asistentes y el crédito del login; el pie común mantiene la referencia a Engram. La ayuda del token se reduce a una frase. Se conservan el formulario POST, el destino tras ingresar, los errores y el enlace de activación. Cambios en el bloque propio `nexoLoginPanel` de `login.templ` y su generado, `nexo_brand.go`, el tema propio y el diseño del panel.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.

@@ -29,7 +29,7 @@ var nexoText = map[string]string{
 	// Login
 	"Login":   "Iniciar sesión",
 	"Sign In": "Iniciar sesión",
-	"Use your cloud runtime token to open a signed dashboard session.": "Ingresa tu token de acceso. Si recibiste un código, usa Activar mi cuenta. El panel conserva los permisos de tu token.",
+	"Use your cloud runtime token to open a signed dashboard session.": "Ingresa con tu token de acceso.",
 	"Cloud token":       "Token de acceso",
 	"token":             "Pega aquí tu token",
 	"token is required": "Ingresa tu token de acceso.",

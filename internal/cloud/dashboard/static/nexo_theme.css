@@ -543,12 +543,13 @@ body.nexo textarea:focus {
 /* ─── Login ───────────────────────────────────────────────────────────────── */
 
 body.nexo .login-shell {
-	min-height: 100vh;
-	max-width: 1080px;
+	min-height: calc(100svh - 4rem);
+	max-width: 28rem;
 	align-items: center;
-	grid-template-columns: minmax(0, 1.15fr) minmax(20rem, 0.85fr);
-	gap: clamp(2rem, 6vw, 5rem);
-	padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 3vw, 2rem);
+	align-content: center;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 1.75rem;
+	padding: 2rem 1rem;
 }
 
 body.nexo .login-sidepanel,
@@ -566,32 +567,22 @@ body.nexo .login-sidepanel h1 {
 	letter-spacing: -0.02em;
 }
 
+body.nexo .login-sidepanel {
+	text-align: center;
+}
+
+body.nexo .nexo-login-org {
+	margin: 0;
+	color: var(--nx-ink-soft);
+	font-size: var(--nx-s2);
+}
+
 body.nexo .login-lead {
 	font-family: var(--nx-font-read);
 	font-size: var(--nx-s4);
 	line-height: 1.45;
 	max-width: 32ch;
 	color: var(--nx-ink);
-}
-
-body.nexo .nexo-login-facts {
-	margin: 1.25rem 0 0;
-	display: grid;
-	gap: 0.15rem;
-	max-width: 46ch;
-}
-
-body.nexo .nexo-login-facts dt {
-	font-weight: 600;
-	margin-top: 0.85rem;
-	padding-left: 0.85rem;
-	border-left: 3px solid var(--nx-green);
-}
-
-body.nexo .nexo-login-facts dd {
-	margin: 0;
-	padding-left: calc(0.85rem + 3px);
-	color: var(--nx-ink-soft);
 }
 
 body.nexo .nexo-credit {
@@ -612,6 +603,11 @@ body.nexo .login-container h2 {
 	margin: 0;
 }
 
+body.nexo .login-container > p {
+	margin: 0;
+	font-size: var(--nx-s2);
+}
+
 body.nexo .login-copy {
 	font-size: var(--nx-s2);
 	color: var(--nx-ink-soft);
@@ -630,7 +626,6 @@ body.nexo .login-form button {
 @media (max-width: 900px) {
 	body.nexo .login-shell {
 		grid-template-columns: 1fr;
-		min-height: 0;
 	}
 	body.nexo .login-sidepanel {
 		border-bottom: 0;
