@@ -95,7 +95,7 @@ func TestInspectDSNUsesEffectivePgxConfig(t *testing.T) {
 		{"repetido: gana el último (verify-full)", "host=db.interno user=u dbname=x sslmode=require sslmode=verify-full", "verify-full", true},
 		{"allow", "host=db.interno user=u dbname=x sslmode=allow", "allow", false},
 		{"prefer por defecto", "host=db.interno user=u dbname=x", "prefer", false},
-		{"require con sslrootcert = verify-ca", "host=db.interno user=u dbname=x sslmode=require sslrootcert='" + caPath + "'", "verify-ca", true},
+		{"require con sslrootcert = verify-ca", "host=db.interno user=u dbname=x sslmode=require sslrootcert='" + filepath.ToSlash(caPath) + "'", "verify-ca", true}, // pgx 5.11, como libpq: '\' escapa dentro de comillas
 		{"varios hosts verify-full", "postgres://u:p@db1.interno:5432,db2.interno:5432/x?sslmode=verify-full", "verify-full", true},
 	}
 	for _, c := range cases {
