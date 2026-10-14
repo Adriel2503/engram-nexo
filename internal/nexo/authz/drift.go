@@ -55,7 +55,7 @@ func listDriftTx(ctx context.Context, q rowsQueryer) ([]RoleDrift, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []RoleDrift{}
 	for rows.Next() {
 		var d RoleDrift

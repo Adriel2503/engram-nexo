@@ -168,7 +168,7 @@ func PlatformRoleMap(ctx context.Context, db *sql.DB) (map[string]Role, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string]Role{}
 	for rows.Next() {
 		var id, role, kind string
@@ -183,7 +183,6 @@ func PlatformRoleMap(ctx context.Context, db *sql.DB) (map[string]Role, error) {
 	}
 	return out, rows.Err()
 }
-
 
 // SyncEngramRoleTx lo usan las APIs de Engram que todavía reciben un valor de
 // la columna role (admin | member) al actualizar una persona. Esa columna no
