@@ -105,7 +105,7 @@ func (cs *CloudStore) NexoIssueActivation(ctx context.Context, target, hash, nam
 	if err != nil {
 		return NexoActivation{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockPrincipalTokenTargetTx(ctx, tx, target); err != nil {
 		return NexoActivation{}, err
 	}
@@ -147,7 +147,7 @@ func (cs *CloudStore) NexoPendingActivations(ctx context.Context, target string)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []NexoActivation{}
 	for rows.Next() {
 		var a NexoActivation
@@ -168,7 +168,7 @@ func (cs *CloudStore) NexoRevokeActivation(ctx context.Context, id, target strin
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// Mismo orden que el canje: persona, código, cadena de auditoría.
 	var pid string
 	if err = tx.QueryRowContext(ctx, "SELECT id::text FROM cloud_principals WHERE id=$1::bigint FOR UPDATE", target).Scan(&pid); err != nil {
@@ -209,7 +209,7 @@ func (cs *CloudStore) NexoRedeemActivation(ctx context.Context, hash string, par
 	if err != nil {
 		return PrincipalToken{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var target string
 	err = tx.QueryRowContext(ctx, "SELECT principal_id::text FROM nexo_activation_codes WHERE code_hash=$1", hash).Scan(&target)
 	audit := AuthAuditEvent{ActorSource: "activation", Action: "nexo.activation.failed", Outcome: "denied", Metadata: map[string]any{}}

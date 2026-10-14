@@ -329,7 +329,7 @@ func (s *CloudServer) handleNexoActivationPage(w http.ResponseWriter, r *http.Re
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-			http.Error(w, "Formulario no válido.", 403)
+			http.Error(w, "Formulario no válido.", http.StatusForbidden)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)

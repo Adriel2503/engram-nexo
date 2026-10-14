@@ -52,11 +52,11 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 	code := strings.TrimSpace(*activation)
 	if *activationStdin {
 		if stdin == os.Stdin && term.IsTerminal(os.Stdin.Fd()) {
-			fmt.Fprint(stderr, "Código de activación: ")
+			_, _ = fmt.Fprint(stderr, "Código de activación: ")
 			b, err := term.ReadPassword(os.Stdin.Fd())
-			fmt.Fprintln(stderr)
+			_, _ = fmt.Fprintln(stderr)
 			if err != nil {
-				fmt.Fprintln(stderr, "No se pudo leer el código.")
+				_, _ = fmt.Fprintln(stderr, "No se pudo leer el código.")
 				return 1
 			}
 			code = strings.TrimSpace(string(b))
@@ -66,7 +66,7 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 		}
 	}
 	if (code != "" || *activationStdin) && (*token != "" || *fromStdin) {
-		fmt.Fprintln(stderr, "Elige token o activación.")
+		_, _ = fmt.Fprintln(stderr, "Elige token o activación.")
 		return 2
 	}
 	tok := strings.TrimSpace(*token)
@@ -78,7 +78,7 @@ func runConnect(args []string, dataDir string, stdout, stderr io.Writer) int {
 		tok = strings.TrimSpace(os.Getenv("NEXO_TOKEN"))
 	}
 	if strings.TrimSpace(*server) == "" || (tok == "" && code == "") {
-		fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> (--activate-stdin | --activate <codigo> | --token-stdin | --token <token> | NEXO_TOKEN)")
+		_, _ = fmt.Fprintln(stderr, "uso: engram nexo connect --server <url> (--activate-stdin | --activate <codigo> | --token-stdin | --token <token> | NEXO_TOKEN)")
 		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
