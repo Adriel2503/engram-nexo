@@ -52,7 +52,7 @@ services:
     # Sin puertos publicados: solo la red interna del compose llega a Postgres.
 
   cloud:
-    image: ${CLOUD_IMAGE:-nexo-engram-cloud:3.4.0-nexo.2}
+    image: ${CLOUD_IMAGE:-nexo-engram-cloud:3.4.0-nexo.3}
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
