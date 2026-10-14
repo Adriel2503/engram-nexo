@@ -45,7 +45,7 @@ puede ser responsable (NX-05, R-10). Rotación y último uso: `docs/nexo/manuale
 Las herramientas `engram nexo kb` solo existen en el fork `engram-nexo`.
 
 - **Opción A (hoy):** el workflow clona el fork (`<organizacion>/engram-nexo`, reemplazar por la
-  ubicación real) y lo compila con `actions/setup-go` y una versión de Go fijada (`1.25.10`, la de
+  ubicación real) y lo compila con `actions/setup-go` y una versión de Go fijada (`1.27.2`, la de
   `go.mod`). Si el fork es privado, el `checkout` necesita un token de lectura de ese repositorio
   (otro secreto, por ejemplo `ENGRAM_NEXO_READ_TOKEN` en `with.token`).
 - **Opción B (cuando exista un release, OP-01):** descargar el binario del release y verificar su

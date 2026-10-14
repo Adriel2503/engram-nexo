@@ -52,7 +52,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.25.10"
+          go-version: "1.27.2"
 
       - name: Build and vet
         run: |
@@ -67,3 +67,25 @@ jobs:
 
       - name: Knowledge spaces authorization (BOLA and BFLA)
         run: go test -count=1 -p 1 ./internal/nexo/kb/service/ ./internal/nexo/kb/httpapi/
+
+  # Vulnerabilidades conocidas en Go y en las dependencias (base de datos de
+  # vulnerabilidades oficial de Go). Falla solo si el código alcanza la función
+  # afectada; Engram no lo revisa, así que el fork no depende de que lo haga.
+  govulncheck:
+    name: Known vulnerabilities (govulncheck)
+    if: github.repository == 'Adriel2503/engram-nexo' # NX-07
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.27.2"
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
