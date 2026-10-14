@@ -21,7 +21,7 @@ El trabajo principal es **encontrar la regla vigente con su fuente**. El segundo
 
 | Página | Trabajo principal | Lo demás |
 |---|---|---|
-| Login | Entrar con el token asignado | Explicar en tres frases qué es Nexo |
+| Login | Entrar con el token asignado | Identificar Nexo IA y Real Plaza; enlace de activación |
 | Menú | Llegar a Conocimiento en un clic | Memorias, proyectos, colaboradores y administración de Engram |
 | `/dashboard/kb` | Elegir un espacio | Entender los 4 pasos del flujo y en cuál está el usuario; crear espacio (admin) |
 | Espacio | Preguntar y ver la respuesta citada | Recorrer los documentos por carpeta; subir (responsable) |
@@ -29,17 +29,21 @@ El trabajo principal es **encontrar la regla vigente con su fuente**. El segundo
 
 ## 3. Wireframes
 
-Login (dos columnas; una en móvil):
+Login (una columna centrada, también en móvil; simplificado el 2026-10-14):
 
 ```
-+---------------------------------------------------------------+
-| Nexo IA                          | Iniciar sesión              |
-| Memoria y estándares del equipo  | Ingresa el token que te     |
-|                                  | asignó el administrador.    |
-| Busca la regla vigente ...       | [ Token de acceso        ]  |
-| Publica documentos ...           | [ Iniciar sesión ]          |
-| Conecta tu asistente ...         |                             |
-+---------------------------------------------------------------+
+               Nexo IA
+              Real Plaza
+
+       +---------------------------+
+       | Iniciar sesión            |
+       | Ingresa con tu token      |
+       | de acceso.                |
+       | Token de acceso           |
+       | [ Pega aquí tu token    ] |
+       | [ Iniciar sesión        ] |
+       | Activar mi cuenta         |
+       +---------------------------+
 ```
 
 Marco común (encabezado, menú, contenido alineado a la izquierda, ancho máximo 1180 px):
