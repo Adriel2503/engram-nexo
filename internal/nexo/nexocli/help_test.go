@@ -13,7 +13,7 @@ func TestNexoHelpListsCommands(t *testing.T) {
 	if code := Run([]string{"help"}, t.TempDir(), &out, &errb); code != 0 {
 		t.Fatalf("help: %d %s", code, errb.String())
 	}
-	for _, want := range []string{"connect", "disconnect", "setup", "reindex", "import-transversal", "audit", "--token-stdin"} {
+	for _, want := range []string{"start", "stack", "tour", "connect", "disconnect", "setup", "reindex", "import-transversal", "audit", "--token-stdin"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("engram nexo help sin %q", want)
 		}

@@ -821,12 +821,32 @@ sin esos campos. Conservarlos junto con los regenerados hasta cerrar la revisió
 `nexo_export_bigint_test.go`, `nexo_export_column_types_test.go`, `nexo_projection_integer_test.go`,
 `nexo_projection_producers_test.go`.
 
+### NX-OP15 · start, stack y tour
+
+**Qué se agregó.** Núcleo aislado en internal/nexo/stack: preflight, secretos y ACL Windows, plantillas embed/text/template, estado y bloqueo, supervisor desacoplado con registro redactado, ciclo up/down/status/reset/logs/accesos/datos/config, asistente start y recorrido repetible. Demo/dev usan el mismo binario cloud serve y Docker solo para Postgres 18/pgvector. Prod genera/valida por defecto, construye o reutiliza la imagen desde docker/cloud/Dockerfile (o --image/--build-from), etiqueta propia nexo-stack-*-cloud:<versión> y arranca con --up; dos cuentas, Caddy tls internal, red y volúmenes propios.
+
+**Identidades y secretos.** Bootstrap atómico/auditado del superadmin; cinco personas adicionales en demo mediante emisión de códigos y client.Activate sin bearer del emisor. Dev crea tres, prod una. Credenciales solo en .env/accesos.md privados, estado sin secretos; log redactado antes de escribir. NEXO_STACK_HOME y --name aíslan carpetas y recursos. Reset no borra bases externas ni archivos ajenos; no usa prune.
+
+**Búsqueda y conexión.** Preguntas explícitas de embeddings y reordenador, claves ocultas/archivo/entorno, validación mínima con HTTP inyectable usando adaptadores existentes. ConnectActivated conserva el token antes de /me y setup usa el comando existente. Sin nuevas dependencias: los controles textinput/progress de bubbles requieren módulos ausentes, por lo que se usan controles propios de Bubble Tea con el spinner disponible. --show no imprime tokens: se rechaza por la regla del encargo; portapapeles nativo evita emitir OSC52 codificado al terminal.
+
+**Seguimiento del coordinador.** stack agentes, selección múltiple y detección desde el registro de setup; menú siguiente paso, --no-tour/--no-agents y paso 0 del tour, con alternativa save/search y kb search sin asistentes. Prueba optativa smoke_docker_test.go (etiqueta stackdocker), que el coordinador ejecutará con go test -tags stackdocker -count=1 -timeout 30m -run TestStackDockerSmoke ./internal/nexo/stack/. Ejecutables/configuraciones falsos cubren asistentes sin tocar perfiles reales.
+
+**Semilla.** NewSeeder devuelve un sustituto «semilla no disponible»; no se implementa seed ni se modifica stackapi. El coordinador debe reemplazarlo por seed.New(). Las pruebas usan un Seeder falso.
+
+**Archivos nuevos.** internal/nexo/stack/{stack,bootstrap,daemon,search,search_config,start,tour,production,vector,seeder_default}.go; paquetes preflight, secrets, render (con templates), proc, state, ui, wizard y tour, con pruebas enfocadas. Manual docs/nexo/manuales/stack.md y enlace en su README. Checkpoints en .stack/progreso.md.
+
+**Cableado.** Solo internal/nexo/nexocli/nexocli.go y help_test.go (archivos propios de Nexo); ningún archivo original de Engram cambiado. Filas de inventario en §4.
+
+**Verificación.** Go 1.27.2: build, vet, formato, pruebas enfocadas y deadcode pasan. Staticcheck/errcheck independientes: cero hallazgos en el código nuevo. Golangci-lint v2.14.0 se bloquea antes del análisis por EvalSymlinks de Windows (acceso denegado); no se afirma que ese comando pasó. Docker del entorno de trabajo deniega acceso al motor y no descubre Compose v2; CLOUDSTORE_TEST_DSN no está configurada. La corrida del binario final con estado temporal y sufijo codexrun se bloqueó en preflight; la carpeta del modo quedó vacía, sin recursos nuevos ni secretos. Ciclo completo comprobado con dobles, cliente Activate real contra HTTP falso y ejecutables falsos por PID. Detalle y pendientes en .stack/informe.md y .stack/corrida.md.
+
 ## 4. Líneas marcadas en archivos originales de Engram
 
 Verificado con `git grep -n "// NX-"` (fuera de `docs/` e `internal/nexo/`). Las líneas sin marca propia dentro de un bloque se indican como continuación del bloque marcado.
 
 | Archivo:línea | Marca | Propósito |
 |---|---|---|
+| internal/nexo/nexocli/nexocli.go | NX-OP15 | Import, ayuda y case start/stack/tour; archivo propio de Nexo, sin cambios a originales Engram |
+| internal/nexo/nexocli/help_test.go | NX-OP15 | Ayuda incluye start, stack y tour; archivo propio de Nexo |
 | `internal/cloud/cloudserver/cloudserver.go:19` | NX-07 | Import de `internal/nexo/security` |
 | `internal/cloud/cloudserver/cloudserver.go:89` | NX-07 | Campo `nexo nexoState` en `CloudServer`: límites y bloqueo en memoria (uno por servidor) |
 | `internal/cloud/cloudserver/cloudserver.go:221` | NX-02 | `s.nexoStartActivityRetention()` en `Start()`: depuración del registro al iniciar y cada 24 h |

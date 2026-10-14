@@ -11,6 +11,7 @@ import (
 
 	nexokbcli "github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/cli"
 	"github.com/Gentleman-Programming/engram/v3/internal/nexo/security/auditcli"
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/stack" // NX-OP15
 )
 
 const usage = `Uso: engram nexo <comando> [opciones]
@@ -20,6 +21,11 @@ Conexión de esta PC:
   status [--json]                                    Conexión, identidad, servidor y copia local
   disconnect [--keep-copy]                           Quita la conexión (y la copia local)
   setup <agente>                                     Instala el protocolo Nexo en un asistente
+
+Entorno guiado:
+  start   asistente de demo, conexión y servidor
+  stack   up, down, status, reset, logs, accesos, datos, config, agentes
+  tour    recorrido repetible de memoria, conocimiento y roles
 
 Áreas:
   kb      espacios de conocimiento (spaces, search, get, sync, upload, publish, changes, eval, reindex, import-transversal)
@@ -38,6 +44,8 @@ func Run(args []string, dataDir string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "start", "stack", "tour": // NX-OP15: núcleo aislado de entornos Nexo
+		return stack.Run(args, dataDir, "auto", stdin, stdout, stderr)
 	case "kb":
 		return nexokbcli.Run(args, dataDir, stdout, stderr)
 	case "audit":
