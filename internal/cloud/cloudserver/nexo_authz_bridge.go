@@ -202,14 +202,45 @@ func isPlatformStaff(r authz.Role) bool {
 	return r == authz.RoleSuperadmin || r == authz.RoleAdmin || r == authz.RoleAuditor
 }
 
-// nexoAllowCreateUserRole: crear un usuario con rol admin exige
-// platform.admins.manage (solo superadmin, R-7 y RF-07). Antes de este
-// enganche cualquier admin de Engram podía crear otro admin.
-func (s *CloudServer) nexoAllowCreateUserRole(w http.ResponseWriter, r *http.Request, role string, respond nexoRespond) bool {
-	if !strings.EqualFold(strings.TrimSpace(role), string(cloudauth.RoleAdmin)) {
-		return true
+// nexoCreateUserRole es el enganche de crear una persona (// NX-05). El rol
+// pedido es SIEMPRE un rol de plataforma de Nexo: miembro, auditor, admin o
+// superadmin ("member" es el valor histórico de Engram y vale miembro). Ya no
+// se escribe la columna role de Engram: se deriva del rol de Nexo en la misma
+// transacción (internal/nexo/authz/migrate_roles.go).
+//
+//   - Un rol que no es uno de esos cuatro se rechaza (400).
+//   - Asignar auditor, admin o superadmin exige platform.admins.manage (solo
+//     superadmin, R-7); crear un miembro solo exige platform.users.manage, que
+//     ya comprobó requireManagedAdmin. La interfaz solo refleja: decide el
+//     servidor. Por el panel, un rol distinto de miembro además exige el
+//     token CSRF del formulario.
+//
+// Devuelve el contexto con el rol pedido para el almacén y el valor de la
+// columna de Engram que corresponde (el único que Engram acepta: admin o
+// member). Sin almacén Nexo (dobles de prueba de Engram) no interviene.
+func (s *CloudServer) nexoCreateUserRole(w http.ResponseWriter, r *http.Request, requested string, respond nexoRespond, source string) (context.Context, string, bool) {
+	if _, available := s.nexoAuthz(); !available {
+		return r.Context(), requested, true
 	}
-	return s.nexoRequireAdminsManage(w, r, respond, map[string]any{"route": r.Pattern, "action": "user.create", "role": "admin"})
+	role, valid := authz.ParseAssignableRole(requested)
+	if !valid {
+		respond(w, http.StatusBadRequest, constants.UpgradeErrorCodePayloadInvalid, "role must be one of miembro, auditor, admin, superadmin")
+		return nil, "", false
+	}
+	id := nexoAuthzIdentity(r.Context())
+	if role != authz.RoleMiembro {
+		// Primero la capacidad (la denegación queda en la auditoría aunque el
+		// formulario no traiga token) y después el token CSRF del formulario.
+		if !s.nexoRequireAdminsManage(w, r, respond, map[string]any{"route": r.Pattern, "action": "user.create", "role": string(role)}) {
+			return nil, "", false
+		}
+		if source == "panel" && !s.kbCSRFOK(r) {
+			respond(w, http.StatusForbidden, constants.ReasonPolicyForbidden, "El formulario venció o no es válido. Vuelve a abrir la página e inténtalo de nuevo.")
+			return nil, "", false
+		}
+	}
+	ctx := authz.WithCreateRequest(r.Context(), authz.CreateRequest{Role: role, Actor: id, Source: source})
+	return ctx, authz.EngramRoleFor(role), true
 }
 
 func (s *CloudServer) nexoRequireAdminsManage(w http.ResponseWriter, r *http.Request, respond nexoRespond, details map[string]any) bool {

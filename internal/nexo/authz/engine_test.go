@@ -14,13 +14,12 @@ import (
 )
 
 type fakeStore struct {
-	platform  map[int64]PlatformFacts
-	scope     map[string]ScopeFacts
-	visible   []ScopeFactsRow
-	err       error
-	calls     int
-	bootstrap int
-	events    []Event
+	platform map[int64]PlatformFacts
+	scope    map[string]ScopeFacts
+	visible  []ScopeFactsRow
+	err      error
+	calls    int
+	events   []Event
 }
 
 func (f *fakeStore) PlatformFacts(_ context.Context, pid int64) (PlatformFacts, error) {
@@ -42,11 +41,6 @@ func (f *fakeStore) ScopeFacts(_ context.Context, pid int64, s Scope) (ScopeFact
 func (f *fakeStore) VisibleScopeFacts(_ context.Context, _ int64, _ ScopeType) ([]ScopeFactsRow, error) {
 	f.calls++
 	return f.visible, f.err
-}
-
-func (f *fakeStore) EnsureBootstrapSuperadmin(context.Context) error {
-	f.bootstrap++
-	return nil
 }
 
 func (f *fakeStore) RecordEvent(_ context.Context, ev Event) error {
@@ -151,8 +145,9 @@ func TestEngineScopeMatrix(t *testing.T) {
 	t.Logf("casos de la matriz de ámbitos: %d", total)
 }
 
-// expectPlatform es el oráculo de design §3 (plataforma) y R-10.
-func expectPlatform(binding Role, engramRole string, candidate bool, kind string, enabled bool, ts string, c Capability) (bool, string, Role) {
+// expectPlatform es el oráculo de design §3 (plataforma) y R-10. La columna
+// role de Engram no decide nada (design §11): solo cuenta la asignación.
+func expectPlatform(binding Role, kind string, enabled bool, ts string, c Capability) (bool, string, Role) {
 	if !enabled {
 		return false, ReasonDisabled, RoleNone
 	}
@@ -161,10 +156,6 @@ func expectPlatform(binding Role, engramRole string, candidate bool, kind string
 	case kind == KindServiceAccount:
 	case binding != RoleNone:
 		role = binding
-	case candidate:
-		role = RoleSuperadmin
-	case engramRole == "admin":
-		role = RoleAdmin
 	}
 	if !oracleHas(ScopePlatform, role, c) {
 		return false, ReasonCapability, role
@@ -180,11 +171,11 @@ func TestEnginePlatformMatrix(t *testing.T) {
 	total := 0
 	for _, binding := range []Role{RoleNone, RoleAuditor, RoleAdmin, RoleSuperadmin} {
 		for _, engramRole := range []string{"member", "admin"} {
-			for _, candidate := range []bool{false, true} {
+			{
 				for _, kind := range []string{KindHuman, KindServiceAccount} {
 					for _, enabled := range []bool{true, false} {
 						store := &fakeStore{platform: map[int64]PlatformFacts{
-							5: {Found: true, Enabled: enabled, Kind: kind, EngramRole: engramRole, Binding: binding, BootstrapCandidate: candidate},
+							5: {Found: true, Enabled: enabled, Kind: kind, EngramRole: engramRole, Binding: binding},
 						}}
 						eng := NewEngine(store)
 						id := human("5")
@@ -197,18 +188,15 @@ func TestEnginePlatformMatrix(t *testing.T) {
 								if err != nil {
 									t.Fatal(err)
 								}
-								wantAllowed, wantReason, wantRole := expectPlatform(binding, engramRole, candidate, kind, enabled, ts, c)
+								wantAllowed, wantReason, wantRole := expectPlatform(binding, kind, enabled, ts, c)
 								if d.Allowed != wantAllowed || d.Reason != wantReason || d.Hidden {
-									t.Fatalf("binding=%q engram=%s candidate=%v kind=%s enabled=%v %s token=%q: got %+v want %v/%s",
-										binding, engramRole, candidate, kind, enabled, c, ts, d, wantAllowed, wantReason)
+									t.Fatalf("binding=%q engram=%s kind=%s enabled=%v %s token=%q: got %+v want %v/%s",
+										binding, engramRole, kind, enabled, c, ts, d, wantAllowed, wantReason)
 								}
 								if enabled && d.Role != wantRole {
 									t.Fatalf("rol = %s, want %s", d.Role, wantRole)
 								}
 							}
-						}
-						if candidate && store.bootstrap == 0 {
-							t.Fatal("el candidato de arranque debe persistirse (EnsureBootstrapSuperadmin)")
 						}
 					}
 				}
@@ -301,7 +289,7 @@ func TestEngineCapabilityLevelAndScopeValidation(t *testing.T) {
 // Require registra authz.denied (R-14) y no registra lo permitido.
 func TestEngineRequireRecordsDenials(t *testing.T) {
 	ctx := context.Background()
-	store := &fakeStore{platform: map[int64]PlatformFacts{1: {Found: true, Enabled: true, Kind: KindHuman, EngramRole: "admin"}}}
+	store := &fakeStore{platform: map[int64]PlatformFacts{1: {Found: true, Enabled: true, Kind: KindHuman, EngramRole: "admin", Binding: RoleAdmin}}}
 	eng := NewEngine(store)
 	id := human("1")
 	id.ClientIP = "10.0.0.9"

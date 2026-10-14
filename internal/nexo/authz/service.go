@@ -248,9 +248,6 @@ func (s *Service) SetPlatformRole(ctx context.Context, actor Identity, targetRef
 		if _, err := tx.ExecContext(ctx, guardLockSQL); err != nil {
 			return err
 		}
-		if err := bootstrapSuperadminTx(ctx, tx); err != nil {
-			return err
-		}
 		var binding sql.NullString
 		if err := tx.QueryRowContext(ctx, `SELECT role FROM nexo_role_bindings WHERE principal_id = $1 AND scope_type = 'platform' AND scope_key = '*' FOR UPDATE`, row.ID).Scan(&binding); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
@@ -279,14 +276,16 @@ func (s *Service) SetPlatformRole(ctx context.Context, actor Identity, targetRef
 		} else if err := upsertBinding(ctx, tx, row.ID, plat, role, actor.PrincipalID); err != nil {
 			return err
 		}
-		engramRole := "member"
-		if role == RoleSuperadmin || role == RoleAdmin {
-			engramRole = "admin"
+		// La columna role de Engram la deriva el trigger
+		// nexo_role_bindings_sync_engram en esta misma transacción
+		// (migrate_roles.go); aquí solo se lee para dejarla en el evento.
+		engramRole := EngramRoleFor(role)
+		var engramAfter string
+		if err := tx.QueryRowContext(ctx, `SELECT role FROM cloud_principals WHERE id = $1`, row.ID).Scan(&engramAfter); err != nil {
+			return err
 		}
-		if row.EngramRole != engramRole {
-			if _, err := tx.ExecContext(ctx, `UPDATE cloud_principals SET role = $2, updated_at = NOW() WHERE id = $1`, row.ID, engramRole); err != nil {
-				return mapDBError(err)
-			}
+		if engramAfter != engramRole {
+			return fmt.Errorf("authz: la columna role de Engram quedó en %q y debía ser %q", engramAfter, engramRole)
 		}
 		change.Changed = true
 		return insertEvent(ctx, tx, Event{
@@ -320,7 +319,7 @@ func bindingAction(t ScopeType, before, after Role) string {
 	}
 }
 
-func upsertBinding(ctx context.Context, tx *sql.Tx, principalID string, sc Scope, role Role, grantedBy string) error {
+func upsertBinding(ctx context.Context, tx execer, principalID string, sc Scope, role Role, grantedBy string) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO nexo_role_bindings (principal_id, scope_type, scope_key, role, granted_by_principal_id)
 		VALUES ($1::bigint, $2, $3, $4, $5::bigint)
@@ -811,11 +810,6 @@ func (s *Service) PlatformRoleOf(ctx context.Context, principalID string) (Role,
 	}
 	if !f.Found {
 		return RoleNone, false, nil
-	}
-	if f.BootstrapCandidate {
-		if err := s.store.EnsureBootstrapSuperadmin(ctx); err != nil {
-			return RoleNone, false, err
-		}
 	}
 	f.Enabled = true // el rol que tiene asignado, aunque esté deshabilitada
 	role, _ := resolvePlatform(f)

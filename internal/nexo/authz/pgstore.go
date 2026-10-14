@@ -44,12 +44,10 @@ func (p *PGStore) PlatformFacts(ctx context.Context, principalID int64) (Platfor
 	var f PlatformFacts
 	var binding sql.NullString
 	err := p.db.QueryRowContext(ctx, `
-		SELECT p.kind, p.role, p.enabled, b.role,
-		       CASE WHEN b.role IS NULL AND p.kind = 'human' AND p.role = 'admin' AND p.enabled
-		            THEN COALESCE(p.id = nexo_authz_bootstrap_candidate(), FALSE) ELSE FALSE END
+		SELECT p.kind, p.role, p.enabled, b.role
 		FROM cloud_principals p
 		LEFT JOIN nexo_role_bindings b ON b.principal_id = p.id AND b.scope_type = 'platform' AND b.scope_key = '*'
-		WHERE p.id = $1`, principalID).Scan(&f.Kind, &f.EngramRole, &f.Enabled, &binding, &f.BootstrapCandidate)
+		WHERE p.id = $1`, principalID).Scan(&f.Kind, &f.EngramRole, &f.Enabled, &binding)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PlatformFacts{}, nil
 	}
@@ -121,20 +119,6 @@ func (p *PGStore) VisibleScopeFacts(ctx context.Context, principalID int64, t Sc
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-// EnsureBootstrapSuperadmin implementa Store (design §6.3, en caliente: el
-// primer admin creado después de arrancar el servidor no espera a reiniciar).
-func (p *PGStore) EnsureBootstrapSuperadmin(ctx context.Context) error {
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := bootstrapSuperadminTx(ctx, tx); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // RecordEvent implementa Store.
@@ -301,7 +285,7 @@ func memberCursor(c string) (int64, error) {
 }
 
 // ListPlatformMembers devuelve a todas las personas y cuentas de servicio con
-// su rol de plataforma (asignación o compatibilidad con Engram).
+// su rol de plataforma de Nexo (sin asignación: miembro).
 func (p *PGStore) ListPlatformMembers(ctx context.Context, q MemberQuery) ([]Member, string, error) {
 	cursor, err := memberCursor(q.Cursor)
 	if err != nil {
@@ -309,21 +293,16 @@ func (p *PGStore) ListPlatformMembers(ctx context.Context, q MemberQuery) ([]Mem
 	}
 	limit := NormalizeLimit(q.Limit)
 	rows, err := p.db.QueryContext(ctx, `
-		WITH c AS (SELECT nexo_authz_bootstrap_candidate() AS id),
-		m AS (
+		WITH m AS (
 			SELECT p.id, p.kind, p.display_name, p.enabled, COALESCE(h.username, sa.slug, '') AS username, COALESCE(h.email, '') AS email,
 			       CASE WHEN p.kind = 'service_account' THEN 'miembro'
 			            WHEN b.role IS NOT NULL THEN b.role
-			            WHEN p.id = c.id THEN 'superadmin'
-			            WHEN p.role = 'admin' THEN 'admin'
 			            ELSE 'miembro' END AS role,
 			       CASE WHEN p.kind = 'service_account' THEN 'none'
 			            WHEN b.role IS NOT NULL THEN 'binding'
-			            WHEN p.id = c.id THEN 'bootstrap'
-			            WHEN p.role = 'admin' THEN 'engram_admin'
 			            ELSE 'none' END AS source,
 			       COALESCE(b.granted_by_principal_id::text, '') AS granted_by, b.updated_at
-			FROM cloud_principals p CROSS JOIN c
+			FROM cloud_principals p
 			LEFT JOIN cloud_human_users h ON h.principal_id = p.id
 			LEFT JOIN nexo_service_accounts sa ON sa.principal_id = p.id -- SG-10: el slug hace de usuario
 			LEFT JOIN nexo_role_bindings b ON b.principal_id = p.id AND b.scope_type = 'platform' AND b.scope_key = '*'

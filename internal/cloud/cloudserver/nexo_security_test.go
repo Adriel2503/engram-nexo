@@ -133,6 +133,7 @@ func newNexoSecEnv(t *testing.T, envs map[string]string) *nexoSecEnv {
 			if _, err := env.db.Exec(`INSERT INTO cloud_human_users (principal_id, username, email) VALUES ($1::bigint, $2, $3)`, id, p.name, p.name+"@rp.pe"); err != nil {
 				t.Fatal(err)
 			}
+			nexoSeedPlatformRole(t, env.db, id, p.kind, p.role) // NX-05: el rol de Nexo; la columna se deriva
 		}
 		env.ids[p.name] = id
 		env.issue(p.name, p.name, security.TokenIssue{Days: 90, Scope: "write"})

@@ -279,6 +279,7 @@ func newNexoAdminEnv(t *testing.T) *nexoAdminEnv {
 	if _, err := base.db.Exec(`INSERT INTO cloud_human_users (principal_id, username, email) VALUES ($1::bigint, 'admin', 'admin@rp.pe')`, env.adminID); err != nil {
 		t.Fatal(err)
 	}
+	nexoSeedPlatformRole(t, base.db, env.adminID, "human", "admin") // NX-05: el rol de Nexo; la columna se deriva
 	var adminTok string
 	if err := base.db.QueryRow(`INSERT INTO cloud_principal_tokens (principal_id, token_prefix, token_hash, name) VALUES ($1::bigint, 'egc_test_admin', 'hash-admin', 'laptop-admin') RETURNING id::text`, env.adminID).Scan(&adminTok); err != nil {
 		t.Fatal(err)

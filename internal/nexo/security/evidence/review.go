@@ -142,6 +142,9 @@ type ReviewSummary struct {
 	// StaleServiceAccounts: cuentas de servicio habilitadas sin uso en
 	// NEXO_SA_STALE_DAYS días (marca "stale"; no se deshabilitan).
 	StaleServiceAccounts int `json:"service_accounts_stale"`
+	// RoleDrift: personas cuya columna de Engram no coincide con la que
+	// corresponde a su rol de Nexo (marca "role_drift"; unificación de roles).
+	RoleDrift int `json:"role_drift"`
 }
 
 // ReviewRecord es una revisión registrada.
@@ -216,11 +219,9 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 			p.LastActivityAt = &v
 			p.InactiveDays = int(now.Sub(v).Hours() / 24)
 		}
-		// Rol de plataforma por compatibilidad: admin de Engram = admin (NX-05).
+		// Sin asignación el rol de plataforma es miembro: la columna de Engram
+		// ya no concede nada (unificación de roles); solo se compara más abajo.
 		p.PlatformRole = "miembro"
-		if p.EngramRole == "admin" {
-			p.PlatformRole = "admin"
-		}
 		people[p.PrincipalID] = &p
 		order = append(order, p.PrincipalID)
 	}
@@ -337,6 +338,13 @@ func BuildAccessReview(ctx context.Context, db *sql.DB, inactiveDays int, now ti
 		if p.PlatformRole != "miembro" {
 			rep.Summary.PlatformStaff++
 		}
+		// Desalineación: la columna de Engram se deriva del rol de Nexo; si no
+		// coincide, el rol de Nexo manda y se corrige con `engram nexo authz
+		// reconcile-roles --apply`.
+		if p.EngramRole != expectedEngramRole(p.Kind, p.PlatformRole) {
+			p.Flags = append(p.Flags, "role_drift")
+			rep.Summary.RoleDrift++
+		}
 		noExp, never := false, false
 		for _, t := range p.Tokens {
 			if t.Expired {
@@ -438,6 +446,7 @@ func CompleteReview(ctx context.Context, db *sql.DB, rep AccessReview, who Revie
 		"active_tokens": rep.Summary.ActiveTokens, "tokens_no_expiry": rep.Summary.TokensNoExpiry,
 		"tokens_never_used": rep.Summary.TokensNeverUse, "platform_staff": rep.Summary.PlatformStaff,
 		"service_accounts_stale":  rep.Summary.StaleServiceAccounts,
+		"role_drift":              rep.Summary.RoleDrift,
 		"inactive_threshold_days": rep.InactiveDays, "generated_at": rep.GeneratedAt,
 	})
 	digest := ReportDigest(rep)

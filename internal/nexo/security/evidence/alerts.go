@@ -56,7 +56,8 @@ var AllRules = []string{
 	RuleExpiredTokenUsed, RuleRevokedTokenUsed, RuleInvalidTokenRepeated, RuleAuditChainBroken,
 	RuleLoggingStalled, RuleInactiveDisabled, RuleAuditExportFailed,
 	RuleKBDocExpiring, RuleKBReviewDue, // NX-10 2b (KP-09, alerts_kb.go)
-	RuleSAStale, // SG-10: cuentas de servicio sin uso (serviceaccounts.go)
+	RuleSAStale,           // SG-10: cuentas de servicio sin uso (serviceaccounts.go)
+	RulePlatformRoleDrift, // NX-05: rol de Engram distinto del rol de Nexo (role_drift.go)
 }
 
 // RuleConfig es la configuración de una regla.
@@ -93,6 +94,9 @@ func DefaultRules() RuleSet {
 		// SG-10: el plazo sale de NEXO_SA_STALE_DAYS; la regla permite apagarla
 		// o cambiar la severidad con NEXO_ALERT_RULES.
 		RuleSAStale: {Enabled: true, Threshold: 1, Severity: SeverityWarning},
+		// NX-05: la columna role de Engram se deriva del rol de Nexo; una
+		// desalineación es señal de que alguien evitó los triggers.
+		RulePlatformRoleDrift: {Enabled: true, Threshold: 1, Severity: SeverityHigh},
 	}
 }
 
@@ -577,6 +581,13 @@ func EvaluateOnce(ctx context.Context, db *sql.DB, rules RuleSet, now time.Time)
 	}
 	if cfg := rules[RulePlatformRoleChanged]; cfg.Enabled {
 		got, err := runRoleChanges(ctx, tx, cfg, now)
+		if err != nil {
+			return nil, true, err
+		}
+		alerts = append(alerts, got...)
+	}
+	if cfg := rules[RulePlatformRoleDrift]; cfg.Enabled { // NX-05
+		got, err := runRoleDrift(ctx, tx, cfg, now)
 		if err != nil {
 			return nil, true, err
 		}

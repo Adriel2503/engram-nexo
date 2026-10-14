@@ -32,7 +32,7 @@ const day = 24 * time.Hour
 func TestDisableInactiveSkipsServiceAccounts(t *testing.T) {
 	env := kbtest.New(t)
 	ctx := context.Background()
-	jefe := env.Principal("jefe", "human", "admin")
+	jefe := env.Principal("jefe", "human", "member") // el superadmin se asigna con la fila de abajo (la columna de Engram se deriva)
 	env.Exec(`INSERT INTO nexo_role_bindings (principal_id, scope_type, scope_key, role) VALUES ($1::bigint, 'platform', '*', 'superadmin')`, jefe)
 	viejo := env.Principal("viejo", "human", "member")
 	env.Exec(`UPDATE cloud_principals SET created_at = now() - interval '200 days' WHERE id = $1::bigint`, viejo)

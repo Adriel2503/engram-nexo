@@ -185,6 +185,21 @@ func (e *Env) Principal(name, kind, engramRole string) string {
 	}
 	if kind == authz.KindHuman {
 		e.Exec(`INSERT INTO cloud_human_users (principal_id, username, email) VALUES ($1::bigint, $2, $3)`, id, name, name+"@rp.pe")
+		if engramRole == "admin" {
+			// Como el almacén de Engram: pide ser administrador y la asignación de
+			// Nexo la deja authz (el primero, sin superadmin, queda superadmin).
+			tx, err := e.DB.Begin()
+			if err != nil {
+				e.T.Fatal(err)
+			}
+			if _, err := authz.AssignOnCreateTx(context.Background(), tx, id, kind, engramRole, "test"); err != nil {
+				_ = tx.Rollback()
+				e.T.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				e.T.Fatal(err)
+			}
+		}
 	}
 	n := seq.Add(1)
 	var tok string

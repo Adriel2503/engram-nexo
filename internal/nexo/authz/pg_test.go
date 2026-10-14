@@ -81,6 +81,9 @@ func (e *pgEnv) exec(q string, args ...any) {
 }
 
 // principal crea una persona (con usuario y token) o una cuenta de servicio.
+// Con engramRole "admin" pide ser administrador como lo hace el almacén de
+// Engram: la columna la deriva la base y el rol de plataforma lo deja
+// authz.AssignOnCreateTx (el primero, sin superadmin, queda superadmin).
 func (e *pgEnv) principal(name, kind, engramRole string) string {
 	e.t.Helper()
 	var id string
@@ -89,6 +92,19 @@ func (e *pgEnv) principal(name, kind, engramRole string) string {
 	}
 	if kind == authz.KindHuman {
 		e.exec(`INSERT INTO cloud_human_users (principal_id, username, email) VALUES ($1::bigint, $2, $3)`, id, name, name+"@rp.pe")
+	}
+	if kind == authz.KindHuman && engramRole == "admin" {
+		tx, err := e.db.Begin()
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		if _, err := authz.AssignOnCreateTx(context.Background(), tx, id, kind, engramRole, "test"); err != nil {
+			_ = tx.Rollback()
+			e.t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 	e.seq++
 	var tok string
@@ -213,36 +229,97 @@ func TestPGEventsAreImmutable(t *testing.T) {
 	}
 }
 
-// ─── Arranque del superadmin (RF-01, CA-R01) ─────────────────────────────────
+// ─── Corrección única de roles al migrar (RF-01, CA-R01, diseño §11.6) ───────
 
-func TestPGBootstrapSuperadminAtMigration(t *testing.T) {
+// preUnificationState deja la base como estaba antes de la unificación: sin
+// triggers que derivan la columna, sin la marca de la corrección y con
+// personas cuyo rol de Engram es "admin" y no tienen asignación.
+func (e *pgEnv) preUnificationState() {
+	e.t.Helper()
+	e.exec(`DROP TRIGGER IF EXISTS nexo_principal_role_derive ON cloud_principals`)
+	e.exec(`DROP TRIGGER IF EXISTS nexo_role_bindings_sync_engram ON nexo_role_bindings`)
+	e.exec(`DELETE FROM nexo_platform_role_unification`)
+}
+
+func TestPGUnificationAtMigration(t *testing.T) {
 	env := newPGEnv(t)
-	sa := env.principal("svc-admin", authz.KindServiceAccount, "admin")
-	off := env.principal("disabled-admin", authz.KindHuman, "admin")
+	env.preUnificationState()
+	sa := env.principal("svc-admin", authz.KindServiceAccount, "member")
+	off := env.principal("disabled-admin", authz.KindHuman, "member")
 	env.exec(`UPDATE cloud_principals SET enabled = FALSE WHERE id = $1::bigint`, off)
-	carla := env.principal("carla", authz.KindHuman, "admin")
-	pedro := env.principal("pedro", authz.KindHuman, "admin")
-	_ = sa
-	env.open() // reinicio del servidor: la migración asigna al candidato
-	var got string
-	if err := env.db.QueryRow(`SELECT principal_id::text FROM nexo_role_bindings WHERE scope_type = 'platform' AND role = 'superadmin'`).Scan(&got); err != nil || got != carla {
-		t.Fatalf("superadmin de arranque = %q (%v), want carla %s", got, err, carla)
+	carla := env.principal("carla", authz.KindHuman, "member")
+	pedro := env.principal("pedro", authz.KindHuman, "member")
+	sofia := env.principal("sofia", authz.KindHuman, "member")
+	// Antes de la unificación, "admin" en la columna era la única señal.
+	env.exec(`UPDATE cloud_principals SET role = 'admin' WHERE id = ANY($1::bigint[])`, "{"+sa+","+off+","+carla+","+pedro+"}")
+	env.open() // reinicio del servidor: la migración materializa los roles
+
+	roleOf := func(id string) string {
+		var r string
+		if err := env.db.QueryRow(`SELECT COALESCE((SELECT role FROM nexo_role_bindings WHERE principal_id = $1::bigint AND scope_type = 'platform'), 'miembro')`, id).Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	columnOf := func(id string) string {
+		var r string
+		if err := env.db.QueryRow(`SELECT role FROM cloud_principals WHERE id = $1::bigint`, id).Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	// El primer admin habilitado queda superadmin; el resto, admin.
+	if got := roleOf(carla); got != "superadmin" {
+		t.Fatalf("carla = %s, want superadmin", got)
+	}
+	if got := roleOf(pedro); got != "admin" {
+		t.Fatalf("pedro = %s, want admin", got)
+	}
+	if got := roleOf(off); got != "admin" {
+		t.Fatalf("el admin deshabilitado conserva admin y no es el superadmin: %s", got)
+	}
+	// Una cuenta de servicio con role=admin de Engram queda como miembro y su columna se corrige.
+	if roleOf(sa) != "miembro" || columnOf(sa) != "member" {
+		t.Fatalf("cuenta de servicio: rol %s columna %s", roleOf(sa), columnOf(sa))
+	}
+	if columnOf(carla) != "admin" || columnOf(pedro) != "admin" || columnOf(sofia) != "member" {
+		t.Fatal("la columna acompaña al rol de Nexo")
 	}
 	var actor string
 	var verified bool
-	if err := env.db.QueryRow(`SELECT actor_label, actor_verified FROM nexo_authz_events WHERE action = 'binding.granted' AND target_principal_id = $1::bigint`, carla).Scan(&actor, &verified); err != nil || actor != authz.SystemActorLabel || verified {
-		t.Fatalf("evento de arranque: %q %v %v", actor, verified, err)
+	if err := env.db.QueryRow(`SELECT actor_label, actor_verified FROM nexo_authz_events WHERE action = 'binding.granted' AND target_principal_id = $1::bigint ORDER BY id DESC LIMIT 1`, carla).Scan(&actor, &verified); err != nil || actor != authz.SystemActorLabel || verified {
+		t.Fatalf("evento de la corrección: %q %v %v", actor, verified, err)
+	}
+	if n := env.count(`SELECT COUNT(*) FROM nexo_authz_events WHERE action = 'engram_role.synced' AND target_principal_id = $1::bigint`, sa); n != 1 {
+		t.Fatalf("la cuenta de servicio corregida deja un evento engram_role.synced: %d", n)
 	}
 	if role, _ := env.eng.EffectiveRole(context.Background(), env.id(pedro, authz.KindHuman), authz.PlatformScope()); role != authz.RoleAdmin {
-		t.Fatalf("otro admin de Engram = %s, want admin (compatibilidad)", role)
+		t.Fatalf("otro admin de Engram = %s, want admin", role)
 	}
+
+	// Idempotente: reiniciar de nuevo no cambia nada ni deja eventos.
+	before := env.count(`SELECT COUNT(*) FROM nexo_authz_events`)
 	env.open()
 	if n := env.count(`SELECT COUNT(*) FROM nexo_role_bindings WHERE role = 'superadmin'`); n != 1 {
 		t.Fatalf("idempotente: superadmins = %d", n)
 	}
+	if after := env.count(`SELECT COUNT(*) FROM nexo_authz_events`); after != before {
+		t.Fatalf("la corrección se aplica una sola vez: eventos %d -> %d", before, after)
+	}
+
+	// Después de la marca, un admin nuevo en la columna (SQL directo) no concede nada:
+	// la base lo deja como miembro y el motor lo trata como miembro.
+	luis := env.principal("luis", authz.KindHuman, "member")
+	env.exec(`UPDATE cloud_principals SET role = 'admin' WHERE id = $1::bigint`, luis)
+	if columnOf(luis) != "member" {
+		t.Fatalf("la base deriva la columna: %s", columnOf(luis))
+	}
+	if role, _ := env.eng.EffectiveRole(context.Background(), env.id(luis, authz.KindHuman), authz.PlatformScope()); role != authz.RoleMiembro {
+		t.Fatalf("columna admin sin asignación = %s, want miembro", role)
+	}
 }
 
-func TestPGBootstrapSuperadminLazily(t *testing.T) {
+func TestPGFirstAdminIsSuperadmin(t *testing.T) {
 	env := newPGEnv(t)
 	// `engram cloud bootstrap admin` después de arrancar el servidor.
 	carla, err := env.cs.CreateFirstAdminHumanUser(context.Background(), cloudstore.CreateHumanUserParams{Username: "carla", Email: "carla@rp.pe"})

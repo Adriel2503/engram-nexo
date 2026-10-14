@@ -184,6 +184,7 @@ var auditRuleLabels = map[string]string{
 	evidence.RuleKBDocExpiring:        "Documento por vencer",
 	evidence.RuleKBReviewDue:          "Documento con revisión pendiente",
 	evidence.RuleSAStale:              "Cuenta de servicio sin uso",
+	evidence.RulePlatformRoleDrift:    "Rol de Engram desalineado del rol de Nexo",
 }
 
 func auditRuleLabel(rule string) string {
@@ -404,6 +405,7 @@ func (s *CloudServer) auditPanelReviewRender(w http.ResponseWriter, r *http.Requ
 		{Key: "Personas inactivas", Value: strconv.Itoa(sm.Inactive)},
 		{Key: "Cuentas de servicio sin uso", Value: strconv.Itoa(sm.StaleServiceAccounts)},
 		{Key: "Con rol de plataforma", Value: strconv.Itoa(sm.PlatformStaff)},
+		{Key: "Roles de Engram desalineados", Value: strconv.Itoa(sm.RoleDrift)},
 		{Key: "Tokens activos", Value: strconv.Itoa(sm.ActiveTokens)},
 		{Key: "Tokens sin caducidad", Value: strconv.Itoa(sm.TokensNoExpiry)},
 		{Key: "Tokens nunca usados", Value: strconv.Itoa(sm.TokensNeverUse)},
@@ -464,6 +466,8 @@ func auditFlag(flag string) dashboard.NexoFlag {
 		return dashboard.NexoFlag{Label: "Inactiva", Class: "nx-chip nx-chip-exp"}
 	case "stale":
 		return dashboard.NexoFlag{Label: "Sin uso", Class: "nx-chip nx-chip-exp"}
+	case "role_drift":
+		return dashboard.NexoFlag{Label: "Rol de Engram desalineado", Class: "nx-chip nx-chip-err"}
 	case "token_no_expiry":
 		return dashboard.NexoFlag{Label: "Token sin caducidad", Class: "nx-chip nx-chip-err"}
 	case "token_never_used":

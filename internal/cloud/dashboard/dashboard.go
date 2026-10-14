@@ -56,6 +56,8 @@ type MountConfig struct {
 	StatusProvider    SyncStatusProvider
 	// NX-04: variante de ValidateLoginToken que recibe la petición (origen en la auditoría).
 	NexoValidateLoginTokenRequest func(r *http.Request, token string) error
+	// NX-05: datos de Administración > Usuarios con el rol de Nexo (nexo_users.go); nil = pantallas de Engram.
+	NexoUsersView func(r *http.Request) NexoUsersView
 }
 
 type DashboardStore interface {
@@ -809,7 +811,7 @@ func (h *handlers) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	component := ManagedUsersPage(p.CanManageManagedUsers())
+	component := h.nexoUsersPage(r, p.CanManageManagedUsers()) // NX-05: usuarios con el rol de Nexo
 	if isHTMXRequest(r) {
 		renderComponent(w, r, component)
 		return
@@ -838,7 +840,7 @@ func (h *handlers) handleAdminUsersList(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	renderComponent(w, r, ManagedUsersListPartial(rows, p.CanManageManagedUsers()))
+	renderComponent(w, r, h.nexoUsersList(r, rows, p.CanManageManagedUsers())) // NX-05
 }
 
 // handleAdminHealth handles GET /dashboard/admin/health.

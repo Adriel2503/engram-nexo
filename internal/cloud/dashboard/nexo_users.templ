@@ -1,0 +1,345 @@
+package dashboard
+
+import (
+	"net/url"
+
+	"github.com/Gentleman-Programming/engram/v3/internal/cloud/cloudstore"
+)
+
+// Nexo IA · NX-05 (unificación de roles de plataforma) — Administración >
+// Usuarios con el rol de Nexo. Archivo propio: components.templ no cambia.
+// Todo el texto se escapa. La interfaz solo refleja lo que puede hacer quien
+// mira; el servidor vuelve a comprobar cada acción.
+
+// nexoHeaderRole es el rol de quien mira, junto a su nombre en la cabecera.
+templ nexoHeaderRole() {
+	if r := nexoRoleFrom(ctx); r != "" {
+		<span class={ NexoRoleChipClass(r) } title={ NexoRoleDescription(r) }>{ NexoRoleLabel(r) }</span>
+	}
+}
+
+// nexoRoleChip es el rol de una persona en listas y detalle.
+templ nexoRoleChip(role string) {
+	<span class={ NexoRoleChipClass(role) }>{ NexoRoleLabel(role) }</span>
+}
+
+// nexoRolePicker son los cuatro roles como grupo de opciones con su
+// descripción. Los que quien mira no puede asignar salen desactivados con la
+// razón; el servidor los rechaza igual.
+templ nexoRolePicker(options []NexoUserRoleOption, idPrefix string) {
+	<fieldset class="nx-roles">
+		<legend>Rol de plataforma</legend>
+		for _, o := range options {
+			<label class="nx-role-opt" for={ idPrefix + "-" + o.Value }>
+				<input id={ idPrefix + "-" + o.Value } type="radio" name="role" value={ o.Value } checked?={ o.Selected } disabled?={ o.Disabled }/>
+				<span class="nx-role-name">{ o.Label }</span>
+				<span class="nx-role-desc">{ o.Desc }</span>
+				if o.Disabled {
+					<span class="nx-hint">Solo un superadmin puede asignarlo.</span>
+				}
+			</label>
+		}
+	</fieldset>
+}
+
+// NexoManagedUsersPage es /dashboard/admin/users: formulario de alta y lista.
+templ NexoManagedUsersPage(canManageManagedUsers bool, v NexoUsersView) {
+	<section class="frame-section nx-users">
+		<div class="section-header">
+			<div>
+				<h2>Usuarios</h2>
+			</div>
+		</div>
+		@adminNav("users")
+		if canManageManagedUsers {
+			<div class="data-frame">
+				<h3 class="section-block-title">Crear usuario</h3>
+				<form method="post" action="/dashboard/admin/users" class="nx-user-form">
+					<input type="hidden" name="csrf_token" value={ v.CSRF }/>
+					<div class="nx-user-fields">
+						<label for="nx-u-username">Usuario<input id="nx-u-username" type="text" name="username" required autocomplete="off"/></label>
+						<label for="nx-u-email">Correo <span class="nx-hint">opcional</span><input id="nx-u-email" type="email" name="email" autocomplete="off"/></label>
+						<label for="nx-u-name">Nombre <span class="nx-hint">opcional</span><input id="nx-u-name" type="text" name="display_name" autocomplete="off"/></label>
+					</div>
+					@nexoRolePicker(v.optionsForCreate(), "nx-new-role")
+					<div><button type="submit">Crear usuario</button></div>
+				</form>
+				<p class="muted">Un usuario nuevo no sincroniza ningún proyecto hasta que un administrador le dé acceso en su página.</p>
+			</div>
+		} else {
+			@ManagedUserAdministrationNotice()
+		}
+		<h3 class="section-block-title">Usuarios</h3>
+		<div id="managed-users-content"
+			hx-get="/dashboard/admin/users/list"
+			hx-trigger="load"
+			hx-swap="innerHTML">
+			<p class="muted">Cargando...</p>
+		</div>
+	</section>
+}
+
+// NexoManagedUsersListPartial es la lista (solo la tabla), con el rol de Nexo.
+templ NexoManagedUsersListPartial(users []cloudstore.HumanUser, canManageManagedUsers bool, v NexoUsersView) {
+	if len(users) == 0 {
+		@EmptyState("Todavía no hay usuarios", "Crea el primero arriba. Cada usuario nuevo es miembro y no sincroniza ningún proyecto hasta que un administrador se lo permita.")
+	} else {
+		<table class="data-table nx-users-table">
+			<thead>
+				<tr>
+					<th>Usuario</th>
+					<th>Nombre</th>
+					<th>Rol de plataforma</th>
+					<th>Estado</th>
+					<th>Creado</th>
+					if canManageManagedUsers {
+						<th>Acción</th>
+					}
+				</tr>
+			</thead>
+			<tbody>
+				for _, u := range users {
+					<tr>
+						<td><a href={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(u.PrincipalID)) }>{ u.Username }</a></td>
+						<td>{ u.DisplayName }</td>
+						<td>@nexoRoleChip(v.roleOf(u.PrincipalID))</td>
+						<td>
+							if u.Enabled {
+								@StatusBadge("Habilitado", "success")
+							} else {
+								@StatusBadge("Deshabilitado", "danger")
+							}
+						</td>
+						<td>{ formatTimeValue(u.CreatedAt) }</td>
+						if canManageManagedUsers {
+							<td>
+								<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(u.PrincipalID) + managedUserToggleAction(u.Enabled)) } class="switch-form">
+									if u.Enabled {
+										<button type="submit" class="switch-button is-on">Deshabilitar</button>
+									} else {
+										<button type="submit" class="switch-button is-off">Habilitar</button>
+									}
+								</form>
+							</td>
+						}
+					</tr>
+				}
+			</tbody>
+		</table>
+	}
+}
+
+// NexoManagedUserDetailPage es el detalle de una persona: su rol de Nexo (con
+// el cambio de rol para un superadmin), tokens y permisos de proyecto.
+templ NexoManagedUserDetailPage(user cloudstore.HumanUser, tokens []cloudstore.PrincipalToken, grants []cloudstore.ProjectGrant, canManageManagedUsers bool, v NexoUserDetailView) {
+	<section class="frame-section nx-users">
+		<div class="section-header">
+			<div>
+				<h2>{ user.Username }</h2>
+			</div>
+			if user.Enabled {
+				@StatusBadge("Habilitado", "success")
+			} else {
+				@StatusBadge("Deshabilitado", "danger")
+			}
+		</div>
+		@adminNav("users")
+		if v.Notice != "" {
+			<div class="nx-note nx-note-ok" role="status"><p>{ v.Notice }</p></div>
+		}
+		if v.Error != "" {
+			<div class="nx-note nx-note-error" role="alert"><p>{ v.Error }</p></div>
+		}
+		if !canManageManagedUsers {
+			@ManagedUserAdministrationNotice()
+		}
+		<div class="data-frame nx-role-panel" aria-labelledby="nx-role-title">
+			<h3 class="section-block-title" id="nx-role-title">Rol de plataforma</h3>
+			<p class="nx-role-now">
+				@nexoRoleChip(v.roleOf(user.PrincipalID))
+				<span>{ NexoRoleDescription(v.roleOf(user.PrincipalID)) }</span>
+			</p>
+			<p class="nx-hint">{ NexoEngramView(v.roleOf(user.PrincipalID)) }</p>
+			if v.CanChangeRole {
+				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/role") } class="nx-user-form">
+					<input type="hidden" name="csrf_token" value={ v.CSRF }/>
+					@nexoRolePicker(v.optionsFor(v.roleOf(user.PrincipalID)), "nx-role")
+					<div><button type="submit">Cambiar rol</button> <span class="nx-hint">Te pediremos confirmar antes de aplicarlo.</span></div>
+				</form>
+			} else {
+				<p class="nx-hint">Solo un superadmin puede cambiar el rol de plataforma.</p>
+			}
+		</div>
+		<div class="data-frame">
+			<table>
+				<tbody>
+					<tr><th>Nombre</th><td>{ user.DisplayName }</td></tr>
+					<tr><th>Correo</th><td>{ emptyDash(user.Email) }</td></tr>
+					<tr><th>Creado</th><td>{ formatTimeValue(user.CreatedAt) }</td></tr>
+				</tbody>
+			</table>
+			if canManageManagedUsers {
+				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + managedUserToggleAction(user.Enabled)) } class="switch-form">
+					if user.Enabled {
+						<button type="submit" class="switch-button is-on">Deshabilitar usuario</button>
+					} else {
+						<button type="submit" class="switch-button is-off">Habilitar usuario</button>
+					}
+				</form>
+			}
+		</div>
+		<h3 class="section-block-title">{ nx("Tokens") }</h3>
+		<div class="data-frame">
+			if canManageManagedUsers && user.Enabled {
+				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/tokens") } class="managed-user-form">
+					<input type="text" name="name" placeholder={ nx("Token label (optional)") } autocomplete="off"/> <input type="number" name="expires_in_days" min="0" placeholder={ nx("Expires in days (default 90)") } autocomplete="off"/> <select name="scope"><option value="write" selected>{ nx("Scope: write") }</option><option value="read">{ nx("Scope: read") }</option></select>
+					<button type="submit">{ nx("Create Token") }</button>
+				</form>
+				<p class="muted">{ nx("Tokens are shown only once, immediately after creation. Engram Cloud cannot redisplay a raw token afterward — revoke it and create a new one if it is lost.") }</p>
+			} else if canManageManagedUsers {
+				<div class="policy-note danger-note">
+					<p><strong>{ nx("Token creation unavailable.") }</strong>{ nx(" Enable this managed user before creating a managed token.") }</p>
+				</div>
+			}
+			if len(tokens) == 0 {
+				if canManageManagedUsers && user.Enabled {
+					@EmptyState(nx("No Tokens"), nx("This user has no managed tokens yet. Create one above to let it authenticate sync requests."))
+				} else if canManageManagedUsers {
+					@EmptyState(nx("No Tokens"), nx("This disabled user has no managed tokens. Enable the user before creating one."))
+				} else {
+					@EmptyState(nx("No Tokens"), nx("This user has no managed tokens to review."))
+				}
+			} else {
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>{ nx("Prefix") }</th>
+							<th>{ nx("Name") }</th>
+							<th>{ nx("Created") }</th>
+							<th>{ nx("Last Used / Expires / Scope") }</th>
+							<th>{ nx("Status") }</th>
+							if canManageManagedUsers {
+								<th>{ nx("Action") }</th>
+							}
+						</tr>
+					</thead>
+					<tbody>
+						for _, tok := range tokens {
+							<tr>
+								<td>{ tok.TokenPrefix }</td>
+								<td>{ emptyDash(tok.Name) }</td>
+								<td>{ formatTimeValue(tok.CreatedAt) }</td>
+								<td>{ formatTimePtr(tok.LastUsedAt) + " / " + nexoTokenExpiry(tok) + " / " + nexoTokenScope(tok) }</td>
+								<td>
+									if tok.RevokedAt != nil {
+										@StatusBadge(nx("Revoked"), "danger")
+									} else {
+										@StatusBadge(nexoTokenStatus(tok))
+									}
+								</td>
+								if canManageManagedUsers {
+									<td>
+										if tok.RevokedAt == nil {
+											<form method="post" action={ templ.SafeURL("/dashboard/admin/tokens/" + url.PathEscape(tok.ID) + "/revoke") } class="switch-form">
+												<button type="submit" class="switch-button is-on">{ nx("Revoke") }</button>
+											</form>
+										} else {
+											<span class="muted">-</span>
+										}
+									</td>
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+		<h3 class="section-block-title">{ nx("Project Grants") }</h3>
+		<div class="data-frame">
+			if canManageManagedUsers {
+				<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/grants") } class="managed-user-form">
+					<input type="text" name="project" placeholder={ nx("Project name") } required autocomplete="off"/>
+					<button type="submit">{ nx("Grant Project") }</button>
+				</form>
+			}
+			if len(grants) == 0 {
+				if canManageManagedUsers {
+					@EmptyState(nx("No Project Grants"), nx("This user is deny-by-default: it cannot sync any project until an admin grants one explicitly above."))
+				} else {
+					@EmptyState(nx("No Project Grants"), nx("This user has no project grants to review."))
+				}
+			} else {
+				<table class="data-table">
+					<thead>
+						<tr>
+							<th>{ nx("Project") }</th>
+							<th>{ nx("Granted") }</th>
+							if canManageManagedUsers {
+								<th>{ nx("Action") }</th>
+							}
+						</tr>
+					</thead>
+					<tbody>
+						for _, g := range grants {
+							<tr>
+								<td>{ g.Project }</td>
+								<td>{ formatTimeValue(g.CreatedAt) }</td>
+								if canManageManagedUsers {
+									<td>
+										<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(user.PrincipalID) + "/grants/" + url.PathEscape(g.Project) + "/revoke") } class="switch-form">
+											<button type="submit" class="switch-button is-on">{ nx("Revoke") }</button>
+										</form>
+									</td>
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+	</section>
+}
+
+// NexoRoleConfirm son los datos de la pantalla de confirmación del cambio.
+type NexoRoleConfirm struct {
+	PrincipalID string
+	Username    string
+	DisplayName string
+	From, To    string
+	CSRF        string
+	Self        bool
+}
+
+// NexoRoleConfirmPage pide confirmar el cambio de rol antes de aplicarlo.
+templ NexoRoleConfirmPage(c NexoRoleConfirm) {
+	<section class="frame-section nx-users">
+		<div class="section-header">
+			<div>
+				<h2>Confirmar cambio de rol</h2>
+			</div>
+		</div>
+		<div class="data-frame nx-role-panel">
+			<p>
+				Vas a cambiar el rol de plataforma de <strong>{ c.DisplayName }</strong> ({ c.Username }):
+			</p>
+			<p class="nx-role-change">
+				@nexoRoleChip(c.From)
+				<span aria-hidden="true">pasa a</span>
+				@nexoRoleChip(c.To)
+			</p>
+			<p>{ NexoRoleDescription(c.To) }</p>
+			<p class="nx-hint">{ NexoEngramView(c.To) }</p>
+			if c.Self {
+				<div class="nx-note" role="status"><p>Es tu propio usuario: bajarte de rol te quita las pantallas de administración en cuanto confirmes.</p></div>
+			}
+			<form method="post" action={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(c.PrincipalID) + "/role") } class="nx-confirm-actions">
+				<input type="hidden" name="csrf_token" value={ c.CSRF }/>
+				<input type="hidden" name="role" value={ c.To }/>
+				<input type="hidden" name="confirm" value="1"/>
+				<button type="submit">Confirmar cambio</button>
+				<a class="nexo-btn nexo-btn-secondary" href={ templ.SafeURL("/dashboard/admin/users/" + url.PathEscape(c.PrincipalID)) }>Cancelar</a>
+			</form>
+			<p class="nx-hint">El cambio queda en el registro de auditoría y genera la alerta de cambio de rol de plataforma.</p>
+		</div>
+	</section>
+}
