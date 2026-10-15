@@ -1042,6 +1042,13 @@ El bloque "Reordenamiento (R3)" dice "No configurado" hasta que ese reordenamien
   `engram nexo kb search --mode`.
 - La copia local de la PC no tiene vectores: sin conexión, la búsqueda es solo por palabras.
 
+**Cantidad de resultados.** `nexo_search` pide 10 por defecto, también cuando responde desde
+la copia local. El asistente puede pasar `limit` en cada consulta (de 1 a 20); se devuelven menos
+si no hay suficientes fragmentos relevantes. Este valor no tiene variable de entorno.
+La CLI y la API usan también 10 por defecto, con su propio máximo de 50; en la CLI se cambia con
+`engram nexo kb search --limit 10 "consulta"`. Los proveedores, modelos y dimensiones se configuran
+en el entorno del servidor; `limit` se elige al consultar.
+
 **Medir antes de cambiar umbrales.** Compare los dos motores con el conjunto de preguntas del
 espacio:
 

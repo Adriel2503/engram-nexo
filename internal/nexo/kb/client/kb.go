@@ -359,7 +359,7 @@ func (k *KB) Search(ctx context.Context, p SearchParams) (SearchResult, error) {
 		return SearchResult{}, errors.New("falta la consulta")
 	}
 	if p.Limit <= 0 {
-		p.Limit = 5
+		p.Limit = search.DefaultLimit
 	}
 	if !p.LocalOnly {
 		res, err := k.searchServer(ctx, p)

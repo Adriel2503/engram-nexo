@@ -36,6 +36,14 @@ Lo que **no** cambia:
 
 ## 3. Cambios
 
+### NX-10 · Diez resultados por defecto para el asistente
+
+`nexo_search` y `KB.Search` usan el valor compartido de búsqueda (10), en lugar de fijar 5 en el
+cliente. La descripción MCP coincide con el comportamiento. Se mantiene el límite MCP de 1 a 20
+y la elección explícita por consulta, sin nueva variable de entorno ni cambios de permisos.
+Regresiones verifican el parámetro enviado al servidor y diez resultados desde una copia local
+sin conexión. Para aplicar el cambio se actualiza el ejecutable del cliente y se reinicia su MCP.
+
 ### Documentación · Resumen y archivo de antecedentes
 
 `docs/nexo/README.md` reúne la entrada a manuales y especificaciones y resume cinco documentos
