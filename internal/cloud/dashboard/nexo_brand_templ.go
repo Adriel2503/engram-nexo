@@ -35,15 +35,15 @@ func nexoNavTabs(activeTab string, isAdmin bool) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if NexoBrand() {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div role=\"tablist\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<details class=\"nx-main-navigation\" open><summary>Menú</summary><div class=\"nx-navigation\"><a href=\"/dashboard/\" class=\"nx-sidebar-brand\">Nexo IA</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = navTab("/dashboard/", nx("Dashboard"), "dashboard", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = nexoNavLink("/dashboard/", "Inicio", "dashboard", activeTab).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = navTab("/dashboard/kb", "Conocimiento", "kb", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = nexoNavLink("/dashboard/kb", "Conocimiento", "kb", activeTab).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -51,39 +51,81 @@ func nexoNavTabs(activeTab string, isAdmin bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = navTab("/dashboard/browser", nx("Browser"), "browser", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<details class=\"nx-nav-group\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = navTab("/dashboard/projects", nx("Projects"), "projects", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			if activeTab == "browser" || activeTab == "projects" || activeTab == "contributors" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, " open")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "><summary>Memoria del equipo</summary><div class=\"nx-nav-links\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = navTab("/dashboard/contributors", nx("Contributors"), "contributors", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = nexoNavLink("/dashboard/browser", "Memorias", "browser", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = nexoNavLink("/dashboard/projects", "Proyectos", "projects", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = nexoNavLink("/dashboard/contributors", "Colaboradores", "contributors", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></details> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if isAdmin {
-				templ_7745c5c3_Err = navTab("/dashboard/admin", nx("Admin"), "admin", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<details class=\"nx-nav-group\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = navTab("/dashboard/admin/service-accounts", "Cuentas de servicio", "service-accounts", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				if activeTab == "admin" || activeTab == "service-accounts" || activeTab == NexoSearchStatusTab || activeTab == "audit" {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, " open")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "><summary>Administración</summary><div class=\"nx-nav-links\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = navTab(NexoSearchStatusPath, "Estado de la búsqueda", NexoSearchStatusTab, activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = nexoNavLink("/dashboard/admin", "Usuarios y plataforma", "admin", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = nexoNavLink("/dashboard/admin/service-accounts", "Cuentas de servicio", "service-accounts", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = nexoNavLink(NexoSearchStatusPath, "Estado de la búsqueda", NexoSearchStatusTab, activeTab).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if nexoAuditNavOn(ctx) {
+					templ_7745c5c3_Err = nexoNavLink("/dashboard/admin/audit", "Auditoría", "audit", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></details> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			if nexoAuditNavOn(ctx) {
-				templ_7745c5c3_Err = navTab("/dashboard/admin/audit", "Auditoría", "audit", activeTab).Render(ctx, templ_7745c5c3_Buffer)
+			if !isAdmin && nexoAuditNavOn(ctx) {
+				templ_7745c5c3_Err = nexoNavLink("/dashboard/admin/audit", "Auditoría", "audit", activeTab).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div></details>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -120,20 +162,7 @@ func nexoHome(username string) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if NexoBrand() {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<section class=\"hero-panel nexo-home\"><div class=\"hero-copy\"><h2>Hola, ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(username)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 36, Col: 24}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</h2><p class=\"hero-lead\">Aquí ves la memoria que comparten los asistentes del equipo. Los estándares oficiales están en Conocimiento.</p><p><a href=\"/dashboard/kb\" class=\"nexo-btn nexo-btn-primary\">Buscar en Conocimiento</a></p></div><div class=\"data-frame\" id=\"dashboard-stats\" hx-get=\"/dashboard/stats\" hx-trigger=\"load\" hx-swap=\"innerHTML\"><p class=\"htmx-indicator terminal-note\">Cargando estadísticas...</p></div></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<section class=\"nexo-home\"><div class=\"hero-copy\"><h1>Encuentra lo que necesitas</h1><p class=\"hero-lead\">Guías, estándares y decisiones del equipo.</p><form method=\"get\" action=\"/dashboard/kb\" role=\"search\" class=\"nx-home-search\"><label for=\"nx-home-q\">Buscar en Conocimiento</label><div><input id=\"nx-home-q\" type=\"search\" name=\"q\" placeholder=\"¿Qué quieres saber?\" maxlength=\"500\" required><button type=\"submit\">Buscar</button></div></form><p><a href=\"/dashboard/kb\">Explorar espacios y documentos</a></p><p><a href=\"/dashboard/browser\">Consultar memorias de proyectos</a></p></div><details class=\"nx-disclosure\"><summary>Actividad del equipo</summary><div class=\"data-frame\" id=\"dashboard-stats\" hx-get=\"/dashboard/stats\" hx-trigger=\"load\" hx-swap=\"innerHTML\"><p class=\"htmx-indicator terminal-note\">Cargando estadísticas...</p></div></details></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -166,18 +195,107 @@ func nexoProposalsTab(activeTab string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var3 == nil {
+			templ_7745c5c3_Var3 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		if activeTab == "proposals" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<a href=\"/dashboard/kb/proposals\" aria-current=\"page\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<a href=\"/dashboard/kb/proposals\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		return nil
+	})
+}
+
+// Enlaces de navegación: funcionan con teclado y sin JavaScript.
+func nexoNavLink(href string, label string, tab string, active string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
 		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
 		if templ_7745c5c3_Var4 == nil {
 			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		if activeTab == "proposals" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<a href=\"/dashboard/kb/proposals\" role=\"tab\" aria-selected=\"true\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
+		if tab == active {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var5 templ.SafeURL
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(href))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 88, Col: 31}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" aria-current=\"page\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var6 string
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 88, Col: 61}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<a href=\"/dashboard/kb/proposals\" role=\"tab\" aria-selected=\"false\">Propuestas<span hx-get=\"/dashboard/kb/proposals/badge\" hx-trigger=\"load\" hx-swap=\"outerHTML\"></span></a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var7 templ.SafeURL
+			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(href))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 90, Col: 31}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var8 string
+			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `nexo_brand.templ`, Line: 90, Col: 41}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

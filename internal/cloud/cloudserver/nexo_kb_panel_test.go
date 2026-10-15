@@ -158,9 +158,12 @@ func TestNexoKBPanelSearchMarkdownAndVisibility(t *testing.T) {
 
 	// Login en español.
 	login := performDashboardRequest(env.srv, http.MethodGet, "/dashboard/login", nil).Body.String()
-	for _, want := range []string{"Iniciar sesión", "Token de acceso", "Busca la regla vigente"} {
+	for _, want := range []string{"Iniciar sesión", "Token de acceso", "Real Plaza", "Activar mi cuenta"} {
 		if !strings.Contains(login, want) {
 			t.Errorf("login sin %q", want)
 		}
+	}
+	if strings.Contains(login, "Busca la regla vigente") {
+		t.Error("el login conserva la introducción que se retiró")
 	}
 }

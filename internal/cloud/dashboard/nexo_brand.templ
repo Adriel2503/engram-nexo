@@ -7,22 +7,39 @@ package dashboard
 // nexoNavTabs agrega la pestaña Conocimiento y traduce las etiquetas.
 templ nexoNavTabs(activeTab string, isAdmin bool) {
 	if NexoBrand() {
-		<div role="tablist">
-			@navTab("/dashboard/", nx("Dashboard"), "dashboard", activeTab)
-			@navTab("/dashboard/kb", "Conocimiento", "kb", activeTab)
-			@nexoProposalsTab(activeTab)
-			@navTab("/dashboard/browser", nx("Browser"), "browser", activeTab)
-			@navTab("/dashboard/projects", nx("Projects"), "projects", activeTab)
-			@navTab("/dashboard/contributors", nx("Contributors"), "contributors", activeTab)
-			if isAdmin {
-				@navTab("/dashboard/admin", nx("Admin"), "admin", activeTab)
-				@navTab("/dashboard/admin/service-accounts", "Cuentas de servicio", "service-accounts", activeTab)
-				@navTab(NexoSearchStatusPath, "Estado de la búsqueda", NexoSearchStatusTab, activeTab)
-			}
-			if nexoAuditNavOn(ctx) {
-				@navTab("/dashboard/admin/audit", "Auditoría", "audit", activeTab)
-			}
-		</div>
+		<details class="nx-main-navigation" open>
+			<summary>Menú</summary>
+			<div class="nx-navigation">
+				<a href="/dashboard/" class="nx-sidebar-brand">Nexo IA</a>
+				@nexoNavLink("/dashboard/", "Inicio", "dashboard", activeTab)
+				@nexoNavLink("/dashboard/kb", "Conocimiento", "kb", activeTab)
+				@nexoProposalsTab(activeTab)
+				<details class="nx-nav-group" open?={ activeTab == "browser" || activeTab == "projects" || activeTab == "contributors" }>
+					<summary>Memoria del equipo</summary>
+					<div class="nx-nav-links">
+						@nexoNavLink("/dashboard/browser", "Memorias", "browser", activeTab)
+						@nexoNavLink("/dashboard/projects", "Proyectos", "projects", activeTab)
+						@nexoNavLink("/dashboard/contributors", "Colaboradores", "contributors", activeTab)
+					</div>
+				</details>
+				if isAdmin {
+					<details class="nx-nav-group" open?={ activeTab == "admin" || activeTab == "service-accounts" || activeTab == NexoSearchStatusTab || activeTab == "audit" }>
+						<summary>Administración</summary>
+						<div class="nx-nav-links">
+							@nexoNavLink("/dashboard/admin", "Usuarios y plataforma", "admin", activeTab)
+							@nexoNavLink("/dashboard/admin/service-accounts", "Cuentas de servicio", "service-accounts", activeTab)
+							@nexoNavLink(NexoSearchStatusPath, "Estado de la búsqueda", NexoSearchStatusTab, activeTab)
+							if nexoAuditNavOn(ctx) {
+								@nexoNavLink("/dashboard/admin/audit", "Auditoría", "audit", activeTab)
+							}
+						</div>
+					</details>
+				}
+				if !isAdmin && nexoAuditNavOn(ctx) {
+					@nexoNavLink("/dashboard/admin/audit", "Auditoría", "audit", activeTab)
+				}
+			</div>
+		</details>
 	} else {
 		@NavTabs(activeTab, isAdmin)
 	}
@@ -31,15 +48,23 @@ templ nexoNavTabs(activeTab string, isAdmin bool) {
 // nexoHome es el inicio con la marca de Nexo.
 templ nexoHome(username string) {
 	if NexoBrand() {
-		<section class="hero-panel nexo-home">
+		<section class="nexo-home">
 			<div class="hero-copy">
-				<h2>Hola, { username }</h2>
-				<p class="hero-lead">Aquí ves la memoria que comparten los asistentes del equipo. Los estándares oficiales están en Conocimiento.</p>
-				<p><a href="/dashboard/kb" class="nexo-btn nexo-btn-primary">Buscar en Conocimiento</a></p>
+				<h1>Encuentra lo que necesitas</h1>
+				<p class="hero-lead">Guías, estándares y decisiones del equipo.</p>
+				<form method="get" action="/dashboard/kb" role="search" class="nx-home-search">
+					<label for="nx-home-q">Buscar en Conocimiento</label>
+					<div><input id="nx-home-q" type="search" name="q" placeholder="¿Qué quieres saber?" maxlength="500" required/><button type="submit">Buscar</button></div>
+				</form>
+				<p><a href="/dashboard/kb">Explorar espacios y documentos</a></p>
+				<p><a href="/dashboard/browser">Consultar memorias de proyectos</a></p>
 			</div>
-			<div class="data-frame" id="dashboard-stats" hx-get="/dashboard/stats" hx-trigger="load" hx-swap="innerHTML">
-				<p class="htmx-indicator terminal-note">Cargando estadísticas...</p>
-			</div>
+			<details class="nx-disclosure">
+				<summary>Actividad del equipo</summary>
+				<div class="data-frame" id="dashboard-stats" hx-get="/dashboard/stats" hx-trigger="load" hx-swap="innerHTML">
+					<p class="htmx-indicator terminal-note">Cargando estadísticas...</p>
+				</div>
+			</details>
 		</section>
 	} else {
 		@DashboardHome(username)
@@ -51,8 +76,17 @@ templ nexoHome(username string) {
 // mira no revisa ningún espacio o no hay pendientes.
 templ nexoProposalsTab(activeTab string) {
 	if activeTab == "proposals" {
-		<a href="/dashboard/kb/proposals" role="tab" aria-selected="true">Propuestas<span hx-get="/dashboard/kb/proposals/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>
+		<a href="/dashboard/kb/proposals" aria-current="page">Propuestas<span hx-get="/dashboard/kb/proposals/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>
 	} else {
-		<a href="/dashboard/kb/proposals" role="tab" aria-selected="false">Propuestas<span hx-get="/dashboard/kb/proposals/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>
+		<a href="/dashboard/kb/proposals">Propuestas<span hx-get="/dashboard/kb/proposals/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>
+	}
+}
+
+// Enlaces de navegación: funcionan con teclado y sin JavaScript.
+templ nexoNavLink(href string, label string, tab string, active string) {
+	if tab == active {
+		<a href={ templ.SafeURL(href) } aria-current="page">{ label }</a>
+	} else {
+		<a href={ templ.SafeURL(href) }>{ label }</a>
 	}
 }

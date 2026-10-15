@@ -496,8 +496,12 @@ func TestHandlerDashboardLoginFlowSetsCookieForBrowserUse(t *testing.T) {
 	if loginPage.Code != http.StatusOK {
 		t.Fatalf("expected /dashboard/login=200, got %d", loginPage.Code)
 	}
-	// UPDATED: new templ login page renders "Sign In" heading + "Engram Cloud" brand.
-	if !strings.Contains(loginPage.Body.String(), "Engram Cloud") || !strings.Contains(loginPage.Body.String(), "name=\"token\"") {
+	// NX-10: Nexo can already be enabled by another server in this process.
+	brand := "Engram Cloud"
+	if dashboard.NexoBrand() {
+		brand = "Nexo IA"
+	}
+	if !strings.Contains(loginPage.Body.String(), brand) || !strings.Contains(loginPage.Body.String(), "name=\"token\"") {
 		t.Fatalf("expected dashboard login page html, body=%q", loginPage.Body.String())
 	}
 
@@ -508,7 +512,7 @@ func TestHandlerDashboardLoginFlowSetsCookieForBrowserUse(t *testing.T) {
 	if badLogin.Code != http.StatusOK {
 		t.Fatalf("expected invalid login attempt to re-render form with 200, got %d", badLogin.Code)
 	}
-	if !strings.Contains(badLogin.Body.String(), "invalid token") {
+	if !strings.Contains(badLogin.Body.String(), `data-error-code="invalid token"`) {
 		t.Fatalf("expected invalid token message, body=%q", badLogin.Body.String())
 	}
 

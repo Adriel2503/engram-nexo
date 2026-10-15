@@ -291,7 +291,7 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 
 	var b strings.Builder
 	b.WriteString(`<div class="nx-page">`)
-	b.WriteString(`<header class="nx-head"><h1>Conocimiento</h1><p>Los estándares, lineamientos y guías oficiales del equipo, con su versión y vigencia. Tu asistente consulta lo mismo que ves aquí.</p></header>`)
+	b.WriteString(`<header class="nx-head"><h1>Conocimiento</h1><p>Busca una guía o explora los documentos de tu equipo.</p></header>`)
 
 	// Buscador en todos los espacios visibles.
 	if len(spaces) > 0 {
@@ -303,7 +303,7 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 	}
 
 	// Cómo funciona: cuatro pasos con su estado para quien mira.
-	b.WriteString(`<section aria-labelledby="nx-how"><h2 class="nx-h2" id="nx-how">Cómo funciona</h2><ol class="nx-steps">`)
+	b.WriteString(`<details class="nx-disclosure"><summary>Cómo funciona</summary><section aria-labelledby="nx-how"><h2 class="nx-h2" id="nx-how">Primeros pasos</h2><ol class="nx-steps">`)
 	// 1. Crear un espacio.
 	switch {
 	case len(spaces) > 0:
@@ -346,7 +346,7 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 	} else {
 		b.WriteString(kbStep("Consultar", consult, "Pendiente", "nx-step-todo", `<span class="nx-step-na">Aún no hay documentos publicados</span>`))
 	}
-	b.WriteString(`</ol></section>`)
+	b.WriteString(`</ol></section></details>`)
 
 	// Espacios.
 	b.WriteString(`<section aria-labelledby="nx-spaces"><h2 class="nx-h2" id="nx-spaces">Tus espacios</h2>`)
@@ -359,24 +359,18 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 			if name == "" {
 				name = sp.Slug
 			}
-			last := "sin documentos"
-			if !stats[i].last.IsZero() {
-				last = "última actualización " + kbDay(stats[i].last)
-			}
 			fmt.Fprintf(&b, `<article class="nx-space"><h3><a href="/dashboard/kb/spaces/%s">%s</a></h3>`, url.PathEscape(sp.Slug), esc(name))
 			if sp.Description != "" {
 				fmt.Fprintf(&b, `<p>%s</p>`, esc(sp.Description))
 			}
-			fmt.Fprintf(&b, `<p>%s. Tu rol: %s.</p>`, esc(kbVisibility(sp.Visibility)), esc(kbRole(sp.Role)))
-			fmt.Fprintf(&b, `<dl><div><dt>Vigentes</dt><dd>%d</dd></div><div><dt>Retirados</dt><dd>%d</dd></div></dl><p>%s</p></article>`,
-				stats[i].active, stats[i].retired, esc(last))
+			fmt.Fprintf(&b, `<p class="nx-hint">%d documentos vigentes · %s</p></article>`, stats[i].active, esc(kbVisibility(sp.Visibility)))
 		}
 		b.WriteString(`</div>`)
 	}
 	b.WriteString(`</section>`)
 
 	if canCreate {
-		b.WriteString(`<section aria-labelledby="nx-crear-t" id="nx-crear"><h2 class="nx-h2" id="nx-crear-t">Crear espacio</h2><div class="nx-panel"><form method="post" action="/dashboard/kb/spaces" class="nx-create">`)
+		b.WriteString(`<details class="nx-disclosure"><summary>Crear espacio</summary><section aria-labelledby="nx-crear-t" id="nx-crear"><h2 class="nx-h2" id="nx-crear-t">Nuevo espacio</h2><div class="nx-panel"><form method="post" action="/dashboard/kb/spaces" class="nx-create">`)
 		b.WriteString(`<input type="hidden" name="csrf_token" value="` + esc(s.kbCSRFToken(r)) + `"/>`)
 		b.WriteString(`<label for="nx-slug">Identificador <span class="nx-hint">minúsculas y guiones, va en la URL</span><input id="nx-slug" type="text" name="slug" placeholder="arquitectura" required pattern="[a-z0-9][a-z0-9-]{1,62}" autocomplete="off"/></label>`)
 		b.WriteString(`<label for="nx-name">Nombre<input id="nx-name" type="text" name="name" placeholder="Arquitectura" autocomplete="off"/></label>`)
@@ -384,7 +378,7 @@ func (s *CloudServer) kbHome(w http.ResponseWriter, r *http.Request, svc *kbserv
 		b.WriteString(`<label for="nx-owner">Responsable <span class="nx-hint">usuario del panel</span><input id="nx-owner" type="text" name="owner" required autocomplete="off"/></label>`)
 		b.WriteString(`<label for="nx-vis">Visibilidad<select id="nx-vis" name="visibility"><option value="open" selected>Abierto a todo el equipo</option><option value="restricted">Restringido a sus miembros</option></select></label>`)
 		b.WriteString(`<div><button type="submit">Crear espacio</button></div></form>`)
-		b.WriteString(`<p class="nx-hint">El responsable decide quién publica. Los espacios abiertos los leen todos los usuarios con token.</p></div></section>`)
+		b.WriteString(`<p class="nx-hint">El responsable decide quién publica. Los espacios abiertos los leen todos los usuarios con token.</p></div></section></details>`)
 	}
 	b.WriteString(`</div>`)
 	s.kbRender(w, r, http.StatusOK, "Conocimiento", b.String())

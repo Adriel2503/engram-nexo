@@ -119,6 +119,12 @@ func kbSearchForm(action, q, at, scopeLabel, mode string) string {
 	fmt.Fprintf(&b, `<form method="get" action="%s" role="search">`, esc(action))
 	fmt.Fprintf(&b, `<label for="nx-q">Pregunta o tema <span class="nx-hint">%s</span><input id="nx-q" type="search" name="q" value="%s" maxlength="500" placeholder="Por ejemplo: nivel de log para errores de negocio" autocomplete="off" required/></label>`,
 		esc(scopeLabel), esc(q))
+	b.WriteString(`<button type="submit">Buscar</button>`)
+	open := ""
+	if at != "" || mode != "" {
+		open = " open"
+	}
+	fmt.Fprintf(&b, `<details class="nx-disclosure nx-search-options"%s><summary>Opciones de búsqueda</summary><div class="nx-search-option-fields">`, open)
 	fmt.Fprintf(&b, `<label for="nx-at">En fecha <span class="nx-hint">opcional</span><input id="nx-at" type="date" name="at" value="%s"/></label>`, esc(at))
 	// NX-10 R2: modo de búsqueda (vacío: el servidor elige hybrid si tiene índice
 	// vectorial).
@@ -131,7 +137,7 @@ func kbSearchForm(action, q, at, scopeLabel, mode string) string {
 		fmt.Fprintf(&b, `<option value="%s"%s>%s</option>`, esc(o[0]), sel, esc(o[1]))
 	}
 	b.WriteString(`</select></label>`)
-	b.WriteString(`<button type="submit">Buscar</button></form>`)
+	b.WriteString(`</div></details></form>`)
 	return b.String()
 }
 
