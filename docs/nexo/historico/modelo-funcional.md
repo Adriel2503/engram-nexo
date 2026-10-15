@@ -1,5 +1,9 @@
 # Modelo funcional: Engram operando como Utopia
 
+> **Antecedente archivado el 2026-10-15.** El texto describe el diseño del 2026-10-12, incluidas
+> propuestas no implementadas. Las referencias a «vigente» y los estados siguientes corresponden
+> a esa fecha. Consulta el [resumen y la documentación actual](../README.md#1-modelo-funcional-inicial).
+
 > **Nota (2026-10-12).** Las secciones 3 a 8 (dos cajas como proyectos y niveles `read/propose/write`)
 > quedan reemplazadas por `docs/nexo/roles/` (roles de plataforma y roles únicos para proyectos y
 > espacios, NX-05) y `docs/nexo/conocimiento/` (espacios de conocimiento, NX-10). Se conservan como

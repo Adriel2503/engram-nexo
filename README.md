@@ -1,407 +1,262 @@
-<!-- markdownlint-disable-next-line MD041 -->
-<a id="top"></a>
-
-<div align="center">
-
-<img width="100%" alt="Engram neon elephant banner: the elephant exhales a memory stream (remember, sync, recall), the ENGRAM wordmark is written on, and the tagline One Brain. Local or Cloud. appears" src="assets/branding/engram-banner.gif" />
-
-<h1>Engram™</h1>
-
-<p><strong>Persistent memory for AI coding agents.</strong></p>
-
-<p>
-<a href="https://github.com/Gentleman-Programming/engram/releases"><img src="https://img.shields.io/github/v/release/Gentleman-Programming/engram?style=for-the-badge&labelColor=1A1218&color=F095C8" alt="Release"></a>
-<a href="https://github.com/Gentleman-Programming/engram/stargazers"><img src="https://img.shields.io/github/stars/Gentleman-Programming/engram?style=for-the-badge&labelColor=1A1218&color=F095C8" alt="Stars"></a>
-<img src="https://img.shields.io/badge/agents-14-F095C8?style=for-the-badge&labelColor=1A1218" alt="14 agents">
-<img src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-D7A0B8?style=for-the-badge&labelColor=1A1218" alt="Platform">
-<a href="LICENSE"><img src="https://img.shields.io/badge/MIT-D7A0B8?style=for-the-badge&labelColor=1A1218" alt="License: MIT"></a>
-</p>
-
-<p>
-<a href="https://engram.gentlemanprogramming.com/"><strong>Website</strong></a> &bull;
-<a href="#get-started"><strong>Quickstart</strong></a> &bull;
-<a href="DOCS.md"><strong>Docs</strong></a> &bull;
-<a href="https://gentle-ai.gentlemanprogramming.com/"><strong>Gentle-AI</strong></a> &bull;
-<a href="https://gentle-ai-wiki.gentlemanprogramming.com/"><strong>Wiki</strong></a>
-</p>
-
-<br/>
-
-<p>
-<strong>engram</strong> <code>/ˈen.ɡræm/</code> — <em>neuroscience</em>: the physical trace of a memory in the brain.
-</p>
-
-<p>
-Your AI coding agent forgets everything when the session ends.
-<strong>Engram gives it a brain.</strong>
-</p>
-
-<p><sub>One brain. Local or cloud. Agent-agnostic, single binary, zero dependencies.</sub></p>
-
-<br/>
-
-<sub><strong>If Engram saved you from re-explaining your project, a star helps other people find it.</strong></sub>
-
-<!--
-  sealed_token is a GitHub fine-grained token encrypted against Star History's
-  public key, so only the encrypted value is published here. It is required
-  because GitHub restricted the stargazers API to a repository's admins and
-  collaborators on 2026-06-30; without it the chart renders an error placeholder.
-  Regenerate it at https://www.star-history.com/?repos=Gentleman-Programming%2Fengram&type=date&legend=top-left
--->
-
-<a href="https://www.star-history.com/?repos=Gentleman-Programming%2Fengram&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Gentleman-Programming%2Fengram&type=date&theme=dark&legend=top-left&sealed_token=zwrd_DfwYZeJU7nhGYNtREEheKWYEslW_uzrqORlZ36v-JSMepdqGLkKExp1M-xbNq6t-ebVS5iM3WoPDO26tXbSGkjXC2Jo3kHQ3uNzlRkCrWoqRHkPVQXvosKciY109ObiwGV1z8aajyedcloppmekCGrvVKJb6KWxGLXW_mHcRAVIBZUOa4SzW75D" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Gentleman-Programming%2Fengram&type=date&legend=top-left&sealed_token=zwrd_DfwYZeJU7nhGYNtREEheKWYEslW_uzrqORlZ36v-JSMepdqGLkKExp1M-xbNq6t-ebVS5iM3WoPDO26tXbSGkjXC2Jo3kHQ3uNzlRkCrWoqRHkPVQXvosKciY109ObiwGV1z8aajyedcloppmekCGrvVKJb6KWxGLXW_mHcRAVIBZUOa4SzW75D" />
-    <img width="620" alt="Star History Chart" src="https://api.star-history.com/chart?repos=Gentleman-Programming%2Fengram&type=date&legend=top-left&sealed_token=zwrd_DfwYZeJU7nhGYNtREEheKWYEslW_uzrqORlZ36v-JSMepdqGLkKExp1M-xbNq6t-ebVS5iM3WoPDO26tXbSGkjXC2Jo3kHQ3uNzlRkCrWoqRHkPVQXvosKciY109ObiwGV1z8aajyedcloppmekCGrvVKJb6KWxGLXW_mHcRAVIBZUOa4SzW75D" />
-  </picture>
-</a>
-
-<br/>
-
-<sub><strong>WORKS WITH THE AGENT YOU ALREADY HAVE</strong></sub>
-
-<strong><a href="docs/AGENT-SETUP.md#claude-code">Claude Code</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#pi">Pi</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#opencode">OpenCode</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#gemini-cli">Gemini CLI</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#codex">Codex</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#antigravity">Antigravity</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#windsurf">Windsurf</a></strong><br/>
-<strong><a href="docs/AGENT-SETUP.md#qwen-code">Qwen Code</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#kiro">Kiro</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#cursor">Cursor</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#vs-code-copilot--claude-code-extension">VS Code (Copilot)</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#kilo-code">Kilo Code</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#kimi-code">Kimi Code</a></strong> ·
-<strong><a href="docs/AGENT-SETUP.md#commandcode">CommandCode</a></strong>
-
-<sub>14 setup targets · plus any MCP-compatible agent · <a href="docs/AGENT-SETUP.md">per-agent setup →</a></sub>
-
-</div>
-
-<div align="center"><img src="assets/branding/engram-logo-only.png" width="28" alt="" /></div>
-
-## Features
-
----
-
-### One binary — Memory without a stack
-
-```
-Agent (Claude Code / OpenCode / Gemini CLI / Codex / VS Code / Antigravity / ...)
-    ↓ MCP stdio
-Engram (single Go binary)
-    ↓
-SQLite + FTS5 (~/.engram/engram.db)
-```
-
-Codex mutating Engram tools require the running core's `/health` response to advertise `capabilities.runtime_session_resolution: true` before resolving the host session. `root_session_resume` alone is not sufficient. If the core is incompatible, upgrade it to match the CLI, manually restart the running Engram server, and start a new Codex session. Hooks never restart the server automatically. Unregistered sessions and connection or invalid-response failures remain safely blocked with distinct diagnostics; read-only and non-Engram calls are unaffected.
-
-A **Go binary** with SQLite + FTS5 full-text search, exposed through CLI, HTTP API, MCP, and an interactive TUI. It works with any MCP-compatible agent, including Claude Code, OpenCode, Gemini CLI, Codex, VS Code (Copilot), Antigravity, Cursor, and Windsurf. No Node.js, Python, or Docker is required: one binary, one SQLite file.
-
-**[Docs →](docs/ARCHITECTURE.md)**
-
----
-
-### Project-aware — The right memory for the right repo
-
-Project-aware reads use the canonical current project when no selector is supplied: an explicit project, then `ENGRAM_PROJECT`, then cwd detection. Use `--all` in the CLI or `all_projects=true` in HTTP for an intentional global read; do not combine either with an explicit project. `engram context` retains its positional project as an alias for `--project`. `GET /sync/status` supports one resolved project and rejects `all_projects=true` because its provider cannot aggregate status.
-
-**[Docs →](DOCS.md#mcp-project-resolution)**
-
----
-
-### Local first — Portable when needed
-
-Engram keeps memory local by default. The local SQLite database is authoritative; Git Sync exports portable compressed chunks for sharing across machines, and Engram Cloud is optional, project-scoped replication/shared access with browser visibility.
-
-| Need | Start here |
-| --- | --- |
-| Local memory and the runtime model | [Architecture](docs/ARCHITECTURE.md) |
-| Share memory with Git | [Git Sync reference](DOCS.md#git-sync-chunked) |
-| Use optional Cloud replication | [Engram Cloud](docs/engram-cloud/README.md) |
-| Diagnose or recover Cloud operations | [Cloud troubleshooting](docs/engram-cloud/troubleshooting.md) |
-
-For an existing local database, use the guided upgrade sequence. If the dry run reports changes, apply them before bootstrap; otherwise continue directly to bootstrap.
-
-```bash
-engram cloud upgrade doctor --project <project>
-engram cloud upgrade repair --project <project> --dry-run
-engram cloud upgrade repair --project <project> --apply # only when the dry run reports changes
-engram cloud upgrade bootstrap --project <project>
-engram cloud upgrade status --project <project>
-```
-
-**[Docs →](DOCS.md#cloud-upgrade-flow)**
-
----
-
-### Terminal UI — Browse what your agent remembers
-
-```bash
-engram tui
-```
+<h1 align="center">Nexo IA</h1>
 
 <p align="center">
-  <img src="assets/tui-dashboard.png" alt="TUI Dashboard" width="400" />
-  <img width="400" alt="TUI recent observations" src="assets/tui-recent.png" />
-  <img src="assets/tui-detail.png" alt="TUI Observation Detail" width="400" />
-  <img src="assets/tui-search.png" alt="TUI Search Results" width="400" />
+  <strong>El conocimiento del equipo, también en tu asistente.</strong><br>
+  Estándares con fuentes, memoria de proyectos y un panel para gestionarlo todo.
 </p>
 
-Navigate with `j`/`k`, use `Enter` to drill in, `c` to copy content to the clipboard, `/` to search, and `Esc` to go back. The TUI uses the Catppuccin Mocha theme.
+<p align="center">
+  <a href="NEXO_CHANGES.md"><img src="https://img.shields.io/badge/estado-beta-d4a052" alt="Estado: beta"></a>
+  <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.27.2-00ADD8" alt="Go 1.27.2"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licencia-MIT-0f6655" alt="Licencia MIT"></a>
+</p>
 
-**[Docs →](DOCS.md#terminal-ui-tui)**
+<p align="center">
+  <a href="#probar-la-demo">Probar la demo</a> ·
+  <a href="#conectar-un-asistente">Conectar un asistente</a> ·
+  <a href="docs/nexo/manuales/servidor-ubuntu.md">Instalar el servidor</a> ·
+  <a href="#documentación">Documentación</a>
+</p>
 
 ---
 
-### Also in the box
+Nexo IA reúne el **conocimiento oficial y la memoria de proyectos** de equipos de ingeniería.
+Consulta desde el panel web o desde tu asistente de IA, con permisos y trazabilidad.
 
-| Component | What it does |
-| :--- | :--- |
-| **[MCP tools](DOCS.md#mcp-tools-26-tools)** | Save, search, timeline, session, review, and diagnosis tools for your agent |
-| **[HTTP API](DOCS.md#http-api-endpoints)** | The same memory over local HTTP endpoints |
-| **[Doctor](docs/DOCTOR.md)** | `engram doctor` — read-only operational diagnostics |
-| **[Conflict surfacing](docs/AGENT-SETUP.md#conflict-surfacing-automatic)** | Flags related or conflicting memories so the agent can judge them |
-| **[Plugins](docs/PLUGINS.md)** | OpenCode and Claude Code plugin details |
-| **[`gentle-engram`](plugin/pi/README.md)** | The Engram package for Pi |
-| **[Team usage](docs/TEAM-USAGE.md)** | Shared-memory conventions |
-| **[Binary self-testing](docs/SELF-TESTING.md)** | Isolated reliability and performance checks for released binaries |
-| **[Obsidian Brain](docs/beta/obsidian-brain.md)** | Export memories as an Obsidian knowledge graph (beta) |
+Construido sobre [Engram](https://github.com/Gentleman-Programming/engram), añade espacios de
+conocimiento con documentos versionados, revisión humana y control de acceso. Este repositorio
+incluye el ejecutable `engram`, el servidor, el panel y las integraciones con asistentes.
 
-> **Every command, environment variable, and endpoint: [Full reference →](DOCS.md)**
+**Estado: beta.** Puedes empezar con la demo local o preparar un servidor compartido siguiendo
+la guía de instalación y sus requisitos.
 
-<div align="right"><a href="#top">Back to top</a></div>
+> **Para instalar el servidor en Ubuntu, lee la [guía paso a paso](docs/nexo/manuales/servidor-ubuntu.md).**
+> Incluye Git, Go, compilación, PostgreSQL externo, credenciales, HTTPS y arranque automático.
 
-<div align="center"><img src="assets/branding/engram-logo-only.png" width="28" alt="" /></div>
+## Empieza aquí
 
-## Get started
+| Quiero… | Por dónde empezar |
+|---|---|
+| Ver cómo funciona con datos de ejemplo | [Probar la demo local](#probar-la-demo) |
+| Usarlo con el servidor de mi equipo | [Conectar mi PC y mi asistente](#conectar-un-asistente) |
+| Instalar el servidor para compartirlo | [Instalar desde cero en Ubuntu](docs/nexo/manuales/servidor-ubuntu.md) |
 
-### Install
+## Para qué sirve
 
-For production use and security support, install the latest stable release from [GitHub Releases](https://github.com/Gentleman-Programming/engram/releases). Release candidates are prerelease validation and feedback builds; choose one only when you accept prerelease risk. See the [Release Policy](docs/RELEASE-POLICY.md) before upgrading.
+| Cuando necesitas… | Nexo te permite… |
+|---|---|
+| Saber qué regla aplica | Consultar estándares con documento, sección, versión y vigencia |
+| Compartir documentación del equipo | Publicar Markdown, texto o Word, una carpeta o un archivo ZIP |
+| Actualizar una guía | Proponer un cambio y revisarlo antes de publicarlo |
+| Retomar un proyecto | Recuperar decisiones, soluciones y pendientes guardados en su memoria |
+| Administrar el acceso | Gestionar personas y permisos, y consultar la auditoría |
 
-Homebrew installs the latest stable release:
+## Dos tipos de información
 
-```bash
-brew install gentleman-programming/tap/engram
+| | Conocimiento oficial | Memoria de proyectos |
+|---|---|---|
+| Qué contiene | Estándares, convenciones, lineamientos y guías del equipo | Decisiones, descubrimientos, soluciones y pendientes de un proyecto |
+| Cómo se organiza | Espacios, documentos y secciones con versiones y vigencia | Proyectos y memorias de Engram |
+| Quién publica | Responsables y publicadores del espacio; otras personas pueden proponer según su rol | Personas y asistentes con permiso sobre el proyecto |
+| Desde el asistente | Herramientas `nexo_*` | Herramientas `mem_*` |
+
+Una memoria de proyecto no se convierte automáticamente en un estándar oficial. Las propuestas
+de conocimiento requieren revisión y aprobación de una persona autorizada.
+
+### Cómo se usa en el equipo
+
+1. **Organiza el conocimiento.** Crea espacios, asigna responsables y publica los documentos del equipo.
+2. **Conecta a las personas.** Cada una recibe su acceso y configura su asistente contra el mismo servidor.
+3. **Consulta y mejora.** Busca desde el panel o el asistente, guarda lo aprendido en cada proyecto
+   y propone cambios a los documentos cuando corresponda.
+
+El servidor aplica los permisos de cada identidad. La configuración de personas, espacios y
+publicaciones se explica en el [manual de administración](docs/nexo/manuales/administracion.md).
+
+<a id="get-started"></a>
+
+## Probar la demo
+
+Necesitas acceso al repositorio, Git, la versión de Go indicada en [go.mod](go.mod),
+Docker Engine y Docker Compose v2. En Windows puedes usar Docker Desktop con el motor iniciado.
+
+La demo levanta PostgreSQL con pgvector y el servidor Nexo, y carga personas, espacios y documentos
+de ejemplo. Usa únicamente datos de prueba.
+
+Los comandos siguientes usan `develop`, la rama de integración, para probar el código actual.
+La guía de servidor Ubuntu usa `main` para una instalación estable.
+
+**Windows, desde PowerShell:**
+
+```powershell
+git clone https://dev.azure.com/realplaza/AgentAI/_git/nexo-ai-playground engram-nexo
+cd engram-nexo
+git switch develop
+go build -o engram.exe ./cmd/engram
+if ($LASTEXITCODE -ne 0) { throw 'No se pudo compilar Nexo' }
+.\engram.exe nexo stack up --mode demo --yes --no-tour --no-agents
 ```
 
-For Windows, Linux, source builds, and all installation methods, see [Installation](docs/INSTALLATION.md).
-
-### Set up your agent
-
-Run the setup command for the agent you use, then restart that agent. `engram setup` writes the applicable MCP and integration configuration; it does not require you to start a server for the usual stdio-only setup.
-
-| Agent | Setup |
-| --- | --- |
-| Claude Code | `engram setup claude-code` |
-| Pi | `engram setup pi` |
-| OpenCode | `engram setup opencode` |
-| Gemini CLI | `engram setup gemini-cli` |
-| Codex | `engram setup codex` |
-| Antigravity CLI | `engram setup antigravity-cli` |
-| Windsurf | `engram setup windsurf` |
-| Qwen Code | `engram setup qwen` |
-| Kiro | `engram setup kiro` |
-| Cursor | `engram setup cursor` |
-| VS Code (Copilot) | `engram setup vscode-copilot` |
-| Kilo Code | `engram setup kilocode` |
-| Kimi Code | `engram setup kimi` |
-| CommandCode | `engram setup commandcode` |
-| Another MCP-compatible agent | [Manual MCP setup](docs/AGENT-SETUP.md#any-other-mcp-agent) |
-
-For Claude Code, rerunning setup updates the marketplace and the user-scope `engram@engram` plugin when it is already installed; existing project- or local-scope copies are not updated. An update failure fails setup; restart Claude Code after a successful update to load the new hooks.
-
-> **Per-agent configuration, plugin behavior, manual MCP setup, compaction resilience, and troubleshooting: [Agent Setup →](docs/AGENT-SETUP.md)** · Pi users can also find the package at [`gentle-engram`](plugin/pi/README.md).
-
-<div align="right"><a href="#top">Back to top</a></div>
-
-<div align="center"><img src="assets/branding/engram-logo-only.png" width="28" alt="" /></div>
-
-## Read-only compatibility observations
-
-Before considering an existing store, run the explicit-path probe:
+**Linux o macOS:**
 
 ```sh
-engram compatibility --data-dir /absolute/path/to/fixture --json
+git clone https://dev.azure.com/realplaza/AgentAI/_git/nexo-ai-playground engram-nexo
+cd engram-nexo
+git switch develop
+go build -o engram ./cmd/engram && ./engram nexo stack up --mode demo --yes --no-tour --no-agents
 ```
 
-This command dispatches before updates, configuration, orphan migration or
-`Store.New`. It reads directory metadata, the SQLite header and `.instance-id`
-only; it does not load SQLite, read memories, create directories/locks or repair
-identity. Exactly one `--data-dir` and one `--json` are accepted; any other
-argument, including `--help`, prints the usage line to stderr. Invalid arguments
-or unsafe metadata produce exit 2, no stdout and a diagnostic on stderr.
-`engram help` lists the command. Successful observations produce exit 0 and one
-JSON object with `revision: 1`, `source: "offline"`, both authorization flags
-false and, for an existing store, its `instance_id`. Status is `fresh` for
-an empty directory, `legacy_schema`/`future_schema` for non-current headers,
-or `unknown_shape` for a current header. Missing directories, malformed headers,
-missing/invalid identity, nonregular database/identity entries, database-name
-ambiguity, WAL/SHM/journal sidecars and observed metadata changes are rejected.
-Directory aliases are resolved; no filesystem path is returned in the JSON.
+Abre la URL que indique el comando; por defecto, el panel está en
+`http://127.0.0.1:18480/dashboard/`. Si el puerto está ocupado, Nexo puede elegir otro.
 
-**Offline success never authorizes opening an existing store.** A current header
-cannot prove schema shape, and normal schema-1 startup still executes DDL and
-repairs. These observations are not atomic snapshots or leases; an undetected
-race cannot grant permission because offline authorization is always false.
+Los accesos se guardan en el archivo privado `accesos.md` del entorno; los tokens no se imprimen
+en la terminal. Para abrirlo en Windows:
 
-`GET /compatibility` provides the actual running store's startup facts, under
-the same optional bearer authentication as other protected API routes. A
-successful current-schema startup returns `source: "active"`, `status: "ready"`,
-`active_reuse_authorized: true`, its actual `instance_id`, a per-store-opening
-random `runtime_id`, and `capability: "startup-verified-store-v1"`. The response
-is not derived from `/health`, release version or externally supplied metadata.
-Nil, closed, generation-invalidated and future-schema-skipped handles return
-`status: "unknown"` and deny reuse. Reads do not open SQLite connections or
-resolve configuration. Startup facts do not certify arbitrary external in-place
-schema edits or future changes; clients must not treat this response as a lease,
-an authentication token or offline migration permission. Compare explicit store
-identity when reusing a selected runtime; never silently substitute another
-endpoint. Unknown evidence should leave memory disabled, with guidance to back
-up, update and restart the existing server, then recheck.
-
-## For agents
-
-Treat Engram as a curated project memory, not a transcript sink. Use this operating contract throughout the session.
-
-1. **Orient before writing.** Start with `mem_current_project` to confirm the resolved project and its source. At the start of related work, use `mem_context` and `mem_search` to recover the relevant history.
-2. **Search before repeating.** Before revisiting a decision, bug, convention, or request that may already be known, search with focused terms. Search results are previews, not the complete record.
-3. **Retrieve progressively.** Use `mem_search` for candidates, `mem_timeline` when surrounding session context matters, and `mem_get_observation` before relying on a full observation.
-4. **Save significant knowledge deliberately.** Save completed bug fixes, decisions, discoveries, configuration changes, patterns, and durable user constraints with `mem_save`. Do not capture raw tool output or every conversational turn.
-5. **Keep evolving knowledge stable.** Give an evolving topic a stable `topic_key` such as `architecture/auth-model`; reuse it to update that topic rather than creating competing memories. Use `mem_suggest_topic_key` when the key is unclear.
-6. **Leave a handoff.** Before ending a session, save a `mem_session_summary` with the goal, instructions, discoveries, accomplished work, next steps, and relevant files.
-7. **Recover after compaction.** Persist the compacted handoff with `mem_session_summary` first. Then call `mem_context` to recover recent session history before continuing.
-
-### When Git initialization changes the detected project
-
-Before creating a repository's first private Git identity, Engram checks local
-session history for the exact working directory. If Git suggests `remote-app`
-but that directory has history under `local-app`, implicit project selection
-stops with `project_transition_conflict` instead of silently changing scope.
-History is only a precaution: explicit or imported sessions can also trigger it.
-
-Choose the intended scope deliberately. For a persistent choice, run
-`engram init local-app` in the project directory; existing explicit project
-filters and valid registered-session writes remain available. Do not overwrite
-an existing configuration without reviewing it. This choice changes future
-resolution; it does **not** merge or move previously split memories.
-
-Historical directories are matched as absolute, lexically normalized paths;
-Engram does not access their filesystems. Relative history without a recorded
-base is ignored. Only the selected working directory is filesystem-canonicalized,
-so legacy history stored under a symlink alias may require an explicit project
-choice (`engram init local-app`) rather than automatic recognition.
-
-Existing Git bindings stay stable. This check cannot reconstruct history without
-a usable absolute directory, across relocated paths, or in another local store.
-
-### A useful memory is structured
-
-```markdown
-**What**: Added retry-safe upload handling.
-**Why**: Retries could create duplicate records.
-**Where**: internal/upload/handler.go
-**Learned**: Reuse the request id as the idempotency key.
+```powershell
+.\engram.exe nexo stack accesos --mode demo --abrir
 ```
 
-Use a short, searchable title and a fitting type with that content. The full [Memory Protocol](DOCS.md#memory-protocol) defines the durable-save rules and session-summary shape.
+En Linux o macOS usa `./engram` en lugar de `.\engram.exe`. Entra al panel con uno de los accesos
+del ejemplo y abre **Conocimiento** para explorar los espacios y sus documentos.
 
-### Choose MCP tools by intent
+**Qué comprobar en la demo:** entra en un espacio, abre un documento y realiza una búsqueda.
+Revisa la fuente y la versión de los resultados. Para recorrer la demo con ayuda, ejecuta el tour.
 
-Tool availability can vary by MCP profile. Start with the intent, then use your client's tool discovery mechanism (such as `ToolSearch`) only when a deferred tool is needed.
+Para una configuración guiada, ejecuta `engram nexo start`. Para recorrer los pasos de la demo,
+usa `engram nexo tour --mode demo`. Estos ejemplos usan `engram` disponible en el `PATH`;
+si ejecutas el binario desde esta carpeta, conserva el prefijo de tu sistema.
 
-| Intent | Start with |
-| --- | --- |
-| Confirm the project and recover recent work | `mem_current_project`, `mem_context` |
-| Find prior knowledge without repeating work | `mem_search` |
-| Inspect a result in enough detail | `mem_timeline`, `mem_get_observation` |
-| Save or refine durable knowledge | `mem_save`, `mem_update`, `mem_suggest_topic_key` |
-| Consolidate observations after preview and explicit confirmation | `mem_consolidate` (Go MCP server; [contract](docs/codebase/OBSERVATION-CONSOLIDATION.md#mcp-contract)) |
-| Preserve the user's request | `mem_save_prompt` |
-| Hand off or close a session | `mem_session_summary`, `mem_session_start`, `mem_session_end`; MCP atomic close: `mem_session_finalize` |
-| Review stale knowledge or memory relationships | `mem_review`, `mem_judge`, `mem_compare`; MCP batch: `mem_judge_many` |
-| Diagnose project or store state | `mem_doctor` |
+### Detener y volver a iniciar
 
-For parameters and the complete, current tool reference, see [the full documentation](DOCS.md).
+```sh
+engram nexo stack status --mode demo
+engram nexo stack down --mode demo
+engram nexo stack up --mode demo --yes --no-tour --no-agents
+```
 
-<div align="right"><a href="#top">Back to top</a></div>
+`down` detiene el entorno y conserva sus datos. `reset` borra los datos y volúmenes locales
+del entorno seleccionado: no hace falta para actualizar el ejecutable.
 
-<div align="center"><img src="assets/branding/engram-logo-only.png" width="28" alt="" /></div>
+Para aplicar cambios del código, detén la demo, recompila y vuelve a iniciarla.
+El [manual del stack](docs/nexo/manuales/stack.md) explica puertos, carpetas, nombres de entorno
+y configuración de búsqueda.
 
-## Documentation
+## Conectar un asistente
 
-| Where to go | What you'll find |
-| :--- | :--- |
-| **[Intended Usage](docs/intended-usage.md)** | The human mental model for using Engram |
-| **[Installation](docs/INSTALLATION.md)** · **[Release Policy](docs/RELEASE-POLICY.md)** | Platform support, all installation methods, and stable, RC, security-support, upgrade, and rollback guidance |
-| **[Agent Setup](docs/AGENT-SETUP.md)** · **[Plugins](docs/PLUGINS.md)** | Per-agent configuration, compaction resilience, and OpenCode and Claude Code plugin details |
-| **[Architecture](docs/ARCHITECTURE.md)** · **[Codebase Guide](docs/CODEBASE-GUIDE.md)** | Memory model, tool behavior, project structure, flows, and implementation landmarks |
-| **[Engram Cloud](docs/engram-cloud/README.md)** · **[Team Usage](docs/TEAM-USAGE.md)** | Cloud quickstart, deployment, technical links, and shared-memory conventions |
-| **[Doctor](docs/DOCTOR.md)** · **[Binary self-testing](docs/SELF-TESTING.md)** | Operational diagnosis and repair workflows, and isolated reliability and performance checks for released binaries |
-| **[Beta Testing](docs/BETA_TESTING.md)** · **[Obsidian Brain](docs/beta/obsidian-brain.md)** | Isolated beta testing flows and cleanup guidance, and exporting memories as an Obsidian knowledge graph (beta) |
-| **[Comparison](docs/COMPARISON.md)** | Engram compared with claude-mem |
-| **[Full Docs](DOCS.md)** · **[Contributing](CONTRIBUTING.md)** | Complete CLI, environment, API, and operational reference, and the contributor workflow |
+Si el equipo ya tiene un servidor Nexo, no necesitas levantar una demo ni instalar PostgreSQL
+en tu PC. Necesitas nuestro ejecutable, la dirección del servidor y un acceso personal.
 
-> **Dashboard contributors:** if you modify `.templ` files in `internal/cloud/dashboard/`, run `make templ` to regenerate before committing. See [Dashboard templ regeneration](DOCS.md#dashboard-templ-regeneration).
+Con un código de activación entregado por el administrador:
 
-<div align="right"><a href="#top">Back to top</a></div>
+```sh
+engram nexo connect --server https://nexo.empresa.interno --activate-stdin
+engram setup codex
+```
 
-<div align="center"><img src="assets/branding/engram-logo-only.png" width="28" alt="" /></div>
+La dirección es un ejemplo: sustitúyela por la del servidor del equipo. El código se solicita
+sin mostrarlo en una terminal interactiva. Si recibiste un token, usa `--token-stdin`
+en lugar de `--activate-stdin`; no lo escribas como argumento ni lo pegues en un chat.
 
-## Community
+Elige el comando de instalación correspondiente y reinicia el asistente después:
 
-Every change starts with an approved issue. See [Contributing](CONTRIBUTING.md) for the issue-first workflow, labels, review requirements, and contributor standards.
+| Asistente | Comando |
+|---|---|
+| Codex | `engram setup codex` |
+| Claude Code | `engram setup claude-code` |
+| OpenCode | `engram setup opencode` |
+| Pi | `engram setup pi` |
 
-<div align="center">
+Consulta la [instalación para desarrolladores](docs/nexo/manuales/instalacion-dev.md) y la
+[referencia de asistentes](docs/AGENT-SETUP.md) para los pasos y requisitos de cada integración.
 
-<a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/Contributing%20Guide-F095C8?style=for-the-badge&labelColor=1A1218&logo=git&logoColor=F095C8" alt="Contributing Guide"></a>
-<a href="https://github.com/Gentleman-Programming/engram/graphs/contributors"><img src="https://img.shields.io/badge/Contributors-D7A0B8?style=for-the-badge&labelColor=1A1218&logo=github&logoColor=D7A0B8" alt="Contributors"></a>
-<a href="https://discord.com/invite/gentleman-programming-769863833996754944"><img src="https://img.shields.io/badge/Discord-Gentleman%20Programming-F095C8?style=for-the-badge&labelColor=1A1218" alt="Gentleman Programming Discord"></a>
+## Instalar un servidor
 
-<br/><br/>
+**Si quieres instalar Nexo en una VM Ubuntu, sigue la
+[guía completa de instalación](docs/nexo/manuales/servidor-ubuntu.md).**
+Explica qué ejecutar, dónde colocar cada archivo y para qué sirve cada credencial.
 
-<a href="https://github.com/Gentleman-Programming/engram/graphs/contributors">
-  <img width="100%" src="https://contrib.rocks/image?repo=Gentleman-Programming/engram&max=100" alt="Engram contributors" />
-</a>
+Puedes alojar Nexo y PostgreSQL juntos o en máquinas distintas:
 
-<p><sub>This project exists because of these people.</sub></p>
+```mermaid
+flowchart LR
+    A[Panel web] -->|HTTPS| N[Servidor Nexo IA]
+    B[Asistentes de IA] -->|HTTPS| N
+    N --> P[(PostgreSQL dedicado)]
+```
 
-</div>
+| Opción | Uso actual |
+|---|---|
+| `engram nexo stack up --mode demo` | Primera prueba local con datos de ejemplo |
+| `engram nexo stack up --mode dev` | Entorno local de desarrollo; la carga de ejemplo aún tiene una corrección pendiente |
+| `engram nexo stack up --mode prod` | Preparar un ensayo de producción con Docker y Caddy; se inicia agregando `--up` |
+| `engram cloud serve` | Ejecutar el servidor directamente, por ejemplo como servicio en una VM |
 
-<div align="right"><a href="#top">Back to top</a></div>
+Con el ejecutable directo no necesitas Docker para Nexo. Compila para el sistema y la arquitectura
+de la VM; configura la base, la autenticación, HTTPS y el arranque automático del servicio.
 
-<div align="center"><img src="assets/branding/engram-logo-only.png" width="28" alt="" /></div>
+PostgreSQL puede estar en otro servidor o en un servicio administrado. `ENGRAM_DATABASE_URL`
+define la conexión de la aplicación y `NEXO_MIGRATION_DATABASE_URL` la de migraciones.
+Usa una base dedicada, cuentas separadas y TLS verificado. La extensión `pgvector` permite
+buscar por significado; sin ella, Nexo puede buscar por texto.
 
-## About the author
+El stack también admite una base externa mediante `NEXO_STACK_DATABASE_URL` y
+`NEXO_STACK_MIGRATION_DATABASE_URL`. En modo prod sigue necesitando Docker para Nexo y Caddy.
+Su configuración inicial usa HTTPS local con CA interna; no configura por sí sola el dominio,
+los certificados ni el acceso desde las PCs del equipo.
 
-Built by [Alan Buscaglia](https://github.com/Gentleman-Programming) (Gentleman Programming). Engram is also the memory layer of [Gentle-AI](https://github.com/Gentleman-Programming/gentle-ai), and it stays a standalone tool you can use with any MCP-compatible agent.
+Los secretos se configuran fuera del repositorio. El procedimiento de despliegue, creación del
+primer superadmin y operación está en el [manual del servidor](docs/nexo/manuales/servidor-produccion.md).
+El despliegue real con base externa debe validarse en la infraestructura de destino.
 
-<div align="center">
+<a id="for-agents"></a>
 
-<a href="https://gentlemanprogramming.com/"><img src="https://img.shields.io/badge/Website-F095C8?style=for-the-badge&labelColor=1A1218&logo=googlechrome&logoColor=F095C8" alt="Website"></a>
-<a href="https://www.youtube.com/@GentlemanProgramming"><img src="https://img.shields.io/badge/YouTube-F095C8?style=for-the-badge&labelColor=1A1218&logo=youtube&logoColor=F095C8" alt="YouTube"></a>
-<a href="https://github.com/Gentleman-Programming"><img src="https://img.shields.io/badge/GitHub-D7A0B8?style=for-the-badge&labelColor=1A1218&logo=github&logoColor=D7A0B8" alt="GitHub"></a>
+## Documentación
 
-</div>
+| Necesito… | Documento |
+|---|---|
+| Elegir por dónde empezar | [Manuales de Nexo](docs/nexo/manuales/README.md) |
+| Entender la documentación propia y sus antecedentes | [Resumen de Nexo](docs/nexo/README.md) |
+| Probar o administrar un entorno local | [Start, stack y tour](docs/nexo/manuales/stack.md) |
+| Conectar mi PC y mi asistente | [Instalación para desarrolladores](docs/nexo/manuales/instalacion-dev.md) |
+| Desplegar y operar el servidor | [Servidor de producción](docs/nexo/manuales/servidor-produccion.md) |
+| Instalar desde cero en una VM Ubuntu | [Ejecutable, systemd y PostgreSQL externo](docs/nexo/manuales/servidor-ubuntu.md) |
+| Gestionar usuarios, espacios y documentos | [Administración](docs/nexo/manuales/administracion.md) |
+| Entender permisos y seguridad | [Roles](docs/nexo/roles/design.md) y [guía de despliegue](docs/nexo/seguridad/guia-despliegue.md) |
+| Consultar los cambios del fork | [NEXO_CHANGES.md](NEXO_CHANGES.md) |
+| Consultar comandos y herramientas de Engram | [Referencia completa](DOCS.md) y [arquitectura](docs/ARCHITECTURE.md) |
+| Contribuir al código | [CONTRIBUTING.md](CONTRIBUTING.md) y [AGENTS.md](AGENTS.md) |
 
----
+Algunos manuales conservan la versión con la que se redactaron. Para el contenido de la rama actual,
+contrasta las instrucciones con la ayuda del ejecutable y el inventario de cambios del fork.
 
-<div align="center">
+<details>
+<summary>Referencia de Engram: memoria local y actualización de la sincronización</summary>
 
-<img src="assets/branding/engram-logo-only.png" width="56" alt="" />
+Engram conserva SQLite local como fuente de verdad para la memoria del cliente; su documentación
+lo denomina **local SQLite**. Cloud agrega replicación y acceso compartido (**replication/shared access**).
+El conocimiento oficial de Nexo se almacena por separado en PostgreSQL y tiene su propia copia local
+de consulta; no reemplaza el modelo de memoria de Engram.
 
-<br/>
+Para actualizar la sincronización de una memoria local existente, el flujo de Engram es:
 
-<p><strong>Inspired by <a href="https://github.com/thedotmack/claude-mem">claude-mem</a></strong> — but agent-agnostic, simpler, and built different.</p>
+```sh
+engram cloud upgrade doctor --project <proyecto>
+engram cloud upgrade repair --project <proyecto> --dry-run
+engram cloud upgrade repair --project <proyecto> --apply
+engram cloud upgrade bootstrap --project <proyecto>
+engram cloud upgrade status --project <proyecto>
+```
 
-<br/>
+Ejecuta `repair --apply` solo si la comprobación previa indica cambios. Este flujo no instala
+el servidor ni publica documentos de conocimiento. Revisa la
+[referencia de actualización](DOCS.md#cloud-upgrade-flow) antes de usarlo con datos existentes.
 
-<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F095C8?style=for-the-badge&labelColor=1A1218" alt="License: MIT"></a>
+</details>
 
-</div>
+## Origen y licencia
 
-> **Trademark notice:** The Engram™ names and logos are trademarks of Alan Buscaglia. The symbol appears on the first prominent mention, and this notice covers the rest. The MIT License applies to the code; it does not permit implying endorsement or official affiliation. See [TRADEMARKS.md](TRADEMARKS.md).
+Nexo IA es una adaptación de [Engram, de Gentleman Programming](https://github.com/Gentleman-Programming/engram).
+Conserva su núcleo de memoria y añade conocimiento oficial, permisos, auditoría y herramientas del equipo.
+
+El proyecto se distribuye bajo la [licencia MIT](LICENSE). Se conserva la atribución original
+a Alan Buscaglia y el aviso de licencia del proyecto base.

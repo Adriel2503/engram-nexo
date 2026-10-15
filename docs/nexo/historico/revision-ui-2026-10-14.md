@@ -1,10 +1,12 @@
 # Revisión de UI y UX del panel
 
 Fecha: 2026-10-14. Revisión del panel en Chrome con rol de superadmin.
-La persona usuaria autorizó implementar la dirección propuesta. La segunda versión está en
-`feat/panel-simplificado`, sin commit: marco lateral, inicio con búsqueda, espacios compactos,
+Archivada el 2026-10-15. La segunda versión se publicó en el commit `380ebdd` y se integró en
+develop y main mediante `e6368f8`: marco lateral, inicio con búsqueda, espacios compactos,
 pestañas unificadas y alta de usuarios desplegable después de la lista. La tabla conserva el
 diagnóstico que motivó estos cambios; los flujos de publicación y auditoría mantienen su estructura.
+Las mejoras propuestas y los límites de revisión que siguen son los de aquella fecha.
+Consulta el [resumen](../README.md#4-revisión-visual-del-panel) y el [diseño mantenido](../panel/design.md).
 
 ## Lo observado
 

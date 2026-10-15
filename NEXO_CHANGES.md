@@ -36,6 +36,39 @@ Lo que **no** cambia:
 
 ## 3. Cambios
 
+### Documentación · Resumen y archivo de antecedentes
+
+`docs/nexo/README.md` reúne la entrada a manuales y especificaciones y resume cinco documentos
+propios leídos completos: modelo funcional, auditoría/activación, OP-13, revisión visual y mejoras.
+Los cuatro antecedentes pasan a `docs/nexo/historico/` con avisos de contexto histórico; la lista
+de mejoras permanece activa. Se conserva la evidencia original, se corrige el estado publicado de
+la revisión visual y se actualizan referencias. El resumen mantiene visibles SG-17 y los límites
+de las validaciones originales; no declara resueltos pendientes ni ejecuta pruebas de producto.
+
+### Documentación · README principal de Nexo IA
+
+El README presenta Nexo IA, diferencia conocimiento oficial y memoria de proyectos y ofrece una
+primera prueba desde el código para Windows, Linux y macOS. Separa demo/dev, ensayo prod con Docker
+y servidor directo en VM con PostgreSQL externo. Enlaza los manuales y conserva la atribución MIT,
+la referencia de Engram y el flujo de actualización de sincronización. No cambia comandos ni ejecución.
+
+Se añade `docs/nexo/manuales/servidor-ubuntu.md`: instalación desde cero con Git y Go, compilación,
+dos cuentas PostgreSQL externas, configuración privada, servicio systemd, referencia HTTPS y primer superadmin.
+Enlazada desde el README y el índice de manuales. Procedimiento de infraestructura pendiente de
+validación en la VM de destino; no se presenta como un despliegue ya probado.
+El README incorpora una cabecera centrada, distintivos de estado, Go y licencia, accesos según el
+objetivo del lector, enlace destacado a Ubuntu y un diagrama de despliegue, conservando los pasos detallados.
+El repaso editorial añade casos de uso, el recorrido del equipo, qué comprobar en la demo y una
+tabla de asistentes; aclara el uso de `develop` para la demo y `main` para la instalación del servidor.
+Los ejemplos de clonación usan la URL de Azure DevOps solicitada por el usuario, con carpeta local
+`engram-nexo`; la guía Ubuntu selecciona `main` directamente mediante `git clone --branch main`.
+La instalación de Go se presenta en bloques cortos para copiar y pegar, con descarga oficial
+por arquitectura, sin subshell ni detección mediante `awk`/`jq`; se elimina `jq` de los requisitos.
+El manual Ubuntu se centra en instalación, conexiones y cuentas: distingue el usuario Linux,
+las cuentas PostgreSQL y el primer superadmin, y aclara que no hay personas de demo ni contraseña
+predeterminada. HTTPS queda como integración breve con el proxy elegido por infraestructura
+(Nginx, Caddy u otro); operación avanzada se remite al manual de producción.
+
 ### NX-10 · Simplificación del panel (2026-10-14)
 
 Segunda versión autorizada tras revisión en Chrome: marco con navegación lateral estable en escritorio
@@ -550,7 +583,7 @@ Motivo: al subir la etiqueta `v3.4.0` de Engram al fork, los workflows de Engram
 
 **Qué hace.**
 - **TLS hacia la base (SG-05).** Al arrancar se lee el `sslmode` de `ENGRAM_DATABASE_URL` y de `NEXO_MIGRATION_DATABASE_URL`. Si la base no es local (ni `localhost`, ni loopback, ni socket) y no usa `verify-full` o `verify-ca`, el log deja una ADVERTENCIA, y `GET /nexo/admin/database` repite el aviso. El log confirma además, con `pg_stat_ssl`, si la conexión quedó cifrada. `NEXO_DB_REQUIRE_TLS=true` hace que el servidor no arranque si alguna de las dos conexiones no es `verify-full` o `verify-ca` (cualquier host, antes de conectarse) y el error dice cuál y por qué. Probado con una CA y un certificado de prueba contra `pgvector/pgvector:pg18` (verify-full acepta el nombre y la CA correctos y rechaza un nombre equivocado y otra CA). Requisitos de la base para el equipo de infraestructura en `servidor-produccion.md` 2.1. El modo se toma de la configuración efectiva de pgx (`pgconn.ParseConfig`, la misma que usa el driver), no de una lectura propia de la cadena: un `sslmode` repetido cuenta el último, un archivo de servicio (`PGSERVICE`) manda sobre `PGSSLMODE` y `require` con `sslrootcert` equivale a `verify-ca`. Corrige dos hallazgos de la revisión adversarial: con `sslmode=verify-full sslmode=require` la política veía `verify-full` y pgx conectaba sin verificar el certificado; y el pool volvía a interpretar la cadena en cada conexión nueva (un cambio del archivo de servicio con el servidor corriendo bajaba el TLS sin control). Ahora la cadena se interpreta una vez y el pool se abre con esa configuración (`stdlib.OpenDB`).
-- **Pool de conexiones.** `NEXO_DB_MAX_OPEN_CONNS` (**25 por defecto**, `0` explícito = sin límite), `NEXO_DB_MAX_IDLE_CONNS` (10), `NEXO_DB_CONN_MAX_LIFETIME` (30m) y `NEXO_DB_CONN_MAX_IDLE_TIME` (5m), validados al arrancar (un límite fijado es de 4 a 10 000, reposo menor o igual al máximo si hay límite, duraciones positivas; un valor inválido es un error que nombra la variable). **OP-13 corregido (2026-10-14):** modo sin tildes inicializado antes de admitir operaciones, consultas frías con el ejecutor recibido y sin mutex durante SQL; rollback completo antes de los dos fallbacks vectoriales; relleno de sesiones por páginas cerradas antes de insertar. `WriteChunk` ya liberaba su transacción ante choques de unicidad; el supuesto anidamiento de `VectorSupport` se descartó. Regresiones con una conexión y 24 operaciones concurrentes con pool 4 respaldan el límite. Presupuesto: `max_connections >= réplicas × 25 + margen` (`servidor-produccion.md` 4.1.1; informe `docs/nexo/op13-conexiones.md`). El log muestra los valores efectivos; el monitor avisa si en el último minuto hubo peticiones que esperaron una conexión libre. `GET /nexo/admin/database` (`platform.settings`, superadmin) devuelve el uso del pool, el TLS, la versión de Postgres, `max_connections` y la versión de pgvector, sin host, usuario ni cadenas de conexión. OP-12 propone mostrarlo también en el panel.
+- **Pool de conexiones.** `NEXO_DB_MAX_OPEN_CONNS` (**25 por defecto**, `0` explícito = sin límite), `NEXO_DB_MAX_IDLE_CONNS` (10), `NEXO_DB_CONN_MAX_LIFETIME` (30m) y `NEXO_DB_CONN_MAX_IDLE_TIME` (5m), validados al arrancar (un límite fijado es de 4 a 10 000, reposo menor o igual al máximo si hay límite, duraciones positivas; un valor inválido es un error que nombra la variable). **OP-13 corregido (2026-10-14):** modo sin tildes inicializado antes de admitir operaciones, consultas frías con el ejecutor recibido y sin mutex durante SQL; rollback completo antes de los dos fallbacks vectoriales; relleno de sesiones por páginas cerradas antes de insertar. `WriteChunk` ya liberaba su transacción ante choques de unicidad; el supuesto anidamiento de `VectorSupport` se descartó. Regresiones con una conexión y 24 operaciones concurrentes con pool 4 respaldan el límite. Presupuesto: `max_connections >= réplicas × 25 + margen` (`servidor-produccion.md` 4.1.1; informe `docs/nexo/historico/op13-conexiones.md`). El log muestra los valores efectivos; el monitor avisa si en el último minuto hubo peticiones que esperaron una conexión libre. `GET /nexo/admin/database` (`platform.settings`, superadmin) devuelve el uso del pool, el TLS, la versión de Postgres, `max_connections` y la versión de pgvector, sin host, usuario ni cadenas de conexión. OP-12 propone mostrarlo también en el panel.
 - **Continuidad de superadmins (SG-06).** Alerta alta `single_superadmin` cuando queda un solo superadmin habilitado (recordatorio semanal; de inmediato si cambia quién es el único) y marca `single_superadmin` en la revisión de accesos (resumen `superadmins_enabled`). Alerta `privileged_token_expiring` para tokens activos de superadmin, admin y auditor: aviso a 30 días (advertencia) y a 7 días (alta), uno por token y por aviso (la clave de deduplicación lleva el id del token y el aviso); marca `token_expiring` y resumen `privileged_tokens_expiring`. Verificado por HTTP: un superadmin se emite su propio token con el vigente, lo prueba y revoca el viejo con el nuevo; un admin se emite el suyo pero no el de un superadmin; un token `read` no emite. El segundo superadmin se crea desde el panel (rol Superadmin) o con `POST /admin/users` con `"role":"superadmin"`. Recomendación documentada: tokens escalonados y que los dos superadmins no renueven el mismo día.
 - **Acceso de emergencia (SG-15).** `engram cloud bootstrap emergency-token --user <superadmin> [--name] [--reason]`: corre solo dentro del servidor con la conexión a la base de la configuración (no usa la red HTTP). Emite un token de 24 horas con escritura a un superadmin existente y habilitado (no crea personas ni cambia roles) y solo si ningún superadmin habilitado tiene un token vigente con escritura (un token `read` no cuenta: no puede emitir ni revocar). Una sola transacción con los candados de la emisión normal y de las reglas del último superadmin: token, auditoría (`nexo.emergency_token`, en la cadena de hashes) y alerta alta `emergency_access_used`; también quedan en la auditoría las negativas (`user_not_found`, `not_superadmin`, `user_disabled`, `superadmin_has_valid_token`). El token se muestra una sola vez; si hay webhook configurado, la alerta también se envía. Es un subcomando nuevo y no una ampliación de `recover-token`, cuya condición (un solo administrador sin tokens) es distinta y no se afloja.
 - **Prueba inestable de `kb/service` (causa y arreglo).** El paquete falló una vez contra PG18 y no se reprodujo en 16 corridas seguidas. Causa: `kbtest` creaba el esquema de cada prueba como `<prefijo>_<UnixNano>_<seq>`, con `seq` un contador por proceso que empieza en 1; `go test ./...` corre en procesos distintos y a la vez los 8 paquetes que usan `kbtest`, y el reloj de Windows avanza por pasos de ~0,5 ms, así que dos procesos podían pedir el mismo nombre en el mismo paso y `CREATE SCHEMA` fallaba con `duplicate key value violates unique constraint "pg_namespace_nspname_index"`. Arreglo: el nombre lleva ahora el pid, un contador y bytes al azar (`kbtest.uniq`). Se reprodujo corriendo 4 copias del binario del paquete a la vez con `-shuffle=on`.
@@ -667,7 +700,7 @@ Archivos nuevos de esta pasada: `internal/nexo/redact/`, `cloudserver/nexo_corre
 buscador de fugas, panel, alerta, exportación, ayuda CLI y regresiones del contrato anterior.
 Compose de ejemplo propaga `NEXO_ACTIVATION_TTL`.
 
-**Validación e inventario.** Ver `docs/nexo/nexo_informe_auditoria_activacion.md`.
+**Validación e inventario.** Ver `docs/nexo/historico/nexo_informe_auditoria_activacion.md`.
 Pruebas Postgres escritas y compiladas; el coordinador las ejecuta con `CLOUDSTORE_TEST_DSN`.
 No se modifican SQLite, bootstrap ni comandos de emergencia. Sin commits.
 
@@ -712,7 +745,7 @@ modificado: `cloudstore/cloudstore.go`, una delegación marcada `NX-07 (OP-13)` 
 Regresiones: cinco bloqueos demostrados sin corrección; modo frío dentro de la misma transacción
 con una consulta externa esperando el pool; 514 chunks repartidos entre dos proyectos e idempotencia;
 24 operaciones concurrentes, seis tipos de operación, cachés frías, barrera y cero conexiones retenidas.
-Inventario completo, evidencia y riesgos en `docs/nexo/op13-conexiones.md`.
+Inventario completo, evidencia y riesgos en `docs/nexo/historico/op13-conexiones.md`.
 El máximo por defecto pasa a 25; `0` explícito sigue sin límite y el mínimo configurable sigue en 4 (§5).
 
 ### NX-07 · Correcciones de las dos revisiones adversariales sobre develop (rama fix/revision-nexo3)

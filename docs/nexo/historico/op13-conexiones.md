@@ -1,5 +1,10 @@
 # OP-13: conexiones a Postgres y límite del pool
 
+> **Informe histórico archivado el 2026-10-15.** Conserva la evidencia original, incluidos
+> bloques repetidos y fragmentos de comandos incompletos; no es un procedimiento ejecutable.
+> Los estados de rama y pruebas pertenecen a esa entrega. Consulta el
+> [resumen](../README.md#3-conexiones-postgresql-op-13) y el [manual de operación](../manuales/servidor-produccion.md).
+
 Corrección del 2026-10-14 en `fix/op13-conexiones`, desde `develop` (`5f7b565`).
 Tres defectos, cinco rutas. Las cinco regresiones fallaron por bloqueo sobre el código original
 y pasan después de corregir. Sin cambios al esquema SQLite.
