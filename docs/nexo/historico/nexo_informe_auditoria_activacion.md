@@ -1,5 +1,9 @@
 # Informe de auditoría y activación — Nexo IA
 
+> **Informe histórico archivado el 2026-10-15.** Los estados de rama, «sin commits» y resultados
+> de pruebas siguientes describen las pasadas originales, no el estado actual del repositorio.
+> Consulta el [resumen y los pendientes conservados](../README.md#2-auditoría-y-activación).
+
 Rama `feat/auditoria-activacion`. Trabajo limitado a este repositorio. Sin commits, cambios de rama, merges ni push. Sin cambios a SQLite, al bootstrap ni a emergencia.
 
 ## Archivos
@@ -21,7 +25,7 @@ Las marcas están inventariadas en NEXO_CHANGES §4.
 - `docs/nexo/manuales/instalacion-dev.md`
 - `docs/nexo/manuales/servidor-local.md`
 - `docs/nexo/manuales/servidor-produccion.md`
-- `docs/nexo/nexo_informe_auditoria_activacion.md`
+- `docs/nexo/historico/nexo_informe_auditoria_activacion.md`
 - `internal/cloud/cloudserver/nexo_activation.go`
 - `internal/cloud/cloudserver/nexo_activation_test.go`
 - `internal/cloud/cloudserver/nexo_admin_routes.go`

@@ -2,7 +2,7 @@
 
 Estado: borrador para revisión. Fecha: 2026-10-12. Identificador: **NX-05**. Rama: `feat/conocimiento`.
 Lo usan la plataforma, la memoria de proyectos (Engram) y los espacios de conocimiento (NX-10,
-`docs/nexo/conocimiento/`). Reemplaza las secciones de roles de `docs/nexo/modelo-funcional.md`.
+`docs/nexo/conocimiento/`). Reemplaza las secciones de roles de `docs/nexo/historico/modelo-funcional.md`.
 
 ## 1. Idea central
 

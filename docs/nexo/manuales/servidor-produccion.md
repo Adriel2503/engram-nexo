@@ -199,7 +199,7 @@ demostraron los bloqueos originales y ahora terminan con el contexto vigente y e
 La batería con pool de 4 fuerza el arranque simultáneo de 24 operaciones con cachés frías:
 publicación, aprobación, búsqueda híbrida, subida repetida del mismo chunk, emisión de tokens y
 auditoría. Comprueba sus efectos persistidos y cero conexiones en uso al terminar.
-El [informe de OP-13](../op13-conexiones.md) detalla el inventario y las pruebas.
+El [informe de OP-13](../historico/op13-conexiones.md) detalla el inventario y las pruebas.
 El mínimo configurable de 4 se conserva como regla operativa; las correcciones también funcionan
 con `db.SetMaxOpenConns(1)`. Fijar explícitamente `0` desactiva el límite.
 
