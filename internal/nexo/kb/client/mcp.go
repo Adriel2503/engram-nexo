@@ -21,6 +21,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Gentleman-Programming/engram/v3/internal/nexo/kb/search"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -117,7 +119,7 @@ func RegisterToolsWith(srv *server.MCPServer, kb *KB, allowlist map[string]bool)
 		mcp.WithString("known_at", mcp.Description("Fecha: lo que Nexo tenía publicado en esa fecha (necesita el servidor).")),
 		mcp.WithString("mode", mcp.Description("Vacío (recomendado): el servidor elige hybrid (palabras y significado) si tiene índice vectorial y fts si no. fts: solo palabras. exact: nombres de componentes, códigos, siglas. hybrid: palabras y significado (encuentra paráfrasis).")),
 		mcp.WithString("rerank", mcp.Description("Vacío (recomendado): el servidor decide. on: pide reordenar los mejores resultados con un modelo (mejor primer resultado; tarda más). off: no reordenar. Solo reordena lo que ya pasó el filtro y el umbral; si falla, devuelve el orden normal con un aviso.")),
-		mcp.WithNumber("limit", mcp.Description("Resultados (por defecto 5, máximo 20).")),
+		mcp.WithNumber("limit", mcp.Description("Resultados (por defecto 10, máximo 20).")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		at, err := ParseWhen(req.GetString("at", ""))
 		if err != nil {
@@ -128,7 +130,7 @@ func RegisterToolsWith(srv *server.MCPServer, kb *KB, allowlist map[string]bool)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		res, err := kb.Search(ctx, SearchParams{Query: req.GetString("query", ""), Spaces: listArg(req, "spaces"), Category: req.GetString("category", ""),
-			Tag: req.GetString("tag", ""), At: at, KnownAt: known, Mode: req.GetString("mode", ""), Rerank: req.GetString("rerank", ""), Limit: min(max(req.GetInt("limit", 5), 1), 20)})
+			Tag: req.GetString("tag", ""), At: at, KnownAt: known, Mode: req.GetString("mode", ""), Rerank: req.GetString("rerank", ""), Limit: min(max(req.GetInt("limit", search.DefaultLimit), 1), 20)})
 		if err != nil {
 			return mcp.NewToolResultError("No se pudo buscar en Nexo: " + FriendlyError(err)), nil
 		}
