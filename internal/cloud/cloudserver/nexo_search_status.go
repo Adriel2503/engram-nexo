@@ -392,7 +392,7 @@ func searchStatusVerdict(st kbservice.SearchStatus, progress []dashboard.NexoSea
 		return dashboard.NexoSearchVerdict{Class: "warn", Title: "La búsqueda usa solo texto: la configuración de embeddings no es válida.", Detail: st.Reason}
 	case !st.Enabled:
 		return dashboard.NexoSearchVerdict{Class: "info", Title: "La búsqueda usa solo texto.",
-			Detail: "No hay un proveedor de embeddings configurado. Es una opción: la búsqueda por texto sigue respondiendo con su fuente y su vigencia."}
+			Detail: "Encuentra documentos por sus palabras. Puedes activar la búsqueda por significado desde la configuración del stack."}
 	case !st.PGVector.Available:
 		return dashboard.NexoSearchVerdict{Class: "warn", Title: "La búsqueda usa solo texto: falta la extensión pgvector en la base de datos.", Detail: st.Reason}
 	case active == nil && building != nil:

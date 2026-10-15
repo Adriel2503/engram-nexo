@@ -61,14 +61,6 @@ func NexoEngramView(role string) string {
 	return "Engram lo ve como miembro. Se deriva de este rol; no se edita aparte."
 }
 
-// / NexoEngramShort es la equivalencia en una línea para el selector.
-func NexoEngramShort(role string) string {
-	if role == NexoRoleSuperadmin || role == NexoRoleAdmin {
-		return "En Engram figura como admin"
-	}
-	return "En Engram figura como member"
-}
-
 // NexoRoleChipClass es la clase del chip del rol (estructura del tema:
 // gris, azul, verde claro y verde pleno según el privilegio).
 func NexoRoleChipClass(role string) string {

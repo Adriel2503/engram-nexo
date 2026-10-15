@@ -36,6 +36,33 @@ Lo que **no** cambia:
 
 ## 3. Cambios
 
+### NX-10 · Simplificación del panel (2026-10-14)
+
+Segunda versión autorizada tras revisión en Chrome: marco con navegación lateral estable en escritorio
+y menú nativo plegable en móvil, búsqueda directa en Inicio, espacios como lista compacta, títulos sin
+etiquetas repetidas y pestañas planas en Memorias y Administración. Usuarios muestra la lista antes del
+alta desplegable; el selector de rol deja de repetir equivalencias internas de Engram. Los documentos
+conservan sus estados, fuentes, vigencias y permisos. Se regeneró también `dashboard/nexo_users_templ.go`.
+
+Se corrigen los dos fallos del CI del login anterior: `TestNexoKBPanelSearchMarkdownAndVisibility`
+ya comprueba el acceso simplificado, y `TestHandlerDashboardLoginFlowSetsCookieForBrowserUse`
+acepta la marca activa (Engram o Nexo) y verifica el código estable del error, independiente del idioma.
+`nexo_login_brand_test.go` reproduce el contrato completo de sesión con la marca Nexo habilitada.
+No cambian la autenticación ni las comprobaciones de acceso.
+
+- Navegación con tres destinos directos y grupos nativos para memoria del equipo y administración;
+  la página activa abre su grupo. Auditoría sigue disponible para el auditor sin rol de administrador.
+- Cabecera sin mensajes repetidos; títulos de interfaz con tipografía sans serif. Inicio agrupa las
+  estadísticas en «Actividad del equipo». Documentos mantienen su tipografía de lectura.
+- Conocimiento prioriza búsqueda y espacios; guía inicial y creación quedan en desplegables.
+  Fecha y modo están en «Opciones de búsqueda», abiertas si hay filtros activos en la URL.
+- Estado de búsqueda prioriza el resumen y los avisos del índice de texto. Configuración, versiones,
+  parámetros y evaluaciones quedan en desplegables; los fallos de documentos se abren automáticamente.
+  Los datos de diagnóstico siguen disponibles, sin cambiar permisos, consultas, formularios ni CSRF.
+- Archivos: `dashboard/nexo_brand.templ`, `nexo_search_status.templ` y sus generados,
+  `static/nexo_theme.css`; `cloudserver/nexo_kb_dashboard.go`, `nexo_kb_dashboard_view.go` y
+  `nexo_search_status.go`. Diseño en `docs/nexo/panel/design.md`.
+
 ### NX-01 · Autoría por cambio
 
 **Motivo.** Engram guardaba qué cambió y cuándo, pero no quién; el único autor (por paquete) lo declaraba la PC (`created_by` = usuario de Windows o hostname) y se podía falsificar.

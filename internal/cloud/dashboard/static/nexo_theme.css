@@ -2417,15 +2417,123 @@ body.nexo .nxs-table .nxs-num {
 	}
 }
 
-/* Menú: con diez pestañas dejaba fuera de la vista las últimas (desplazamiento
- * horizontal oculto). En pantallas anchas se reparten en dos filas; en móvil
- * sigue el desplazamiento. */
-@media (min-width: 721px) {
-	body.nexo nav [role="tablist"] {
-		flex-wrap: wrap;
-		overflow-x: visible;
-		gap: 0 1.4rem;
-	}
+/* Navegación agrupada y detalles secundarios, sin JavaScript. */
+body.nexo .status-ribbon,
+body.nexo .brand-subtitle {
+	display: none;
+}
+
+body.nexo h1,
+body.nexo h2,
+body.nexo .nxs-verdict .nxs-verdict-title {
+	font-family: var(--nx-font-ui);
+}
+
+body.nexo .nx-prose h1,
+body.nexo .nx-prose h2 {
+	font-family: var(--nx-font-read);
+}
+
+body.nexo .nx-head h1 { font-size: 1.75rem; }
+body.nexo .nx-head { margin-bottom: 1.5rem; }
+body.nexo .nx-head p { max-width: 65ch; }
+body.nexo .nexo-home { display: block; }
+body.nexo .nexo-home > details { margin-top: 2rem; }
+body.nexo .nxs-verdict { padding: 1.25rem 1.5rem; }
+body.nexo .nxs-verdict .nxs-verdict-title { font-size: 1.25rem; }
+
+body.nexo .nx-navigation {
+	display: flex;
+	align-items: flex-start;
+	flex-wrap: wrap;
+	gap: 0.25rem 1.5rem;
+	width: 100%;
+}
+
+body.nexo .nx-navigation > a,
+body.nexo .nx-nav-group > summary {
+	display: block;
+	padding: 0.75rem 0;
+	margin: 0;
+	color: var(--nx-ink-soft);
+	font-size: 0.9375rem;
+	text-decoration: none;
+	border-bottom: 2px solid transparent;
+}
+
+body.nexo .nx-navigation a[aria-current="page"] {
+	color: var(--nx-green);
+	font-weight: 600;
+	border-bottom-color: var(--nx-green);
+}
+
+body.nexo details.nx-nav-group {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	flex: 0 1 auto;
+}
+
+body.nexo .nx-nav-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 1rem;
+	padding: 0 0 0.75rem;
+	max-width: 25rem;
+}
+
+body.nexo .nx-nav-links a {
+	font-size: 0.875rem;
+	padding: 0.4rem 0;
+	text-decoration: none;
+	border-bottom: 2px solid transparent;
+}
+
+body.nexo details.nx-disclosure {
+	border: 0;
+	border-top: 1px solid var(--nx-line);
+	border-radius: 0;
+	background: transparent;
+	padding: 0;
+	margin: 1rem 0 0;
+	box-shadow: none;
+}
+
+body.nexo .nx-disclosure > summary {
+	padding: 1rem 0;
+	margin: 0;
+	color: var(--nx-ink);
+	font-weight: 600;
+	font-size: 0.9375rem;
+}
+
+body.nexo .nx-disclosure .nxs-section:first-of-type {
+	border-top: 0;
+	margin-top: 0;
+}
+
+body.nexo details.nx-disclosure:target { outline: 2px solid var(--nx-green); }
+
+body.nexo .nx-search form {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: end;
+	gap: 0.75rem 1rem;
+}
+
+body.nexo .nx-search-options { grid-column: 1 / -1; margin-top: 0; }
+body.nexo .nx-search-option-fields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem;
+}
+
+@media (max-width: 600px) {
+	body.nexo .nx-navigation { gap: 0 1rem; }
+	body.nexo .nx-nav-group { flex-basis: 100%; }
+	body.nexo .nx-nav-links { max-width: none; }
+	body.nexo .nx-search form,
+	body.nexo .nx-search-option-fields { grid-template-columns: 1fr; }
 }
 
 .nxs-sub {
@@ -2620,6 +2728,146 @@ body.nexo label.nx-role-opt:has(input:disabled) {
 .nx-role-opt input[type="radio"]:checked {
 	background-color: var(--nx-green);
 	border-color: var(--nx-green);
+}
+
+/* Marco de trabajo: navegación estable y contenido primero. */
+body.nexo .shell-backdrop { padding: 0; }
+body.nexo .app-shell {
+	display: grid;
+	grid-template-columns: 216px minmax(0, 1fr);
+	grid-template-rows: auto 1fr auto;
+	max-width: 1500px;
+	min-height: 100dvh;
+}
+
+body.nexo .shell-header {
+	grid-column: 2;
+	grid-row: 1;
+	justify-content: flex-end;
+	align-items: center;
+	min-height: 64px;
+	padding: 0.75rem 2rem;
+	border-bottom: 1px solid var(--nx-line);
+}
+
+body.nexo .shell-header .brand-stack { display: none; }
+body.nexo .shell-nav {
+	grid-column: 1;
+	grid-row: 1 / 4;
+	position: sticky;
+	top: 0;
+	align-self: start;
+	height: 100dvh;
+	overflow-y: auto;
+	padding: 1.25rem 0.75rem;
+	border: 0;
+	border-right: 1px solid var(--nx-line);
+	background: var(--nx-surface);
+}
+
+body.nexo .nx-main-navigation { border: 0; margin: 0; padding: 0; }
+body.nexo .nx-main-navigation > summary { display: none; }
+body.nexo .nx-main-navigation:not([open]) > .nx-navigation { display: flex; }
+body.nexo .nx-navigation { flex-direction: column; align-items: stretch; gap: 0.25rem; }
+body.nexo .nx-navigation > a,
+body.nexo .nx-nav-links a,
+body.nexo .nx-nav-group > summary {
+	padding: 0.65rem 0.75rem;
+	border: 0;
+	border-radius: 5px;
+	font-size: 0.9375rem;
+	line-height: 1.4;
+}
+
+body.nexo .nx-navigation a:hover { background: var(--nx-paper); }
+body.nexo .nx-navigation a[aria-current="page"] { background: var(--nx-green-tint); color: var(--nx-green); }
+body.nexo .nx-navigation > .nx-sidebar-brand {
+	font-family: var(--nx-font-ui);
+	font-size: 1.35rem;
+	font-weight: 700;
+	color: var(--nx-ink);
+	margin-bottom: 1.25rem;
+}
+
+body.nexo details.nx-nav-group { flex: none; margin-top: 1rem; }
+body.nexo .nx-nav-group > summary { color: var(--nx-ink-soft); font-size: 0.8125rem; }
+body.nexo .nx-nav-links { display: flex; flex-direction: column; gap: 0.15rem; max-width: none; padding: 0; }
+body.nexo .shell-main { grid-column: 2; grid-row: 2; padding: 1.75rem 2rem 2.5rem; min-width: 0; gap: 1.5rem; }
+body.nexo .shell-footer { grid-column: 2; grid-row: 3; padding: 1rem 2rem; }
+body.nexo .nx-page { gap: 1.25rem; }
+body.nexo .nx-head { margin-bottom: 0; }
+body.nexo .nx-search > h2 { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+body.nexo .nx-head h1,
+body.nexo .section-header h2,
+body.nexo .nexo-home h1 { font-size: 1.65rem; margin: 0 0 0.5rem; line-height: 1.3; }
+body.nexo .nx-page > section,
+body.nexo .nx-page > aside { margin-top: 0; }
+body.nexo .section-kicker { display: none; }
+body.nexo .section-header { margin-bottom: 1rem; gap: 1rem; }
+body.nexo .hero-panel,
+body.nexo .browser-shell,
+body.nexo .frame-section { padding: 0; border: 0; box-shadow: none; background: transparent; }
+body.nexo .nexo-home { max-width: 800px; padding-top: 1rem; }
+body.nexo .hero-lead { font-size: 1rem; margin-bottom: 1.5rem; }
+body.nexo .nx-home-search { display: block; margin: 1.5rem 0 1rem; }
+body.nexo .nx-home-search label { display: block; font-size: 0.875rem; margin-bottom: 0.5rem; }
+body.nexo .nx-home-search > div { display: flex; gap: 0.75rem; }
+body.nexo .nx-home-search input { margin: 0; flex: 1; min-width: 0; }
+body.nexo .nx-home-search button { width: auto; margin: 0; }
+body.nexo .admin-nav,
+body.nexo .browser-subtabs { gap: 0.35rem; margin: 0 0 1.25rem; }
+body.nexo .admin-nav a,
+body.nexo .browser-subtabs [role="tab"] {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	box-shadow: none;
+	color: var(--nx-ink-soft);
+	font-size: 0.875rem;
+	font-weight: 500;
+	text-transform: none;
+	letter-spacing: normal;
+	padding: 0.55rem 0.8rem;
+	transform: none;
+}
+body.nexo .admin-nav a.active,
+body.nexo .browser-subtabs [role="tab"][aria-selected="true"],
+body.nexo .browser-subtabs [role="tab"].active {
+	background: var(--nx-green-tint);
+	color: var(--nx-green);
+	border-color: transparent;
+	box-shadow: none;
+	font-weight: 600;
+}
+body.nexo .admin-nav a:hover,
+body.nexo .browser-subtabs [role="tab"]:hover { background: var(--nx-green-tint); color: var(--nx-green); transform: none; }
+body.nexo .empty-state { padding: 2rem 1rem; border: 1px dashed var(--nx-line); background: transparent; }
+body.nexo .browser-content-frame { padding: 0; border: 0; background: transparent; box-shadow: none; }
+body.nexo .nx-spaces { gap: 0; grid-template-columns: 1fr; }
+body.nexo article.nx-space { padding: 1rem 0; border: 0; border-bottom: 1px solid var(--nx-line); border-radius: 0; background: transparent; }
+body.nexo .nx-space h3 { font-size: 1rem; margin-bottom: 0.25rem; }
+body.nexo .nx-space p { margin: 0.25rem 0; font-size: 0.875rem; }
+body.nexo .nx-space dl { display: flex; gap: 1.5rem; margin: 0.5rem 0; }
+body.nexo .nx-space dl > div { display: flex; gap: 0.5rem; align-items: baseline; }
+body.nexo .nx-space dl dd { margin: 0; font-size: 0.875rem; }
+body.nexo .nx-doc-layout { gap: 1.5rem; }
+body.nexo .nx-prose { padding: 1.5rem; }
+body.nexo .nx-prose > section:first-child > h1 { font-size: 1.4rem; }
+
+@media (max-width: 800px) {
+	body.nexo .app-shell { display: flex; flex-direction: column; min-height: 100dvh; }
+	body.nexo .shell-header { min-height: 56px; padding: 0.75rem 1rem; justify-content: space-between; }
+	body.nexo .shell-header .brand-stack { display: flex; }
+	body.nexo .brand { font-family: var(--nx-font-ui); font-size: 1.25rem; }
+	body.nexo .user-info { flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; }
+	body.nexo .shell-nav { position: static; height: auto; width: 100%; padding: 0 1rem; border-right: 0; border-bottom: 1px solid var(--nx-line); }
+	body.nexo .nx-main-navigation > summary { display: block; padding: 0.8rem 0; margin: 0; }
+	body.nexo .nx-main-navigation:not([open]) > .nx-navigation { display: none; }
+	body.nexo .nx-navigation > .nx-sidebar-brand { display: none; }
+	body.nexo .nx-navigation { padding-bottom: 1rem; }
+	body.nexo .shell-main { width: 100%; padding: 1.25rem 1rem 2rem; }
+	body.nexo .shell-footer { padding: 1rem; }
+	body.nexo .nx-home-search > div { flex-wrap: wrap; }
 }
 
 @media (max-width: 720px) {

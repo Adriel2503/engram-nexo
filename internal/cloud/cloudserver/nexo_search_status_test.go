@@ -115,7 +115,7 @@ func TestNexoSearchStatusWithProvider(t *testing.T) {
 		"Activa", "En construcción", "Retirada", "text-embedding-3-small",
 		"engram nexo kb reindex --vectors --requeue-dead", "API key not valid", "[clave]",
 		"wiki-rp", "0.917", "0.812", "1.000", "Aceptada",
-		"Fusión de resultados (RRF)", "NEXO_KB_RRF_VECTOR_WEIGHT", "0.70", "Reordenamiento (R3)", "No configurado",
+		"Fusión de resultados (RRF)", "NEXO_KB_RRF_VECTOR_WEIGHT", "0.70", "Orden de los resultados", "No configurado",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("falta %q en la pantalla", want)
@@ -156,7 +156,7 @@ func TestNexoSearchStatusWithoutProvider(t *testing.T) {
 	}
 	body := html.UnescapeString(rec.Body.String())
 	for _, want := range []string{"La búsqueda usa solo texto.", "Sin proveedor", "NEXO_KB_EMBEDDER no está configurado", "No aplica",
-		"Todavía no hay versiones", "Todavía no hay corridas registradas", "Reordenamiento (R3)", "No configurado", "Ninguna."} {
+		"Todavía no hay versiones", "Todavía no hay evaluaciones registradas", "Orden de los resultados", "No configurado", "Ninguna."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("falta %q en la pantalla sin proveedor", want)
 		}

@@ -153,7 +153,7 @@ func TestNexoAuditPanelAccess(t *testing.T) {
 		}
 	}
 	// Pestaña "Auditoría" en el menú para el auditor (no es admin de Engram).
-	if body := env.mustBody("luis", "/dashboard/admin/audit", http.StatusOK); !strings.Contains(body, `role="tab"`) || !strings.Contains(body, ">Auditoría</a>") {
+	if body := env.mustBody("luis", "/dashboard/admin/audit", http.StatusOK); !strings.Contains(body, `href="/dashboard/admin/audit" aria-current="page"`) || !strings.Contains(body, ">Auditoría</a>") {
 		t.Errorf("el menú del auditor no tiene la pestaña Auditoría")
 	}
 	for _, path := range append(append([]string{}, auditPagePaths...), "/dashboard/admin/audit/history?key=obs-1") {

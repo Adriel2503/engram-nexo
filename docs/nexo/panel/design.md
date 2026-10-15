@@ -1,8 +1,7 @@
 # Panel web de Nexo IA: diseño
 
-Estado: implementado para la presentación (2026-10-13, sin commit). Alcance: login, menú y páginas de
-conocimiento (`/dashboard/kb`, espacio, documento). Las demás páginas de Engram heredan el tema sin
-rediseño.
+Alcance: login, navegación, inicio, conocimiento y estado de búsqueda. Las demás páginas heredan
+el tema común. Simplificación del panel: 2026-10-14, rama `feat/panel-simplificado`.
 
 ## 1. Tema y audiencia
 
@@ -46,13 +45,15 @@ Login (una columna centrada, también en móvil; simplificado el 2026-10-14):
        +---------------------------+
 ```
 
-Marco común (encabezado, menú, contenido alineado a la izquierda, ancho máximo 1180 px):
+Marco común (navegación lateral en escritorio, contenido alineado a la izquierda):
 
 ```
-Nexo IA  Memoria y estándares del equipo                usuario  Cerrar sesión
-Inicio   Conocimiento   Memorias   Proyectos   Colaboradores   Administración
-------------------------------------------------------------------------------
-<contenido>
+Nexo IA                usuario  Cerrar sesión
+Inicio                 ------------------------------
+Conocimiento           <título y acción principal>
+Propuestas             <contenido>
+Memoria del equipo
+Administración
 ```
 
 `/dashboard/kb`:
@@ -61,7 +62,7 @@ Inicio   Conocimiento   Memorias   Proyectos   Colaboradores   Administración
 Espacios de conocimiento
 Texto de una línea: para qué sirven.
 
-Cómo funciona
+Cómo funciona (desplegable cerrado)
  1 Crear un espacio          Hecho / Pendiente / No aplica a tu rol   [acción]
  2 Nombrar responsable ...
  3 Subir documentos ...
@@ -129,7 +130,7 @@ Tipografía, sin descargas (pilas del sistema elegidas: los equipos usan Windows
 | Rol | Pila |
 |---|---|
 | Interfaz | `"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif` |
-| Lectura y títulos | `"Sitka Text", "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif` |
+| Lectura de documentos y marca | `"Sitka Text", "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif` |
 | Código | `"Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace` (solo código) |
 
 Escala (razón 1,25, base 16 px): 13 / 14 / 16 / 20 / 25 / 31 / 39. Texto de documento 17 px con
@@ -160,7 +161,7 @@ carpetas (`<details>`), bloque de respuesta citada, formulario de subida con zon
   secuencia real) con el estado en texto; tarjetas solo para los espacios.
 - Sin degradados, sin sombras repetidas (solo una sombra suave en la respuesta citada), sin flechas en
   botones, sin separadores con punto medio.
-- La franja "CLOUD ACTIVE" de Engram queda como una línea discreta en español ("Conectado").
+- La franja estática de conexión se oculta en Nexo para no repetir el encabezado.
 
 ## 7. Accesibilidad y respuesta
 
@@ -442,13 +443,17 @@ Auditoría (papel gris frío, tinta verde oscura, chips, líneas finas); las cla
 
 ```
 Estado de la búsqueda
-Cómo responde hoy el buscador ... Esta pantalla solo muestra datos: no cambia nada.
+Comprueba cómo busca Nexo y si hay algo que revisar.
 
 | La búsqueda usa texto y significado.                                    |  <- veredicto (verde, azul o ámbar)
 | Faltan 5 secciones o cambios por vectorizar; mientras tanto ...         |
 | =========------  Versión 2 (activa): 3 de 5 secciones con vector (60 %) |  <- barra de avance
 | ===-------------  Versión 3 (en construcción): 1 de 5 ... (20 %)        |
 
+Documentos preparados para buscar [Al día / Necesita reindexar]
+                         Si hay un aviso, muestra el motivo y el comando.
+
+Configuración e índice de búsqueda (desplegable cerrado)
 Configuración            Modo por defecto  [Texto y significado]
                          Índice de texto   [Necesita reindexar]  engram nexo kb reindex
                          Proveedor  gemini   NEXO_KB_EMBEDDER      Modelo, Dimensiones
@@ -457,15 +462,16 @@ Configuración            Modo por defecto  [Texto y significado]
 Versiones del índice     tabla: versión, estado, modelo, dimensiones, creada, activada, retirada (UTC)
 Avance de la indexación  por versión: pendientes, espera más antigua, en proceso, con fallos,
                          cambios sin leer (retraso del feed), cartas muertas
-Secciones que no se pudieron vectorizar
+Problemas al preparar documentos: N (abierto si hay fallos)
                          N secciones ...  `engram nexo kb reindex --vectors --requeue-dead`
                          últimos errores del proveedor (solo el mensaje)
+Detalles técnicos y evaluaciones (desplegable cerrado)
 Últimas evaluaciones     fecha, buscador, preguntas, Hit@5, MRR, sin respuesta, conjunto
 Parámetros en uso        RRF (k y pesos), umbrales, consulta por significado, indexador (con su variable)
-Reordenamiento (R3)      [No configurado]   <- lugar reservado
+Orden de los resultados  [No configurado / parámetros del reordenador]
 ```
 
-El elemento memorable es el veredicto con su barra: una frase plana, en la serif de lectura, que dice qué
+El elemento principal es el veredicto con su barra: una frase breve, en la tipografía de interfaz, que dice qué
 buscador responde hoy (solo texto, construyendo, texto y significado al día o con pendientes). Lo demás es
 lista y tabla, callado. El color solo marca estado (verde: al día; azul: informa; ámbar: requiere atención).
 
@@ -512,8 +518,24 @@ flecha (`background-image`) que Pico ponía. El arreglo es global, en el bloque 
 
 ### 12.2 Menú
 
-Con diez pestañas, las últimas quedaban fuera de la vista (el menú se desplazaba en horizontal sin barra
-visible). Desde 721 px las pestañas se reparten en dos filas; en móvil sigue el desplazamiento.
+Inicio, Conocimiento y Propuestas son enlaces directos. Memoria del equipo agrupa Memorias, Proyectos
+y Colaboradores; Administración agrupa Usuarios y plataforma, Cuentas de servicio, Estado de la
+búsqueda y Auditoría. El grupo de la página activa se abre automáticamente. El auditor conserva un
+enlace directo a Auditoría aunque no sea administrador. Los enlaces indican la página activa con
+`aria-current="page"`; los grupos usan `<details>` nativos, con teclado y sin JavaScript. En escritorio
+se presentan en una barra lateral de 216 px. Hasta 800 px, el marco se apila y la navegación se puede
+cerrar con «Menú». Las capacidades y comprobaciones del servidor se mantienen.
+
+La marca está en la barra lateral; la cabecera compacta muestra persona, rol y cierre de sesión. En móvil
+la marca vuelve a la cabecera. Se ocultan la franja de conexión estática y
+el subtítulo repetido. La tipografía de la interfaz es sans serif; los documentos conservan la serif de
+lectura. Inicio incluye búsqueda por GET y las estadísticas están en «Actividad del equipo». Los espacios
+son una lista compacta con descripción, documentos vigentes y visibilidad. Usuarios muestra la lista antes
+del alta desplegable; el selector de roles omite equivalencias internas repetidas. Las pestañas de Memorias
+y Administración comparten controles planos del tema, sin degradados. En Conocimiento, «Cómo funciona»
+y «Crear espacio» son desplegables. El buscador muestra pregunta y botón; fecha y modo se agrupan en
+«Opciones de búsqueda», abierto cuando la URL ya contiene alguno de esos filtros. Los GET, POST,
+CSRF, fuentes, versiones y vigencias se conservan.
 
 ### 12.3 Textos de Go en español (OP-06, resto)
 
