@@ -144,11 +144,12 @@ y configuración de búsqueda.
 
 ## Cliente Windows sin compilar
 
-Necesitas Git, un asistente instalado y tu acceso personal a Nexo. **No necesitas Go, Docker ni
-PostgreSQL en tu PC.** Esta entrega incluye excepcionalmente el ejecutable Windows Intel/AMD de
-64 bits en [`bin/windows-amd64/engram.exe`](bin/windows-amd64/engram.exe).
+Esta entrega incluye excepcionalmente [`engram.exe` para Windows Intel/AMD de 64 bits](bin/windows-amd64/engram.exe).
+**No necesitas Go, Docker ni PostgreSQL en tu PC.** El instalador detecta Engram, conserva un
+respaldo y reemplaza el ejecutable anterior cuando su ruta lo permite. Si no existe, lo instala
+para tu usuario; no sobrescribe shims de gestores de paquetes ni borra memorias o credenciales.
 
-Descarga el repositorio desde PowerShell, con tus permisos de lectura de Azure:
+Descarga el repositorio desde Azure con Git, o usa **Descargar ZIP** y descomprímelo:
 
 ```powershell
 git clone --branch main https://dev.azure.com/realplaza/AgentAI/_git/nexo-ai-playground engram-nexo-cliente
@@ -156,65 +157,44 @@ if ($LASTEXITCODE -ne 0) { throw 'No se pudo descargar el repositorio' }
 Set-Location engram-nexo-cliente
 ```
 
-Cierra los asistentes que usen Engram antes de reemplazarlo. El siguiente bloque detecta un
-Engram disponible en el PATH y lo reemplaza **en su misma ruta**, dejando una copia de respaldo.
-Si no existe, lo instala en `%USERPROFILE%\.nexo-bin`:
+Cierra los asistentes y procesos de Engram. Desde la carpeta descargada, ejecuta una de estas
+opciones; el mismo archivo funciona con **Windows PowerShell 5.1 y PowerShell 7**:
 
 ```powershell
-$ErrorActionPreference = 'Stop'
-$nexoOrigen = (Resolve-Path -LiteralPath '.\bin\windows-amd64\engram.exe').Path
-$nexoHash = (Get-Content -LiteralPath '.\bin\windows-amd64\engram.exe.sha256' -Raw).Trim()
-if ((Get-FileHash -LiteralPath $nexoOrigen -Algorithm SHA256).Hash -ine $nexoHash) {
-    throw 'El ejecutable no coincide con su huella; vuelve a descargarlo'
-}
-$nexoActual = Get-Command engram -CommandType Application -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-$nexoDestino = if ($nexoActual) { $nexoActual.Source } else {
-    Join-Path $HOME '.nexo-bin\engram.exe'
-}
-if ([IO.Path]::GetExtension($nexoDestino) -ine '.exe') {
-    throw 'Engram apunta a un lanzador, no a un exe; usa la instalación en carpeta propia'
-}
-if ($nexoDestino -match '(?i)[\\/](shims|chocolatey[\\/]bin)[\\/]') {
-    throw 'Engram usa un shim de un gestor de paquetes; consulta la nota debajo del bloque'
-}
-if (Get-Process engram -ErrorAction SilentlyContinue) {
-    throw 'Cierra los procesos de Engram y sus asistentes antes de instalar'
-}
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $nexoDestino) | Out-Null
-if (Test-Path -LiteralPath $nexoDestino) {
-    $nexoRespaldo = $nexoDestino + '.backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
-    Copy-Item -LiteralPath $nexoDestino -Destination $nexoRespaldo
-    Write-Output "Respaldo: $nexoRespaldo"
-}
-Copy-Item -LiteralPath $nexoOrigen -Destination $nexoDestino -Force
-& $nexoDestino version
-if ($LASTEXITCODE -ne 0) { throw 'No se pudo verificar el ejecutable instalado' }
+# Windows PowerShell 5.1 (incluido en Windows)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-nexo-windows.ps1
 ```
-
-Si la instalación anterior requiere permisos de administrador o pertenece a un gestor de
-paquetes, no sobrescribas sus shims: sigue la [instalación en carpeta propia](docs/nexo/manuales/cliente-windows-desde-codigo.md#4-instalar-el-ejecutable-en-una-ubicación-estable)
-usando `bin/windows-amd64/engram.exe` como origen, sin ejecutar los pasos de compilación.
-No se borra la memoria de `.engram` ni se restablecen sus datos. Antes de migrar una memoria
-existente, respáldala con los asistentes cerrados siguiendo esa misma guía.
-
-Si es una instalación nueva, agrega la carpeta al PATH de tu usuario:
 
 ```powershell
-$nexoCarpeta = Split-Path -Parent $nexoDestino
-$nexoPathUsuario = [Environment]::GetEnvironmentVariable('Path', 'User')
-$nexoRutas = @($nexoPathUsuario -split ';' | Where-Object {
-    $_ -and $_.TrimEnd('\') -ine $nexoCarpeta.TrimEnd('\')
-})
-[Environment]::SetEnvironmentVariable('Path', (@($nexoCarpeta) + $nexoRutas) -join ';', 'User')
-$env:Path = $nexoCarpeta + ';' + $env:Path
-Get-Command engram | Select-Object -ExpandProperty Source
-engram version
+# PowerShell 7, si lo tienes instalado
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-nexo-windows.ps1
 ```
 
-La ruta debe ser la que acabas de instalar. Una compilación desde código puede mostrar fecha y
-commit sin el sufijo `-nexo`. Conecta después tu cuenta y configura el asistente como se indica abajo.
+El permiso de ejecución se aplica solo a ese proceso. El [instalador](scripts/install-nexo-windows.ps1)
+comprueba SHA256 y versión, crea el respaldo, copia el ejecutable y añade su carpeta al PATH de
+usuario. Si falta Git, intenta instalarlo con winget; si detecta Claude Code, comprueba también
+jq y curl. Los asistentes deben estar instalados aparte y tener acceso al repositorio de sus plugins.
+Si winget necesita autorización de Windows, sigue su solicitud; si no está disponible, el script
+indica qué dependencia instalar antes de reintentar.
+
+**Al terminar muestra los comandos exactos** para verificar la versión y la ruta, conectar tu
+código o token, consultar `nexo status` y configurar Codex, Claude Code u OpenCode. Abre una
+terminal nueva y sigue esos pasos; el script no solicita ni muestra credenciales.
+
+Para otro servidor o una carpeta específica:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-nexo-windows.ps1 -ServerUrl https://nexo.ejemplo.com -InstallDirectory "$HOME\.nexo-bin"
+```
+
+La dirección anterior es un ejemplo. Sin `-ServerUrl`, utiliza el entorno de prueba
+`https://nexo-34-51-82-225.sslip.io`. Con `-SkipDependencies` no instala herramientas con winget;
+con `-NoPath` conserva el PATH y muestra comandos con la ruta completa para uso portable.
+
+Antes de cambiar de versión, respalda la memoria existente con los asistentes cerrados, siguiendo
+la [guía Windows](docs/nexo/manuales/cliente-windows-desde-codigo.md#2-si-ya-tienes-engram-oficial-cerrar-y-respaldar).
 Si usabas otro servidor o rutas de datos personalizadas, revisa esa configuración antes de conectar.
+Una compilación desde código puede mostrar fecha y commit sin el sufijo `-nexo`.
 
 ## Conectar un asistente
 
