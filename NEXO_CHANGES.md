@@ -49,8 +49,13 @@ sin conexión. Para aplicar el cambio se actualiza el ejecutable del cliente y s
 - Por autorización expresa del usuario, esta entrega guarda excepcionalmente el ejecutable
   Windows AMD64 en `bin/windows-amd64/engram.exe`, con SHA256 y procedencia de compilación.
   No cambia la regla general que excluye binarios ni la política del CI.
-- README incorpora instalación sin Go: detecta el ejecutable anterior, respalda y reemplaza,
-  o instala en `.nexo-bin`; comprueba la huella y evita sobrescribir shims o lanzadores.
+- `scripts/install-nexo-windows.ps1`, enlazado desde README, detecta el ejecutable anterior,
+  respalda y reemplaza, o instala en `.nexo-bin`; comprueba huella y versión y evita sobrescribir
+  shims o rutas protegidas. Puede instalar Git y las dependencias de Claude con winget y termina
+  mostrando conexión, verificación y setup de cada asistente. No borra datos ni lee tokens.
+- Compatible con Windows PowerShell 5.1 y PowerShell 7; pruebas aisladas cubren instalación nueva,
+  reemplazo, detección, huella inválida, proceso activo, archivo ausente, restauración tras fallo
+  de copia y protección de shims. Las pruebas no instalan dependencias ni cambian el PATH personal.
 - La compilación se realiza desde `main` limpio después de integrar la documentación pendiente.
 
 ### Documentación · Cliente Windows compilado desde main
