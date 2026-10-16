@@ -6,11 +6,11 @@ El usuario final no necesita instalar Go ni compilar. Sigue la
 
 | Dato | Valor |
 |---|---|
-| Código fuente | `main`, commit `f4d24ea9b1b21d609d837c44fde24cadf2163549` |
+| Código fuente | `main`, commit `48111ebb86ef86b53bb1b000d87ecb4452c58fc3` |
 | Estado al compilar | Árbol limpio (`vcs.modified=false`) |
 | Compilador | Go 1.27.2 |
 | Plataforma | `windows/amd64` |
-| Versión del programa | `3.4.1-0.20261016232305-f4d24ea9b1b2` |
+| Versión del programa | `3.4.1-0.20261016233239-48111ebb86ef` |
 | Huella | Archivo `engram.exe.sha256`, SHA256 del ejecutable sin comprimir |
 
 El commit que incorpora este archivo será posterior al commit de compilación: el programa no
