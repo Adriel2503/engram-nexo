@@ -7,6 +7,10 @@
 Si vas a levantar un servidor Nexo en tu propia PC para pruebas, lee [servidor-local.md](servidor-local.md).
 Este manual es para conectar tu PC a un servidor que ya existe.
 
+Si usas Windows y prefieres compilar desde `main`, sigue la
+[guía del cliente Windows desde código](cliente-windows-desde-codigo.md), incluida la migración
+desde Engram oficial y los comandos para Codex, Claude Code y OpenCode.
+
 ## Contenido
 
 1. [Qué es Nexo IA](#1-qué-es-nexo-ia)
@@ -260,8 +264,9 @@ Qué deberías ver:
 engram 3.4.0-nexo.2
 ```
 
-Si ves una versión sin `-nexo` (por ejemplo `engram 3.4.0`), tu PATH está usando otro Engram: vuelve a
-la [sección 4](#4-si-ya-tienes-el-engram-oficial).
+Si instalaste este release y ves otra versión, comprueba si tu PATH está usando otro Engram:
+vuelve a la [sección 4](#4-si-ya-tienes-el-engram-oficial). Una compilación desde código puede
+mostrar fecha y commit sin `-nexo`; en ese caso verifica la ruta del ejecutable y el clon de origen.
 
 Importante: deja el binario siempre en la misma carpeta. `engram setup` guarda la ruta completa del
 binario en la configuración de cada asistente; si lo mueves, tendrás que repetir la
@@ -669,7 +674,7 @@ Engram no tiene un comando de desinstalación; estos pasos son manuales.
 | El asistente no sigue el protocolo (no cita, no consulta Nexo) | Se configuró antes de conectar, o en Cursor falta pegar la regla | `engram nexo setup <asistente>` y reinicia. En Cursor, pega `~/.cursor/nexo-protocol.md` en *User Rules*. En Claude Code, confirma que el plugin viene de `Adriel2503/engram-nexo` ([sección 9](#9-reiniciar-y-comprobar)) |
 | Las respuestas dicen "Respuesta desde la copia local" | El servidor no responde (red, VPN o servidor caído) | Revisa la VPN o la red. El asistente vuelve al servidor solo cuando responde. `engram nexo status` muestra el motivo |
 | `engram nexo status` muestra el usuario o servidor de otra persona, o un token viejo | Quedaron variables `ENGRAM_CLOUD_SERVER` o `ENGRAM_CLOUD_TOKEN` (por ejemplo, del kit anterior). Tienen prioridad sobre `cloud.json` | Bórralas ([sección 3](#3-si-tenías-el-kit-anterior-de-nexo)) y abre una terminal nueva |
-| `engram version` no muestra `-nexo` | Hay otro Engram antes en el PATH | [Sección 4](#4-si-ya-tienes-el-engram-oficial) |
+| `engram version` no coincide con lo instalado | Puede haber otro Engram antes en el PATH; una compilación desde código no siempre incluye `-nexo` | Comprueba la ruta del ejecutable y su origen; [sección 4](#4-si-ya-tienes-el-engram-oficial) |
 | El antivirus bloquea o borra `engram.exe`, o Windows muestra "Windows protegió su PC" | El binario no está firmado y algunos antivirus marcan binarios de Go por error | No desactives el antivirus. Verifica la huella con `checksums.txt` ([sección 5](#5-instalar-el-binario)) y pide a Mesa de ayuda o Seguridad que lo revise y autorice. Si lo descargaste con el navegador, usa `Unblock-File` |
 | macOS: "no se puede abrir porque no se puede verificar el desarrollador" | Marca de descarga del navegador | `xattr -d com.apple.quarantine ~/.local/bin/engram`, o descarga con `gh release download` |
 | `No se conectó: no se pudo validar la conexión (Sin conexión ...)` | El servidor no responde o la URL está mal | Abre `https://<servidor-nexo>/health` en el navegador: debe responder `{"service":"engram-cloud","status":"ok"}` |

@@ -107,6 +107,10 @@ sudo install -m 0755 out/engram /opt/nexo/engram
 
 ## 5. Preparar PostgreSQL y sus cuentas
 
+Si vas a instalar PostgreSQL tú mismo en esta VM, sigue la
+[guía de PostgreSQL en Ubuntu con TLS](postgresql-ubuntu-tls.md). Incluye instalación, cuentas,
+certificados y comprobación; al terminar, vuelve al paso 6 de este manual.
+
 Pide al administrador de PostgreSQL una base dedicada, por ejemplo `nexo`, con estas dos cuentas:
 
 | Cuenta | Para qué sirve | Quién la crea |
@@ -192,6 +196,92 @@ done
 Conserva estos valores en el gestor de secretos del equipo. No los vuelvas a generar al actualizar.
 El servidor recibe estas variables mediante systemd; no lee automáticamente un `.env` junto al binario.
 
+### 6.1 Elegir búsqueda y reordenamiento
+
+Se configura en el mismo archivo `/etc/nexo/nexo.env`. Al editar una instalación existente,
+abre el archivo con `sudo nano /etc/nexo/nexo.env`; conserva las conexiones y los secretos anteriores.
+Actualiza las variables existentes en vez de repetirlas.
+
+| Qué quieres usar | `NEXO_KB_EMBEDDER` | `NEXO_KB_RERANKER` | `NEXO_KB_RERANK_DEFAULT` |
+|---|---|---|---|
+| Solo texto, sin llamadas a modelos | `off` | `off` | `off` |
+| Texto y significado con Gemini | `gemini` | `off` | `off` |
+| Texto con reordenamiento Gemini | `off` | `gemini` | `on` |
+| Texto y significado con reordenamiento Gemini | `gemini` | `gemini` | `on` |
+
+Sin configurar proveedores, ambos están apagados. Los embeddings permiten buscar por significado;
+el reordenamiento o *reranking* vuelve a puntuar los resultados encontrados. Son independientes.
+
+**Para empezar solo con texto**, añade:
+
+```ini
+NEXO_KB_EMBEDDER=off
+NEXO_KB_RERANKER=off
+NEXO_KB_RERANK_DEFAULT=off
+```
+
+**Para usar Gemini**, sustituye ese bloque por este y pon tu clave de forma privada:
+
+```ini
+GEMINI_API_KEY=<TU_CLAVE_PRIVADA>
+NEXO_KB_EMBEDDER=gemini
+NEXO_KB_EMBED_MODEL=gemini-embedding-001
+NEXO_KB_EMBED_DIMS=768
+NEXO_KB_RERANKER=gemini
+NEXO_KB_RERANK_MODEL=gemini-3.1-flash-lite
+NEXO_KB_RERANK_DEFAULT=off
+```
+
+La misma `GEMINI_API_KEY` puede servir para ambos. Estos son los modelos predeterminados del código.
+Para reordenar por defecto, cambia `NEXO_KB_RERANK_DEFAULT=on`. Con `off` y un proveedor configurado,
+solo se reordena cuando la consulta pide `rerank=on`. Para apagarlo por completo, usa
+`NEXO_KB_RERANKER=off`. El modo `exact` no se reordena.
+
+La búsqueda por significado requiere **pgvector 0.8 o posterior**, habilitado por el administrador
+de PostgreSQL, y salida HTTPS a la API. Las secciones y preguntas se envían al proveedor y consumen
+su cuota; el reordenamiento envía además los pasajes candidatos. Confirma el uso autorizado de esos datos.
+
+**Dimensiones de Gemini:** 768 no es el límite. Para `gemini-embedding-001`, Nexo admite de **128 a 3072**;
+[Google recomienda 768, 1536 o 3072](https://ai.google.dev/gemini-api/docs/embeddings#model-versions).
+
+| Valor de `NEXO_KB_EMBED_DIMS` | Uso |
+|---|---|
+| `768` | Valor predeterminado de Nexo y base de sus mediciones actuales |
+| `1536` | Alternativa intermedia para evaluar con tus preguntas |
+| `3072` | Dimensión nativa y máxima de este modelo |
+
+Para aumentarlas, cambia esa única variable a `1536` o `3072`. Más dimensiones requieren más
+almacenamiento vectorial y no garantizan mejores resultados: compara la calidad con tus documentos.
+Los umbrales actuales están calibrados con Gemini a 768; al cambiar dimensiones, vuelve a evaluarlos.
+Nexo gestiona el índice: hasta 2000 dimensiones usa `vector` y por encima usa `halfvec`. Su límite
+general de 4000 no amplía el máximo de 3072 de este modelo. El rango depende del modelo elegido.
+
+**Modos de cada consulta** (se eligen en el cliente, no mediante otra variable del servidor):
+
+| Modo | Qué hace |
+|---|---|
+| Sin especificar | Usa `hybrid` si hay índice vectorial activo; en caso contrario, `fts` |
+| `fts` | Busca por palabras en el texto |
+| `exact` | Busca literales o expresiones regulares; útil para códigos y nombres |
+| `hybrid` | Combina texto y significado; si el vector no está disponible, responde por texto con un aviso |
+
+Desde una PC ya conectada puedes comparar:
+
+```sh
+engram nexo kb search --mode fts --rerank off "manejo de errores"
+engram nexo kb search --mode hybrid --rerank on "manejo de errores"
+```
+
+`changes` consulta cambios entre fechas mediante otra operación; no es un modo de `kb search`.
+Otros proveedores de embeddings admitidos son `openai`, `azure-openai` y `openai-compatible`.
+Para reordenar también hay Cohere, Jina, Voyage, TEI y proveedores compatibles; su configuración
+está en el [manual de producción](servidor-produccion.md), secciones 4.6.1 y 4.6.2.
+
+Si el servicio ya estaba iniciado, aplica los cambios con `sudo systemctl restart nexo`.
+Cambiar proveedor, modelo o dimensiones construye un índice nuevo en segundo plano y lo activa
+al terminar; conserva el anterior mientras sea utilizable o busca por texto. Comprueba el avance
+en **Estado de la búsqueda** del panel. Si falla el reordenador, se conserva el orden de búsqueda.
+
 ## 7. Iniciar como servicio
 
 Crea el archivo:
@@ -236,6 +326,9 @@ Debe responder `{"status":"ready"}`. El servidor crea o actualiza sus tablas al 
 Si falla, consulta `sudo journalctl -u nexo -n 100 --no-pager`.
 
 ## 8. Publicar el acceso por HTTPS
+
+Si usas Traefik, sigue la [guía de publicación con Traefik](traefik-ubuntu.md): incluye el caso
+de Dokploy y la instalación manual del proxy en otra VM sin Docker.
 
 Infraestructura puede usar **Nginx, Caddy, un balanceador u otro proxy HTTPS**. Debe configurar:
 
