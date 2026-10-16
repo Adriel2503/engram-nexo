@@ -14,13 +14,19 @@ No instala dependencias con winget. Util para equipos administrados o herramient
 #>
 [CmdletBinding()]
 param(
-    [string]$SourcePath = (Join-Path $PSScriptRoot '..\bin\windows-amd64\engram.exe'),
+    [string]$SourcePath,
     [string]$InstallDirectory,
     [string]$ServerUrl = 'https://nexo-34-51-82-225.sslip.io',
     [switch]$NoPath,
     [switch]$SkipDependencies
 )
 $ErrorActionPreference = 'Stop'
+
+# En Windows PowerShell -File, PSScriptRoot puede estar vacio al evaluar param().
+# Resuelve el valor predeterminado en el cuerpo del script, no en la firma.
+if ([string]::IsNullOrWhiteSpace($SourcePath)) {
+    $SourcePath = Join-Path $PSScriptRoot '..\bin\windows-amd64\engram.exe'
+}
 
 function Get-NexoApplication([string]$Name) {
     Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
