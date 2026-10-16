@@ -36,6 +36,46 @@ Lo que **no** cambia:
 
 ## 3. Cambios
 
+### Distribución · Cliente Windows sin compilar
+
+- Por autorización expresa del usuario, esta entrega guarda excepcionalmente el ejecutable
+  Windows AMD64 en `bin/windows-amd64/engram.exe`, con SHA256 y procedencia de compilación.
+  No cambia la regla general que excluye binarios ni la política del CI.
+- README incorpora instalación sin Go: detecta el ejecutable anterior, respalda y reemplaza,
+  o instala en `.nexo-bin`; comprueba la huella y evita sobrescribir shims o lanzadores.
+- La compilación se realiza desde `main` limpio después de integrar la documentación pendiente.
+
+### Documentación · Cliente Windows compilado desde main
+
+- Nuevo manual `docs/nexo/manuales/cliente-windows-desde-codigo.md`: respaldo del Engram previo,
+  compilación desde Azure, instalación estable con PATH, conexión por código o token y setup
+  de Codex, Claude Code y OpenCode. Aclara acceso GitHub para plugins y no requiere servidor local.
+- Enlazado desde el índice y la guía general de instalación. No modifica instaladores ni credenciales.
+
+### Documentación · Publicación HTTPS con Traefik
+
+- Nuevo manual `docs/nexo/manuales/traefik-ubuntu.md`: configuración de Dokploy verificada en la VM
+  de prueba, ruta HTTPS y redirección HTTP, y alternativa manual con binario y systemd en otra VM.
+- Enlazado desde el índice de manuales y el paso 8 de Ubuntu. Distingue las direcciones internas
+  para proxy en Docker frente a proxy nativo y separa la validación realizada del recorrido pendiente.
+
+### Documentación · PostgreSQL en Ubuntu con TLS
+
+- Nuevo manual `docs/nexo/manuales/postgresql-ubuntu-tls.md`, enlazado desde el paso 5 de Ubuntu
+  y el índice: instalación nativa explícita de PostgreSQL 18 desde PGDG, pgvector >=0.8,
+  dos cuentas, CA de laboratorio, TLS obligatorio por loopback, comprobación de ambas conexiones,
+  configuración de embeddings Gemini y transición a una base externa.
+- Aclara que systemd ejecuta `engram cloud serve` y que el recorrido completo requiere validación
+  en la VM; no modifica el servidor ni configura la máquina del usuario automáticamente.
+
+### Documentación · Modos de búsqueda y Gemini en Ubuntu
+
+El manual Ubuntu incorpora configuración opcional en `nexo.env`: búsqueda por texto, embeddings
+y reordenamiento independientes, clave compartida de Gemini, dimensiones y modos por consulta.
+Aclara el rango de `gemini-embedding-001` (128–3072, defecto 768), el cambio de índice al variar
+la configuración, los requisitos de pgvector y la comprobación del estado. No modifica valores
+predeterminados del producto ni realiza llamadas a proveedores con credenciales reales.
+
 ### Documentación · Resumen y archivo de antecedentes
 
 `docs/nexo/README.md` reúne la entrada a manuales y especificaciones y resume cinco documentos

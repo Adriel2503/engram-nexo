@@ -39,6 +39,7 @@ la guía de instalación y sus requisitos.
 |---|---|
 | Ver cómo funciona con datos de ejemplo | [Probar la demo local](#probar-la-demo) |
 | Usarlo con el servidor de mi equipo | [Conectar mi PC y mi asistente](#conectar-un-asistente) |
+| Instalar el cliente Windows sin compilar | [Descargar e instalar el ejecutable](#cliente-windows-sin-compilar) |
 | Instalar el servidor para compartirlo | [Instalar desde cero en Ubuntu](docs/nexo/manuales/servidor-ubuntu.md) |
 
 ## Para qué sirve
@@ -141,6 +142,80 @@ Para aplicar cambios del código, detén la demo, recompila y vuelve a iniciarla
 El [manual del stack](docs/nexo/manuales/stack.md) explica puertos, carpetas, nombres de entorno
 y configuración de búsqueda.
 
+## Cliente Windows sin compilar
+
+Necesitas Git, un asistente instalado y tu acceso personal a Nexo. **No necesitas Go, Docker ni
+PostgreSQL en tu PC.** Esta entrega incluye excepcionalmente el ejecutable Windows Intel/AMD de
+64 bits en [`bin/windows-amd64/engram.exe`](bin/windows-amd64/engram.exe).
+
+Descarga el repositorio desde PowerShell, con tus permisos de lectura de Azure:
+
+```powershell
+git clone --branch main https://dev.azure.com/realplaza/AgentAI/_git/nexo-ai-playground engram-nexo-cliente
+if ($LASTEXITCODE -ne 0) { throw 'No se pudo descargar el repositorio' }
+Set-Location engram-nexo-cliente
+```
+
+Cierra los asistentes que usen Engram antes de reemplazarlo. El siguiente bloque detecta un
+Engram disponible en el PATH y lo reemplaza **en su misma ruta**, dejando una copia de respaldo.
+Si no existe, lo instala en `%USERPROFILE%\.nexo-bin`:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$nexoOrigen = (Resolve-Path -LiteralPath '.\bin\windows-amd64\engram.exe').Path
+$nexoHash = (Get-Content -LiteralPath '.\bin\windows-amd64\engram.exe.sha256' -Raw).Trim()
+if ((Get-FileHash -LiteralPath $nexoOrigen -Algorithm SHA256).Hash -ine $nexoHash) {
+    throw 'El ejecutable no coincide con su huella; vuelve a descargarlo'
+}
+$nexoActual = Get-Command engram -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+$nexoDestino = if ($nexoActual) { $nexoActual.Source } else {
+    Join-Path $HOME '.nexo-bin\engram.exe'
+}
+if ([IO.Path]::GetExtension($nexoDestino) -ine '.exe') {
+    throw 'Engram apunta a un lanzador, no a un exe; usa la instalación en carpeta propia'
+}
+if ($nexoDestino -match '(?i)[\\/](shims|chocolatey[\\/]bin)[\\/]') {
+    throw 'Engram usa un shim de un gestor de paquetes; consulta la nota debajo del bloque'
+}
+if (Get-Process engram -ErrorAction SilentlyContinue) {
+    throw 'Cierra los procesos de Engram y sus asistentes antes de instalar'
+}
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $nexoDestino) | Out-Null
+if (Test-Path -LiteralPath $nexoDestino) {
+    $nexoRespaldo = $nexoDestino + '.backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    Copy-Item -LiteralPath $nexoDestino -Destination $nexoRespaldo
+    Write-Output "Respaldo: $nexoRespaldo"
+}
+Copy-Item -LiteralPath $nexoOrigen -Destination $nexoDestino -Force
+& $nexoDestino version
+if ($LASTEXITCODE -ne 0) { throw 'No se pudo verificar el ejecutable instalado' }
+```
+
+Si la instalación anterior requiere permisos de administrador o pertenece a un gestor de
+paquetes, no sobrescribas sus shims: sigue la [instalación en carpeta propia](docs/nexo/manuales/cliente-windows-desde-codigo.md#4-instalar-el-ejecutable-en-una-ubicación-estable)
+usando `bin/windows-amd64/engram.exe` como origen, sin ejecutar los pasos de compilación.
+No se borra la memoria de `.engram` ni se restablecen sus datos. Antes de migrar una memoria
+existente, respáldala con los asistentes cerrados siguiendo esa misma guía.
+
+Si es una instalación nueva, agrega la carpeta al PATH de tu usuario:
+
+```powershell
+$nexoCarpeta = Split-Path -Parent $nexoDestino
+$nexoPathUsuario = [Environment]::GetEnvironmentVariable('Path', 'User')
+$nexoRutas = @($nexoPathUsuario -split ';' | Where-Object {
+    $_ -and $_.TrimEnd('\') -ine $nexoCarpeta.TrimEnd('\')
+})
+[Environment]::SetEnvironmentVariable('Path', (@($nexoCarpeta) + $nexoRutas) -join ';', 'User')
+$env:Path = $nexoCarpeta + ';' + $env:Path
+Get-Command engram | Select-Object -ExpandProperty Source
+engram version
+```
+
+La ruta debe ser la que acabas de instalar. Una compilación desde código puede mostrar fecha y
+commit sin el sufijo `-nexo`. Conecta después tu cuenta y configura el asistente como se indica abajo.
+Si usabas otro servidor o rutas de datos personalizadas, revisa esa configuración antes de conectar.
+
 ## Conectar un asistente
 
 Si el equipo ya tiene un servidor Nexo, no necesitas levantar una demo ni instalar PostgreSQL
@@ -157,6 +232,15 @@ La dirección es un ejemplo: sustitúyela por la del servidor del equipo. El có
 sin mostrarlo en una terminal interactiva. Si recibiste un token, usa `--token-stdin`
 en lugar de `--activate-stdin`; no lo escribas como argumento ni lo pegues en un chat.
 
+En Windows puedes copiar solo el código y pasarlo desde el portapapeles:
+
+```powershell
+Get-Clipboard | engram nexo connect --server https://nexo-34-51-82-225.sslip.io --activate-stdin
+```
+
+Esa es la URL del entorno de prueba; usa la de tu equipo si es otra. Si ya tienes el token personal,
+cambia `--activate-stdin` por `--token-stdin`.
+
 Elige el comando de instalación correspondiente y reinicia el asistente después:
 
 | Asistente | Comando |
@@ -165,6 +249,12 @@ Elige el comando de instalación correspondiente y reinicia el asistente despué
 | Claude Code | `engram setup claude-code` |
 | OpenCode | `engram setup opencode` |
 | Pi | `engram setup pi` |
+
+Si reemplazaste Engram oficial, repite el `setup` de cada asistente. Para Claude Code, si conservas
+un registro MCP que apunta al ejecutable anterior, quítalo con `claude mcp remove engram --scope user`
+y repite `engram setup claude-code`. Codex y Claude Code necesitan acceso de lectura a
+`Adriel2503/engram-nexo` en GitHub para instalar el plugin del fork. Claude Code necesita además
+`jq` y `curl` disponibles.
 
 Consulta la [instalación para desarrolladores](docs/nexo/manuales/instalacion-dev.md) y la
 [referencia de asistentes](docs/AGENT-SETUP.md) para los pasos y requisitos de cada integración.
