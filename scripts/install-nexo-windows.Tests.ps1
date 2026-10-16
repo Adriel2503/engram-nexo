@@ -65,4 +65,28 @@ foreach ($case in @('fresh', 'replace', 'detect-existing', 'bad-checksum', 'runn
     Write-Host "PASS $case"
 }
 if ($env:Path -ne $originalPath -or [Environment]::GetEnvironmentVariable('Path', 'User') -ne $originalUserPath) { throw 'Las pruebas cambiaron PATH' }
+
+# Regresion real: -File evalua los parametros de forma distinta de & script.
+# No pasar SourcePath: debe encontrarse junto al instalador incluso desde otro directorio.
+$engines = @((Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'))
+$pwsh = Microsoft.PowerShell.Core\Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($pwsh) { $engines += $pwsh.Source }
+foreach ($engine in $engines) {
+    $cliDestination = Join-Path $root ([IO.Path]::GetFileNameWithoutExtension($engine) + '-file')
+    Push-Location $root
+    $savedErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = & $engine -NoProfile -ExecutionPolicy Bypass -File $installer -InstallDirectory $cliDestination -NoPath -SkipDependencies 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $savedErrorAction; Pop-Location }
+    $message = ($output | ForEach-Object { "$_" }) -join "`n"
+    if ($exitCode -ne 0 -and $message -notmatch 'Hay procesos de Engram') {
+        throw "Fallo -File sin SourcePath con $engine : $message"
+    }
+    if ($exitCode -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $cliDestination 'engram.exe'))) {
+        throw 'El comando -File no instalo en el destino temporal'
+    }
+    Write-Host "PASS -File sin SourcePath: $engine"
+}
 Write-Host 'Pruebas correctas. Solo se crearon archivos en carpetas temporales.'

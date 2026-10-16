@@ -36,6 +36,13 @@ Lo que **no** cambia:
 
 ## 3. Cambios
 
+### Instalación Windows · Ruta predeterminada con PowerShell -File
+
+- Resuelve la ruta del ejecutable en el cuerpo del instalador, donde `$PSScriptRoot` ya está
+  disponible. Evita el fallo de `Join-Path` al ejecutar desde Windows PowerShell con `-File`.
+- Regresión ejecuta los intérpretes reales sin `SourcePath` y desde otro directorio, además
+  de los casos aislados de instalación y reemplazo.
+
 ### NX-10 · Diez resultados por defecto para el asistente
 
 `nexo_search` y `KB.Search` usan el valor compartido de búsqueda (10), en lugar de fijar 5 en el
